@@ -65,6 +65,7 @@
 
   fonts = {
     packages = with pkgs; [
+      dejavu_fonts
       # icon fonts
       material-design-icons
 

@@ -15,6 +15,13 @@
 
     # Emacs Overlays
     emacs-overlay = { url = "github:nix-community/emacs-overlay"; };
+
+    # doom-emacs is a configuration framework for GNU Emacs.
+    doomemacs = {
+      url = "github:doomemacs/doomemacs";
+      flake = false;
+    };
+
   };
 
   outputs = { self, nixpkgs, home-manager, agenix, ... }@inputs: {
