@@ -7,9 +7,10 @@
 {
 
   imports = [
-    ../../modules/base.nix
+    #    ../../modules/base.nix
+    ../../modules/desktop.nix
     ../../modules/system.nix
-    ../../modules/i3.nix
+    #    ../../modules/i3.nix
     ../../modules/miho.nix
 
     # Include the results of the hardware scan.

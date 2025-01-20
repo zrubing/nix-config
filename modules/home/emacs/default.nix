@@ -6,10 +6,12 @@
 #  1. Official: <https://www.gnu.org/software/emacs/tour/index.html>
 #  2. Doom Emacs: <https://github.com/doomemacs/doomemacs/blob/master/docs/index.org>
 #
-{ config, lib, pkgs, doomemacs, ... }:
+{ config, lib, pkgs, namespace, inputs, ... }:
 with lib;
 let
-  cfg = config.modules.editors.emacs;
+  cfg = config.${namespace}.emacs;
+  hm = config.lib;
+  doomemacs = inputs.doomemacs;
   envExtra = lib.mkAfter ''
     export PATH="${config.xdg.configHome}/emacs/bin:$PATH"
   '';
@@ -24,25 +26,11 @@ let
   # to make this symlink work, we need to git clone this repo to your home directory.
   # configPath = "${config.home.homeDirectory}/nix-config/home/base/tui/editors/emacs/doom";
 in {
-  options.modules.editors.emacs = { enable = mkEnableOption "Emacs Editor"; };
+  options.${namespace}.emacs = { enable = mkEnableOption "Emacs Editor"; };
 
   config = mkIf cfg.enable (mkMerge [
     {
       home.packages = with pkgs; [
-
-        #python packages for lsp-bridge
-        (python312.withPackages (ps:
-          with ps; [
-            epc
-            orjson
-            sexpdata
-            six
-            setuptools
-            paramiko
-            rapidfuzz
-            watchdog
-            packaging
-          ]))
 
         ## Doom dependencies
         git
@@ -77,7 +65,7 @@ in {
       # xdg.configFile."doom".source = config.lib.file.mkOutOfStoreSymlink configPath;
 
       home.activation.installDoomEmacs =
-        lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        hm.dag.entryAfter [ "writeBoundary" ] ''
           ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${doomemacs}/ ${config.xdg.configHome}/emacs/
 
           # librime for emacs-rime
@@ -117,8 +105,8 @@ in {
           "--with-sqlite3=yes"
           "--with-compress-install"
           "--with-toolkit-scroll-bars"
-          "--with-native-compilation"
-          "--without-imagemagick"
+          #"--with-native-compilation"
+          #"--without-imagemagick"
           "--with-mailutils"
           "--with-small-ja-dic"
           "--with-tree-sitter"
