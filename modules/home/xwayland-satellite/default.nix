@@ -6,6 +6,11 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
+    home.packages = with pkgs;[
+      xwayland-satellite
+    ];
+
+
     systemd.user.services.xwayland-satellite = {
       Unit = {
         Description = "Xwayland outside your Wayland";
