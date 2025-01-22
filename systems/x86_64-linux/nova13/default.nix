@@ -1,7 +1,6 @@
 # { namespace, pkgs, ... }: {
 #   imports = [ ./hardware.nix ];
 
-#   time.timeZone = "Asia/Shanghai";
 #   system.stateVersion = "24.11";
 
 #   snowfallorg.users.jojo = {};
@@ -53,6 +52,8 @@
 #
 { config, inputs, lib, pkgs, system, namespace, ... }: {
   snowfallorg.users.jojo = { };
+
+  time.timeZone = "Asia/Shanghai";
 
   imports = [ ./hardware.nix ];
 

@@ -5,6 +5,7 @@ in lib.mkIf (cfg.enable && cfg.displayServer == "wayland") {
   services.swaybg.enable = true;
   services.xwayland-satellite.enable = true;
   programs.swaylock.enable = true;
+  programs.swaylock.package = pkgs.swaylock-effects;
   services.swayidle.enable = true;
   programs.waybar.enable = true;
 
