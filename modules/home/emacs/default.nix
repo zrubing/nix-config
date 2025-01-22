@@ -20,6 +20,7 @@ let
     et = "emacsclient --create-frame --tty"; # terminal
   };
   librime-dir = "${config.xdg.dataHome}/emacs/librime";
+  rime-data-dir = "${config.xdg.dataHome}/rime-data";
   parinfer-rust-lib-dir = "${config.xdg.dataHome}/emacs/parinfer-rust";
   myEmacsPackagesFor = emacs:
     ((pkgs.emacsPackagesFor emacs).emacsWithPackages (epkgs: [ epkgs.vterm ]));
@@ -32,6 +33,7 @@ in {
     {
       home.packages = with pkgs; [
 
+        librime
         ## Doom dependencies
         git
         (ripgrep.override { withPCRE2 = true; })
@@ -71,6 +73,10 @@ in {
           # librime for emacs-rime
           mkdir -p ${librime-dir}
           ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs.librime}/ ${librime-dir}/
+
+          # rime data
+          mkdir -p ${rime-data-dir}
+          ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs.rime-data}/ ${rime-data-dir}/
 
           # libparinfer_rust for emacs' parinfer-rust-mode
           mkdir -p ${parinfer-rust-lib-dir}

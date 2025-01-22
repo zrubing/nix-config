@@ -1,6 +1,9 @@
 { config, pkgs, ... }:
 
 {
+
+  #home.file.".config/rime/default.custom.yaml".source = ./rime-data-flypy/share/rime-data/default.custom.yaml;
+
   i18n.inputMethod = {
     enabled = "fcitx5";
     fcitx5.addons = let
