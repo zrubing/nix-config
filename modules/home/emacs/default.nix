@@ -124,11 +124,13 @@ in {
         ];
       });
 
+      emacsPkg = myEmacsPackagesFor gtkEmacsMPS;
     in {
-      home.packages = [ gtkEmacsMPS ];
+
+      home.packages = [ emacsPkg ];
       services.emacs = {
         enable = true;
-        package = gtkEmacsMPS;
+        package = emacsPkg;
         client = {
           enable = true;
           arguments = [ " --create-frame" ];

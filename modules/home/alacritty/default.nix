@@ -21,7 +21,7 @@
         decorations = "None";
       };
 
-      terminal.shell.program = "nu";
+      terminal.shell.program = "zsh";
     };
   };
 }
