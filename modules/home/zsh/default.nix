@@ -4,6 +4,11 @@
   ...
 }: {
   programs.zsh = {
+    ohMyZsh = {
+      enable = true;
+      plugins = [ "git" ];
+      theme = "robbyrussell";
+    };
     enable = true;
     autosuggestion.enable = true;
     autocd = true;
@@ -43,9 +48,9 @@
       bindkey "^[[OF" end-of-line
 
       # open commands in $EDITOR with C-e
-      autoload -z edit-command-line
-      zle -N edit-command-line
-      bindkey "^e" edit-command-line
+      # autoload -z edit-command-line
+      # zle -N edit-command-line
+      # bindkey "^e" edit-command-line
 
       # case insensitive tab completion
       zstyle ':completion:*' completer _complete _ignored _approximate
