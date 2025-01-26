@@ -1,14 +1,22 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }: {
+
+  home.packages = with pkgs; [
+
+    oh-my-zsh
+  ];
+
   programs.zsh = {
-    ohMyZsh = {
+    oh-my-zsh = {
       enable = true;
       plugins = [ "git" ];
       theme = "robbyrussell";
     };
+
     enable = true;
     autosuggestion.enable = true;
     autocd = true;
@@ -67,13 +75,13 @@
 
       # Allow foot to pipe command output
       function precmd {
-          if ! builtin zle; then
-              print -n "\e]133;D\e\\"
-          fi
+      if ! builtin zle; then
+      print -n "\e]133;D\e\\"
+      fi
       }
 
       function preexec {
-          print -n "\e]133;C\e\\"
+      print -n "\e]133;C\e\\"
       }
 
       ${lib.optionalString config.services.gpg-agent.enable ''
@@ -97,6 +105,6 @@
         rs = "sudo systemctl"; # mnemonic for root systemctl
       }
       // lib.optionalAttrs config.programs.bat.enable {cat = "bat";};
-    shellGlobalAliases = {eza = "eza --icons --git";};
+      shellGlobalAliases = {eza = "eza --icons --git";};
   };
 }

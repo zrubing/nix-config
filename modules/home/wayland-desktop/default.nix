@@ -1,7 +1,8 @@
 { config, lib, namespace, pkgs, ... }:
 let cfg = config.${namespace}.linux.desktop;
 in lib.mkIf (cfg.enable && cfg.displayServer == "wayland") {
-  programs.rofi.package = pkgs.rofi-wayland;
+  #programs.rofi.package = pkgs.rofi-wayland;
+  programs.fuzzel.enable = true;
   services.swaybg.enable = true;
   services.xwayland-satellite.enable = true;
   programs.swaylock.enable = true;
