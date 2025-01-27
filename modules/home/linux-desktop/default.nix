@@ -11,7 +11,7 @@ in {
     # Desktop environment
     # services.polkit-gnome-authentication-agent-1.enable = true;
     services.dunst.enable = true;
-    programs.rofi.enable = true;
+    # programs.rofi.enable = true;
 
     programs.mpv.enable = true;
     #programs.imv.enable = true;

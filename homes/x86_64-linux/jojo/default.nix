@@ -1,8 +1,12 @@
 { lib, config, ... }: {
 
-  home.stateVersion = lib.mkDefault "24.11";
+  #home.stateVersion = "24.11";
 
   internal.javalib.enable = true;
 
+  internal.modules = {
+    fcitx5.enable = true;
+    packages.enable = true;
+  };
 
 }

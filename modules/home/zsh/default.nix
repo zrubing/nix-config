@@ -18,7 +18,7 @@
     };
 
     enable = true;
-    autosuggestion.enable = true;
+    #autosuggestion.enable = true;
     autocd = true;
     dirHashes = {
       dl = "$HOME/Downloads";

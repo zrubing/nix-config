@@ -33,6 +33,8 @@ in {
     {
       home.packages = with pkgs; [
 
+        # compile vterm
+        libtool
         librime
         ## Doom dependencies
         git
