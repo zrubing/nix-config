@@ -102,8 +102,9 @@
 
       systems.modules.darwin = with inputs; [ ];
 
-      # homes.modules = with inputs; [
-      # ];
+      homes.modules = with inputs; [
+        agenix.homeManagerModules.default
+      ];
 
     };
 

@@ -126,7 +126,8 @@ in {
         ];
       });
 
-      emacsPkg = myEmacsPackagesFor gtkEmacsMPS;
+      #emacsPkg = myEmacsPackagesFor gtkEmacsMPS;
+      emacsPkg = pkgs.emacs30-pgtk;
     in {
 
       home.packages = [ emacsPkg ];
