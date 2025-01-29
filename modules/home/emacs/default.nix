@@ -127,7 +127,7 @@ in {
       });
 
       #emacsPkg = myEmacsPackagesFor gtkEmacsMPS;
-      emacsPkg = pkgs.emacs30-pgtk;
+      emacsPkg = pkgs.emacs30;
     in {
 
       home.packages = [ emacsPkg ];
@@ -138,7 +138,7 @@ in {
           enable = true;
           arguments = [ " --create-frame" ];
         };
-        startWithUserSession = true;
+        startWithUserSession = "graphical";
       };
     }))
 

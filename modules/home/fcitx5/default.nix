@@ -9,21 +9,11 @@ in {
 
   config = lib.mkIf cfg.enable {
 
-    xdg.configFile = {
-      "fcitx5/profile" = {
-        source = ./profile;
-        # every time fcitx5 switch input method, it will modify ~/.config/fcitx5/profile,
-        # so we need to force replace it in every rebuild to avoid file conflict.
-        force = true;
-      };
-    };
-
 
 
     systemd.user.services.fcitx5-daemon.Unit = lib.mkForce {
 
       Description = "Fcitx5 input method editor";
-      PartOf = [ "graphical-session.target" ];
       After = [ "niri.service" ];  # 确保在 niri.service 之后启动
       Requires = [ "niri.service" ];  # 确保 niri.service 已经启动
 
