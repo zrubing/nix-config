@@ -28,5 +28,8 @@ in
     environment.systemPackages = [ pkgs.wl-clipboard ];
 
     i18n.inputMethod.fcitx5.plasma6Support = true;
+
+    #https://fcitx-im.org/wiki/Using_Fcitx_5_on_Wayland#KDE_Plasma
+    i18n.inputMethod.fcitx5.waylandFrontend = true;
   };
 }
