@@ -25,6 +25,19 @@ in
 
     # };
 
+    home.sessionVariables =
+      {
+        GLFW_IM_MODULE = "ibus"; # IME support in kitty
+        XMODIFIERS = "@im=fcitx";
+        GTK_IM_MODULE = lib.mkForce "";
+        QT_IM_MODULE = lib.mkForce "";
+
+      }
+      // lib.optionalAttrs (!config.${namespace}.desktop.kde.enable) {
+        GTK_IM_MODULE = lib.mkForce "fcitx";
+        QT_IM_MODULE =  lib.mkForce "fcitx";
+      };
+
     i18n.inputMethod = {
       enabled = "fcitx5";
       fcitx5.addons = with pkgs; [

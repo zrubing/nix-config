@@ -13,7 +13,7 @@ let
 in
 {
   options.${namespace}.desktop.kde = with types; {
-    enable = mkBoolOpt false "Whether or not to use niri as the desktop environment.";
+    enable = mkBoolOpt false "Whether or not to use kde as the desktop environment.";
   };
 
   config = mkIf cfg.enable {
@@ -28,8 +28,6 @@ in
     environment.systemPackages = [ pkgs.wl-clipboard ];
 
     i18n.inputMethod.fcitx5.plasma6Support = true;
-
-    #https://fcitx-im.org/wiki/Using_Fcitx_5_on_Wayland#KDE_Plasma
     i18n.inputMethod.fcitx5.waylandFrontend = true;
   };
 }

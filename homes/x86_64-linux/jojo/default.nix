@@ -6,12 +6,10 @@
   internal.javalib.enable = true;
 
   internal = {
+
+    desktop.kde.enable = true;
     emacs.enable = true;
     terminal = "alacritty";
-    linux.desktop = {
-      enable = true;
-      type = "niri";
-    };
 
     modules = {
       fcitx5.enable = true;
