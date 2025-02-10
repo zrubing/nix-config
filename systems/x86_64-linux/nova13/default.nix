@@ -1,5 +1,15 @@
-{ config, inputs, lib, pkgs, system, namespace, ... }: {
+{
+  config,
+  inputs,
+  lib,
+  pkgs,
+  system,
+  namespace,
+  ...
+}:
+{
   snowfallorg.users.jojo = { };
+  snowfallorg.users.hiar = { };
 
   time.timeZone = "Asia/Shanghai";
 
@@ -8,11 +18,27 @@
   system.stateVersion = "24.11";
 
   users.mutableUsers = true;
-  users.users.jojo = {
-    isNormalUser = true;
-    group = "users";
-    extraGroups = [ "wheel" "networkmanager" ];
-    initialPassword = "test";
+  users.users = {
+
+    jojo = {
+      isNormalUser = true;
+      group = "users";
+      extraGroups = [
+        "wheel"
+        "networkmanager"
+      ];
+      initialPassword = "test";
+    };
+
+    hiar = {
+      isNormalUser = true;
+      group = "users";
+      extraGroups = [
+        "wheel"
+        "networkmanager"
+      ];
+      initialPassword = "test";
+    };
   };
 
   ${namespace} = {
@@ -20,8 +46,7 @@
     networking.wifi.enable = true;
     #builder.enable = true;
     desktop = {
-      enable = true;
-      wayland.enable = true;
+      kde.enable = true;
     };
     #mounts.mito = true;
   };
@@ -30,20 +55,20 @@
     mihomo.enable = true;
   };
 
-  home = {
+  # home = {
 
-    ${namespace} = {
-      terminal = "alacritty";
-      emacs.enable = true;
-      vcs.user = {
-        name = "jojo";
-        email = "a@b.com";
-      };
-    };
+  #   ${namespace} = {
+  #     terminal = "alacritty";
+  #     emacs.enable = true;
+  #     vcs.user = {
+  #       name = "jojo";
+  #       email = "a@b.com";
+  #     };
+  #   };
 
-    home.packages = with pkgs; [ ];
+  #   home.packages = with pkgs; [ ];
 
-  };
+  # };
 
   networking.networkmanager.enable = true;
 

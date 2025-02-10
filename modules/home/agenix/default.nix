@@ -10,7 +10,7 @@ in
   config = {
 
 
-    age.identityPaths = [ "/home/jojo/.ssh/id_ed25519" ];
+    age.identityPaths = [ "/home/${config.snowfallorg.user.name}/.ssh/id_ed25519" ];
     age.secrets.authinfo.file = ../../../secrets/authinfo.age;
 
     home.packages = [

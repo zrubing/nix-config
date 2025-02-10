@@ -1,6 +1,6 @@
 { config, lib, namespace, pkgs, ... }:
 let
-  cfg = config.${namespace}.desktop.wayland;
+  cfg = config.${namespace}.greetd;
 
   desktopsDir = config.services.displayManager.sessionData.desktops;
   desktopSessions =
@@ -9,14 +9,12 @@ let
       "xsessions"
     ];
 in {
-  options.${namespace}.desktop.wayland = with lib; {
+  options.${namespace}.greetd = with lib; {
     enable = mkEnableOption "Use Wayland desktop";
   };
 
   config = lib.mkIf cfg.enable {
-    home.${namespace}.linux.desktop.displayServer = "wayland";
-
-    programs.niri.enable = true;
+    # home.${namespace}.linux.desktop.displayServer = "wayland";
 
     services.greetd = {
       enable = true;

@@ -1,7 +1,15 @@
-{ lib,config, pkgs, namespace, ... }:
+{
+  lib,
+  config,
+  pkgs,
+  namespace,
+  ...
+}:
 
-let cfg = config.${namespace}.modules.fcitx5;
-in {
+let
+  cfg = config.${namespace}.modules.fcitx5;
+in
+{
 
   options.${namespace}.modules.fcitx5 = {
     enable = lib.mkEnableOption "fcitx5";
@@ -9,15 +17,13 @@ in {
 
   config = lib.mkIf cfg.enable {
 
+    # systemd.user.services.fcitx5-daemon.Unit = lib.mkForce {
 
+    #   Description = "Fcitx5 input method editor";
+    #   After = [ "niri.service" ]; # 确保在 niri.service 之后启动
+    #   Requires = [ "niri.service" ]; # 确保 niri.sevice 已经启动
 
-    systemd.user.services.fcitx5-daemon.Unit = lib.mkForce {
-
-      Description = "Fcitx5 input method editor";
-      After = [ "niri.service" ];  # 确保在 niri.service 之后启动
-      Requires = [ "niri.service" ];  # 确保 niri.service 已经启动
-
-    };
+    # };
 
     i18n.inputMethod = {
       enabled = "fcitx5";
@@ -34,6 +40,5 @@ in {
 
   };
   #home.file.".config/rime/default.custom.yaml".source = ./rime-data-flypy/share/rime-data/default.custom.yaml;
-
 
 }

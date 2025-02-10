@@ -15,7 +15,9 @@ in {
           # -*- Data & Configuration Languages -*-#
           [
             #-- nix
+            nixd
             nil
+            nixfmt-rfc-style
             # rnix-lsp
             # nixd
             statix # Lints and suggestions for the nix programming language

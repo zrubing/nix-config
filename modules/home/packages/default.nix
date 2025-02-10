@@ -11,7 +11,12 @@ in {
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      telegram-desktop
+      pkgs-unstable.tdlib
       localsend
+      pkgs-unstable.aider-chat
+      pkgs-unstable.mise
+
     ];
   };
 

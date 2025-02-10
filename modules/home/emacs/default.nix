@@ -6,9 +6,10 @@
 #  1. Official: <https://www.gnu.org/software/emacs/tour/index.html>
 #  2. Doom Emacs: <https://github.com/doomemacs/doomemacs/blob/master/docs/index.org>
 #
-{ config, lib, pkgs, namespace, inputs, ... }:
+{ config, lib, pkgs, namespace, inputs, system, ... }:
 with lib;
 let
+  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
   cfg = config.${namespace}.emacs;
   hm = config.lib;
   doomemacs = inputs.doomemacs;
@@ -20,6 +21,10 @@ let
     et = "emacsclient --create-frame --tty"; # terminal
   };
   librime-dir = "${config.xdg.dataHome}/emacs/librime";
+  emacs-rime-dir = "${config.xdg.dataHome}/emacs/emacs-rime";
+  tdlib-dir = "${config.xdg.dataHome}/tdlib";
+  librime-emacs-dir =
+    "${config.xdg.configHome}/emacs/.local/straight/repos/emacs-rime";
   rime-data-dir = "${config.xdg.dataHome}/rime-data";
   parinfer-rust-lib-dir = "${config.xdg.dataHome}/emacs/parinfer-rust";
   myEmacsPackagesFor = emacs:
@@ -31,6 +36,10 @@ in {
 
   config = mkIf cfg.enable (mkMerge [
     {
+
+      home.file."${librime-emacs-dir}/librime-emacs.so".source =
+        "${pkgs.${namespace}.emacs-rime}/lib/librime-emacs.so";
+
       home.packages = with pkgs; [
 
         # compile vterm
@@ -80,6 +89,11 @@ in {
           mkdir -p ${rime-data-dir}
           ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs.rime-data}/ ${rime-data-dir}/
 
+          # tdlib dir
+          mkdir -p ${tdlib-dir}
+          ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs-unstable.tdlib}/ ${tdlib-dir}/
+
+
           # libparinfer_rust for emacs' parinfer-rust-mode
           mkdir -p ${parinfer-rust-lib-dir}
           ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744  ${pkgs.vimPlugins.parinfer-rust}/lib/libparinfer_rust.* ${parinfer-rust-lib-dir}/parinfer-rust.so
@@ -92,42 +106,42 @@ in {
       # https://www.gnu.org/savannah-checkouts/gnu/emacs/emacs.html#Releases
       # emacsPkg = myEmacsPackagesFor pkgs.emacs29-pgtk;
 
-      gtkEmacsMPS = pkgs.emacs-git.overrideAttrs (old: {
-        name = "emacs-git-mps";
+      # gtkEmacsMPS = pkgs.emacs-git.overrideAttrs (old: {
+      #   name = "emacs-git-mps";
 
-        src = pkgs.fetchFromGitHub {
-          owner = "emacs-mirror";
-          repo = "emacs";
-          rev = "02ab0508745ba386fa1f8a4713a3992b8e17a505";
-          sha256 = "ClZFk1QO7ytmy6rG2PenFrcH6qnEyttpCGllO0i5rAg=";
-        };
+      #   src = pkgs.fetchFromGitHub {
+      #     owner = "emacs-mirror";
+      #     repo = "emacs";
+      #     rev = "02ab0508745ba386fa1f8a4713a3992b8e17a505";
+      #     sha256 = "ClZFk1QO7ytmy6rG2PenFrcH6qnEyttpCGllO0i5rAg=";
+      #   };
 
-        buildInputs = old.buildInputs ++ [ pkgs.mps pkgs.gtk3 ];
+      #   buildInputs = old.buildInputs ++ [ pkgs.mps pkgs.gtk3 ];
 
-        configureFlags = [
-          "--disable-build-details"
-          "--with-modules"
-          "--with-x-toolkit=lucid"
-          "--with-cairo"
-          "--with-xft"
-          "--with-sqlite3=yes"
-          "--with-compress-install"
-          "--with-toolkit-scroll-bars"
-          "--with-native-compilation"
-          #"--without-imagemagick"
-          "--with-mailutils"
-          "--with-small-ja-dic"
-          "--with-tree-sitter"
-          "--with-xinput2"
-          "--without-xwidgets" # Needed for it to compile properly for some reason
-          "--with-dbus"
-          "--with-selinux"
-          "--with-mps=yes"
-        ];
-      });
+      #   configureFlags = [
+      #     "--disable-build-details"
+      #     "--with-modules"
+      #     "--with-x-toolkit=lucid"
+      #     "--with-cairo"
+      #     "--with-xft"
+      #     "--with-sqlite3=yes"
+      #     "--with-compress-install"
+      #     "--with-toolkit-scroll-bars"
+      #     "--with-native-compilation"
+      #     #"--without-imagemagick"
+      #     "--with-mailutils"
+      #     "--with-small-ja-dic"
+      #     "--with-tree-sitter"
+      #     "--with-xinput2"
+      #     "--without-xwidgets" # Needed for it to compile properly for some reason
+      #     "--with-dbus"
+      #     "--with-selinux"
+      #     "--with-mps=yes"
+      #   ];
+      # });
 
       #emacsPkg = myEmacsPackagesFor gtkEmacsMPS;
-      emacsPkg = pkgs.emacs30;
+      emacsPkg = inputs.emacs-overlay.packages.${system}.emacs-igc;
     in {
 
       home.packages = [ emacsPkg ];
