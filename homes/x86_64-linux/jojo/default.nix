@@ -10,6 +10,7 @@
     desktop.kde.enable = true;
     emacs.enable = true;
     terminal = "alacritty";
+    gpg.enable = true;
 
     modules = {
       fcitx5.enable = true;

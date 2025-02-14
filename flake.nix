@@ -15,7 +15,9 @@
     };
 
     # Emacs Overlays
-    emacs-overlay = { url = "github:nix-community/emacs-overlay"; };
+    emacs-overlay = {
+      url = "github:nix-community/emacs-overlay";
+    };
 
     # doom-emacs is a configuration framework for GNU Emacs.
     doomemacs = {
@@ -46,6 +48,14 @@
     sops-nix = {
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    ########################  My own repositories  #########################################
+    # my private secrets, it's a private repository, you need to replace it with your own.
+    # use ssh protocol to authenticate via ssh-agent/ssh-key, and shallow clone to save time
+    mysecrets = {
+      url = "git+ssh://git@github.com/zrubing/nix-secrets.git?ref=main";
+      flake = false;
     };
 
   };
@@ -80,19 +90,21 @@
 
   #   });
 
-  outputs = inputs:
+  outputs =
+    inputs:
     let
       lib = inputs.snowfall-lib.mkLib {
         inherit inputs;
         src = ./.;
       };
-      # specialArgs = {
-      #   pkgs-unstable = import inputs.nixpkgs-unstable {
-      #     # To use chrome, we need to allow the installation of non-free software
-      #     config.allowUnfree = true;
-      #   };
-      # };
-    in lib.mkFlake {
+    in
+    # specialArgs = {
+    #   pkgs-unstable = import inputs.nixpkgs-unstable {
+    #     # To use chrome, we need to allow the installation of non-free software
+    #     config.allowUnfree = true;
+    #   };
+    # };
+    lib.mkFlake {
 
       # homes.users.jojo.specialArgs = specialArgs;
       # systems.hosts.nova13.specialArgs = specialArgs;

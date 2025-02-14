@@ -1,16 +1,23 @@
-{ config, pkgs, inputs , system, ... }:
+{
+  config,
+  pkgs,
+  inputs,
+  system,
+  ...
+}:
 let
   inherit (pkgs.stdenv.hostPlatform) system; # for agenix pkg
+  username = config.snowfallorg.user.name;
+  #mysecrets = inputs.mysecrets;
   mystuff = pkgs.writeShellScriptBin "echo-secret" ''
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets.authinfo.path} > /home/jojo/.authinfo
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets.authinfo.path} > /home/${username}/.authinfo
   '';
 in
 {
 
   config = {
 
-
-    age.identityPaths = [ "/home/${config.snowfallorg.user.name}/.ssh/id_ed25519" ];
+    age.identityPaths = [ "/home/${username}/.ssh/id_ed25519" ];
     age.secrets.authinfo.file = ../../../secrets/authinfo.age;
 
     home.packages = [

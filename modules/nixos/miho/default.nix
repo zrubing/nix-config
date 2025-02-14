@@ -1,9 +1,20 @@
-{ config, lib, namespace, pkgs, ... }: {
+{
+  config,
+  inputs,
+  lib,
+  namespace,
+  pkgs,
+  ...
+}:
+let
+  mysecrets = inputs.mysecrets;
+in
+{
 
   environment.systemPackages = with pkgs; [ mihomo ];
 
-  age.secrets.miho-conf.file = ../../../secrets/miho-conf.age;
-  age.identityPaths = [ "/home/jojo/.ssh/id_ed25519" ];
+  age.secrets.miho-conf.file = "${mysecrets}/miho-conf.age";
+  age.identityPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
 
   services.mihomo = {
     enable = true;

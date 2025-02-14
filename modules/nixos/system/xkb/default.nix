@@ -24,5 +24,8 @@ in
         options = "ctrl:nocaps";
       };
     };
+
+    services.libinput.touchpad.naturalScrolling = true;
+
   };
 }
