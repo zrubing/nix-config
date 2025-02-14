@@ -56,9 +56,6 @@ in
     programs.browserpass = {
       enable = true;
       browsers = [
-        "chrome"
-        "chromium"
-        "firefox"
         "brave"
       ];
     };

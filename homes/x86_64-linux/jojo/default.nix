@@ -11,6 +11,7 @@
     emacs.enable = true;
     terminal = "alacritty";
     gpg.enable = true;
+    password-store.enable = true;
 
     modules = {
       fcitx5.enable = true;
