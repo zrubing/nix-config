@@ -20,8 +20,8 @@
 
     vcs = {
       user = {
-        name = "jojo";
-        email = "a@b.com";
+        name = "zrubing";
+        email = "rubingem@gmail.com";
       };
     };
   };
