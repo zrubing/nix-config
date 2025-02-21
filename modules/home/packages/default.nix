@@ -1,9 +1,18 @@
-{ config, lib, pkgs, inputs , system, namespace, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  inputs,
+  system,
+  namespace,
+  ...
+}:
 let
-  pkgs-unstable =  inputs.nixpkgs-unstable.legacyPackages.${system};
+  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
 
   cfg = config.${namespace}.modules.packages;
-in {
+in
+{
 
   options.${namespace}.modules.packages = {
     enable = lib.mkEnableOption "packages";
@@ -11,12 +20,11 @@ in {
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
-      telegram-desktop
       pkgs-unstable.tdlib
       localsend
       pkgs-unstable.aider-chat
       pkgs-unstable.mise
-
+      pkgs.${namespace}.wl-ocr
     ];
   };
 
