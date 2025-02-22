@@ -25,6 +25,8 @@ in
       pkgs-unstable.aider-chat
       pkgs-unstable.mise
       pkgs.${namespace}.wl-ocr
+      tesseract
+      pkgs-unstable.tailscale
     ];
   };
 
