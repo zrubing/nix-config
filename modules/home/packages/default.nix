@@ -27,6 +27,7 @@ in
       pkgs.${namespace}.wl-ocr
       tesseract
       pkgs-unstable.tailscale
+      dbeaver-bin
     ];
   };
 
