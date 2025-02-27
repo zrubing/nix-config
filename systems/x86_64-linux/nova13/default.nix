@@ -48,7 +48,9 @@
     desktop = {
       kde.enable = true;
     };
-    #mounts.mito = true;
+
+    dae.enable = true;
+    desktop-programs.enable = true;
   };
 
   services = {
