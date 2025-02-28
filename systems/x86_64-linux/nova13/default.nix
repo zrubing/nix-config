@@ -53,10 +53,6 @@
     desktop-programs.enable = true;
   };
 
-  services = {
-    mihomo.enable = true;
-  };
-
   # home = {
 
   #   ${namespace} = {

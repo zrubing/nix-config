@@ -8,7 +8,7 @@
 }:
 let
   mysecrets = inputs.mysecrets;
-  cfg = config.${namespace}.dae;
+  cfg = config.${namespace}.miho;
 in
 {
 
