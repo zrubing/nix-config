@@ -1,4 +1,5 @@
-{ inputs, lib, ... }: {
+{ inputs, lib, ... }:
+{
   nix = {
     # TODO try this?
     # enable = config.host.role != "cloud-server";
@@ -17,14 +18,18 @@
     # generateRegistryFromInputs = true;
 
     settings = {
-      experimental-features = [ "nix-command" "flakes" ];
+      experimental-features = [
+        "nix-command"
+        "flakes"
+      ];
       log-lines = 50;
       use-xdg-base-directories = true;
       warn-dirty = false;
-      trusted-users = [ "@wheel" ]; # TODO revise this?
+      trusted-users = [ "@wheel" "jojo" ]; # TODO revise this?
 
       allow-import-from-derivation = true;
       substituters = [
+        "https://mirrors.tuna.tsinghua.edu.cn/nix-channels/store"
         "https://nix-community.cachix.org"
       ];
 

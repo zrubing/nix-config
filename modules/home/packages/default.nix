@@ -20,6 +20,7 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      wireshark-qt
       pkgs-unstable.tdlib
       localsend
       pkgs-unstable.aider-chat

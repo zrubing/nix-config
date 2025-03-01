@@ -50,6 +50,7 @@
     };
 
     dae.enable = true;
+    #miho.enable = true;
     desktop-programs.enable = true;
   };
 
