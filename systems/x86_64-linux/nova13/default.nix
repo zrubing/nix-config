@@ -49,9 +49,9 @@
       kde.enable = true;
     };
 
-    #dae.enable = true;
+    dae.enable = true;
     miho.enable = true;
-    desktop-programs.enable = true;
+    #desktop-programs.enable = true;
   };
 
   # home = {
