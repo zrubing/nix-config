@@ -1,6 +1,13 @@
-{ config, lib, namespace, ... }:
-let cfg = config.${namespace}.networking;
-in {
+{
+  config,
+  lib,
+  namespace,
+  ...
+}:
+let
+  cfg = config.${namespace}.networking;
+in
+{
   options.${namespace}.networking = with lib; {
     wifi.enable = mkEnableOption "Enable wifi";
   };
@@ -23,8 +30,13 @@ in {
     networking = {
       #firewall.enable = true;
 
-      nameservers =
-        [ "1.1.1.1" "1.0.0.1" "2606:4700:4700::1111" "2606:4700:4700::1001" ];
+      nameservers = [
+        "100.100.100.100" # for headscale
+        "1.1.1.1"
+        "1.0.0.1"
+        "2606:4700:4700::1111"
+        "2606:4700:4700::1001"
+      ];
 
       useDHCP = lib.mkDefault cfg.wifi.enable;
       # TODO maybe we should add a "main interface" thingy in config.host

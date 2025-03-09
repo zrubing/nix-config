@@ -18,6 +18,9 @@ in
     enable = true;
     extraUpFlags = [
       "--login-server=https://127.0.0.1:2001"
+      "--accept-dns=true"
+      "--dns=on"
+      "--dns-suffix=tailnet.local"
     ];
     authKeyFile = config.age.secrets.headscale-authkey.path;
     package = pkgs-unstable.tailscale;
