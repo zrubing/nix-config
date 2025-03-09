@@ -27,6 +27,25 @@ in
       openFirewall = true;
     };
 
+    services.dnsmasq = {
+      enable = true;
+
+      settings = {
+
+        address = [
+          "/john-server.ts.net/100.64.0.2"
+        ];
+        server = [
+          "100.100.100.100" # for headscale
+          "1.1.1.1"
+          "1.0.0.1"
+          "2606:4700:4700::1111"
+          "2606:4700:4700::1001"
+        ];
+      };
+
+    };
+
     networking = {
       #firewall.enable = true;
 
