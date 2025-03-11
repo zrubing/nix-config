@@ -29,6 +29,7 @@ in
       tesseract
       pkgs-unstable.tailscale
       dbeaver-bin
+      devenv
     ];
   };
 
