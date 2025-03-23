@@ -30,6 +30,7 @@ in
       pkgs-unstable.tailscale
       dbeaver-bin
       devenv
+      devcontainer
     ];
   };
 

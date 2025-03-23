@@ -118,11 +118,11 @@ in {
             delve # go debugger
 
             # -- java
-            jdk17
+            jdk21
             gradle
             maven
             spring-boot-cli
-            jdt-language-server
+            pkgs-unstable.jdt-language-server
 
             #-- zig
             zls

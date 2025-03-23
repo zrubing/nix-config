@@ -26,6 +26,8 @@
       extraGroups = [
         "wheel"
         "networkmanager"
+        "docker"
+        "podman"
       ];
       initialPassword = "test";
     };
