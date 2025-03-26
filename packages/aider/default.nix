@@ -98,18 +98,6 @@ let
     doCheck = false;
   };
 
-  # grep-ast-latest = python312Packages.grep-ast.overrideAttrs (
-  #   self: super: rec {
-  #     version = "0.8.1";
-  #     src = fetchPypi {
-  #       inherit version;
-  #       pname = "grep_ast";
-  #       hash = "sha256-j68oX0QEKvR9xqRfHh+AKYZgSFY9dYpxmwU5ytJkGH8=";
-
-  #     };
-  #     nativeBuildInputs = [ tree-sitter-language-pack ];
-  #   }
-  # );
 
   python3 = python312.override {
     self = python3;
