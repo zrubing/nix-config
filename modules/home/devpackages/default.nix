@@ -14,6 +14,7 @@ in {
         (
           # -*- Data & Configuration Languages -*-#
           [
+            direnv
             #-- nix
             nixd
             nil
