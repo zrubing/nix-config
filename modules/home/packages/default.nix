@@ -23,7 +23,7 @@ in
       wireshark-qt
       pkgs-unstable.tdlib
       localsend
-      pkgs-unstable.aider-chat
+      pkgs.${namespace}.aider
       pkgs-unstable.mise
       pkgs.${namespace}.wl-ocr
       tesseract
