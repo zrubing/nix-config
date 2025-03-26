@@ -118,7 +118,8 @@ in {
             delve # go debugger
 
             # -- java
-            jdk21
+            # jdk21
+            zulu23
             gradle
             maven
             spring-boot-cli
