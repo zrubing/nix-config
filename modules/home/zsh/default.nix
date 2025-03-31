@@ -3,7 +3,12 @@
   lib,
   pkgs,
   ...
-}: {
+}:
+let
+  overrides = (builtins.fromTOML (builtins.readFile ./rust-toolchain.toml));
+  RUSTC_VERSION = overrides.toolchain.channel;
+in
+{
 
   home.packages = with pkgs; [
 
@@ -87,24 +92,26 @@
       alias urlencode='python3 -c "import sys, urllib.parse as ul; \
           print (ul.quote_plus(sys.argv[1]))"'
 
+      export PATH=$PATH:''${CARGO_HOME:-~/.cargo}/bin
+      export PATH=$PATH:''${RUSTUP_HOME:-~/.rustup}/toolchains/$RUSTC_VERSION-x86_64-unknown-linux-gnu/bin
 
     '';
 
-    shellAliases =
-      {
-        g = "git";
-        grep = "grep --color";
-        ip = "ip --color";
-        l = "eza -l";
-        la = "eza -la";
-        md = "mkdir -p";
-        ppc = "powerprofilesctl";
-        pf = "powerprofilesctl launch -p performance";
+    shellAliases = {
+      g = "git";
+      grep = "grep --color";
+      ip = "ip --color";
+      l = "eza -l";
+      la = "eza -la";
+      md = "mkdir -p";
+      ppc = "powerprofilesctl";
+      pf = "powerprofilesctl launch -p performance";
 
-        us = "systemctl --user"; # mnemonic for user systemctl
-        rs = "sudo systemctl"; # mnemonic for root systemctl
-      }
-      // lib.optionalAttrs config.programs.bat.enable {cat = "bat";};
-      shellGlobalAliases = {eza = "eza --icons --git";};
+      us = "systemctl --user"; # mnemonic for user systemctl
+      rs = "sudo systemctl"; # mnemonic for root systemctl
+    } // lib.optionalAttrs config.programs.bat.enable { cat = "bat"; };
+    shellGlobalAliases = {
+      eza = "eza --icons --git";
+    };
   };
 }
