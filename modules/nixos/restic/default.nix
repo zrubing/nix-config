@@ -26,8 +26,9 @@ in
     services.restic.backups = {
       org-roam-dir = {
         paths = [ "/home/jojo/org-roam-dir" ];
-        repository = "rclone:ali:/org-roam-backup";
+        repository = "rclone:ali:org-roam-backup/";
         initialize = true;
+        rcloneConfigFile = "/run/agenix/rclone.conf";
         passwordFile = "/run/agenix/restic-password";
       };
     };
