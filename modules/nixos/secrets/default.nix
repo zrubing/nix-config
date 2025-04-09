@@ -92,19 +92,17 @@ in
         # only root can read this file.
         # ---------------------------------------------
 
-        # "rclone.conf" = {
-        #   file = "${mysecrets}/rclone.conf.age";
-        # } // high_security;
-
-        "authinfo" = {
-          file = "${mysecrets}/authinfo.age";
+        "rclone.conf" = {
+          file = "${mysecrets}/rclone.conf.age";
         } // high_security;
 
+        "restic-password" = {
+          file = "${mysecrets}/restic-password.age";
+        } // high_security;
 
         "miho-conf" = {
           file = "${mysecrets}/miho-conf.age";
         } // high_security;
-
 
         # ---------------------------------------------
         # user can read this file.

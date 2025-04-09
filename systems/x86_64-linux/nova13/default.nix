@@ -43,6 +43,8 @@
     };
   };
 
+  modules.secrets.desktop.enable = true;
+
   ${namespace} = {
     user.name = "jojo";
     networking.wifi.enable = true;
@@ -54,6 +56,8 @@
     #dae.enable = true;
     miho.enable = true;
     #desktop-programs.enable = true;
+
+    restic.enable = true;
   };
 
   # home = {
