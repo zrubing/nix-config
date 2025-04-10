@@ -7,7 +7,8 @@
 
   internal = {
 
-    desktop.kde.enable = true;
+    #desktop.kde.enable = true;
+    desktop.niri.enable = true;
     emacs.enable = true;
     terminal = "alacritty";
     gpg.enable = true;

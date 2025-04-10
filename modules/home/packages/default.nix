@@ -32,6 +32,7 @@ in
       devenv
       devcontainer
       devbox
+      brave
     ];
 
     programs = {

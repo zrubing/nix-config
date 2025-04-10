@@ -22,6 +22,15 @@ in
     environment.systemPackages = with pkgs; [
       shotcut
       mpv
+
+      # support 64-bit only
+      (pkgs-unstable.wine.override { wineBuild = "wine64"; })
+      pkgs-unstable.wineWowPackages.stagingFull
+      pkgs-unstable.wineWowPackages.stable
+      # winetricks (all versions)
+      pkgs-unstable.winetricks
+      # native wayland support (unstable)
+      pkgs-unstable.wineWowPackages.waylandFull
     ];
 
   };
