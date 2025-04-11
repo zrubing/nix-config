@@ -32,7 +32,7 @@ in
       devenv
       devcontainer
       devbox
-      brave
+      zed-editor
     ];
 
     programs = {

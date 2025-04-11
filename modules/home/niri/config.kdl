@@ -186,7 +186,7 @@ environment {
 
 spawn-at-startup "rgbar"
 //spawn-at-startup "wall.sh"
-spawn-at-startup "dunst"
+spawn-at-startup "mako"
 
 // Uncomment this line to ask the clients to omit their client-side decorations if possible.
 // If the client will specifically ask for CSD, the request will be honored.

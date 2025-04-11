@@ -17,14 +17,6 @@ in
 
   config = lib.mkIf cfg.enable {
 
-    # systemd.user.services.fcitx5-daemon.Unit = lib.mkForce {
-
-    #   Description = "Fcitx5 input method editor";
-    #   After = [ "niri.service" ]; # 确保在 niri.service 之后启动
-    #   Requires = [ "niri.service" ]; # 确保 niri.sevice 已经启动
-
-    # };
-
     home.sessionVariables =
       {
         GLFW_IM_MODULE = "ibus"; # IME support in kitty
@@ -33,10 +25,12 @@ in
         QT_IM_MODULE = lib.mkForce "";
 
       }
-      // lib.optionalAttrs (!config.${namespace}.desktop.kde.enable) {
-        GTK_IM_MODULE = lib.mkForce "fcitx";
-        QT_IM_MODULE =  lib.mkForce "fcitx";
-      };
+      // lib.optionalAttrs
+        (!(config.${namespace}.desktop.kde.enable || config.${namespace}.desktop.niri.enable))
+        {
+          GTK_IM_MODULE = lib.mkForce "fcitx";
+          QT_IM_MODULE = lib.mkForce "fcitx";
+        };
 
     i18n.inputMethod = {
       enabled = "fcitx5";

@@ -22,11 +22,14 @@ in
       dunst
       pkgs.${namespace}.rgbar
       fuzzel
+      wl-clipboard
     ];
     programs.niri.enable = true;
     ${namespace} = {
       greetd.enable = true;
       fonts.enable = true;
     };
+
   };
+
 }

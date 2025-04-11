@@ -19,75 +19,11 @@ in
       ];
     };
 
-    displayServer = mkOption {
-      type = types.enum [
-        "x11"
-        "wayland"
-      ];
-    };
   };
 
   config = lib.mkIf (cfg.enable && cfg.type == "niri") {
-    # Desktop environment
-    # services.polkit-gnome-authentication-agent-1.enable = true;
     services.dunst.enable = true;
-    # programs.rofi.enable = true;
-
     programs.mpv.enable = true;
-    #programs.imv.enable = true;
-
-    #services.mpris-proxy.enable = true;
-    #services.blueman-applet.enable = lib.mkDefault true;
-    #services.network-manager-applet.enable = true;
-
-    #services.twkwk.enable = false;
-
-    home.packages =
-      (with pkgs; [
-        firefox
-        dissent
-        thunderbird
-        trackma-gtk
-        mupdf
-        gimp
-        tremotesf
-        gpodder
-        pwvucontrol
-        pulseaudio # pactl is still useful for some stuff
-        playerctl
-      ])
-      ++ [
-        (pkgs.writeShellScriptBin "xdg-terminal-exec" ''
-          exec ${lib.getExe (pkgs.${config.${namespace}.terminal})} -e "$@"
-        '')
-      ];
-
-    services.udiskie = {
-      enable = true;
-      automount = false;
-      tray = "always";
-    };
-
-    # Theming and stuff
-    dconf.settings."org/gnome/desktop/interface".color-scheme = "prefer-dark";
-
-    gtk = {
-      enable = true;
-      gtk2.extraConfig = ''
-        gtk-theme-name = "Adwaita:dark"
-        gtk-application-prefer-dark-theme = "true"
-      '';
-      gtk3.extraConfig.gtk-application-prefer-dark-theme = true;
-    };
-
-    home.pointerCursor = {
-      package = pkgs.fuchsia-cursor;
-      name = "Fuchsia";
-      size = 24;
-      gtk.enable = true;
-      x11.enable = true;
-    };
-
     xdg = {
       enable = true;
 
@@ -134,6 +70,9 @@ in
                 "application/x-extension-shtml"
                 "application/x-extension-xhtml"
                 "application/x-extension-xht"
+              ];
+              "yazi.desktop" = [
+                "inode/directory"
               ];
               "thunderbird.desktop" = [
                 "x-scheme-handler/mailto"
