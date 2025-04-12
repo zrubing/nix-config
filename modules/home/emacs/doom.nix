@@ -42,7 +42,7 @@ in
       "${pkgs.${namespace}.emacs-rime}/lib/librime-emacs.so";
     home.file.".emacs-profiles.el".text = ''
       ;; Your custom Emacs initialization code here
-      (("default" . ((user-emacs-directory . "~/${config.xdg.configHome}/.emacs.doom"))))
+      (("default" . ((user-emacs-directory . "${config.xdg.configHome}/emacs.doom"))))
     '';
   };
 }

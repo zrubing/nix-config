@@ -11,7 +11,7 @@
     desktop.niri.enable = true;
     emacs = {
       enable = true;
-      type = "centaur";
+      type = "doom";
     };
     terminal = "alacritty";
     gpg.enable = true;
