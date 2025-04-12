@@ -8,10 +8,13 @@
   portaudio,
   playwright-driver,
   fetchPypi,
-  python312Packages,
+  system,
+  inputs
 }:
 
 let
+  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
+  python312Packages = pkgs-unstable.python312Packages;
   tree-sitter-language-pack = python312Packages.buildPythonPackage rec {
     pname = "tree-sitter-language-pack";
     version = "0.6.1";
@@ -80,7 +83,6 @@ let
     doCheck = false;
   };
 
-
   grep-ast = python312Packages.buildPythonPackage rec {
     pname = "grep-ast";
     version = "0.8.1";
@@ -98,7 +100,6 @@ let
     doCheck = false;
   };
 
-
   python3 = python312.override {
     self = python3;
     packageOverrides = _: super: {
@@ -108,15 +109,15 @@ let
 
   aider-chat = python312Packages.buildPythonPackage rec {
     pname = "aider-chat";
-    version = "0.79.1";
+    version = "0.81.0";
     pyproject = true;
 
     src = fetchFromGitHub {
       inherit version;
       owner = "Aider-AI";
       repo = "aider";
-      tag = "v0.79.1";
-      hash = "sha256-idfQ0kWiCudVJ26v8j172TpeMiKAVygWAXfwTQqk6tg=";
+      tag = "v${version}";
+      hash = "sha256-xWOXsffLAVBZvJM8PuAJ12IrmNLfXuqHrbIMtPM1leE=";
     };
 
     pythonRelaxDeps = true;
@@ -221,6 +222,8 @@ let
       posthog
       propcache
       python-dateutil
+
+      typing-inspection
     ];
 
     buildInputs = [

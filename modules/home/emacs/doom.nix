@@ -12,9 +12,9 @@ let
   doomemacs = inputs.doomemacs;
   hm = config.lib;
 
-
   librime-emacs-dir = "${config.xdg.configHome}/emacs.doom/.local/straight/repos/emacs-rime";
   parinfer-rust-lib-dir = "${config.xdg.dataHome}/emacs.doom/parinfer-rust";
+  meow-dir = "${config.xdg.configHome}/emacs.doom/modules/editor/meow";
 in
 {
   config = {
@@ -36,6 +36,12 @@ in
 
       mkdir -p ${parinfer-rust-lib-dir}
       ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs.vimPlugins.parinfer-rust}/lib/libparinfer_rust.* ${parinfer-rust-lib-dir}/parinfer-rust.so
+    '';
+    home.activation.setupMeow = hm.dag.entryAfter [ "writeBoundary" ] ''
+      if [ ! -d "${meow-dir}" ]; then
+        mkdir -p ${meow-dir}
+        ${pkgs.git}/bin/git clone https://github.com/meow-edit/doom-meow ${meow-dir}
+      fi
     '';
 
     home.file."${librime-emacs-dir}/librime-emacs.so".source =
