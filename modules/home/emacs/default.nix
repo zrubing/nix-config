@@ -20,7 +20,7 @@ let
   librime-emacs-dir = "${config.xdg.configHome}/emacs/.local/straight/repos/emacs-rime";
 
   envExtra = lib.mkAfter ''
-    export PATH="${config.xdg.configHome}/emacs/bin:$PATH"
+    export PATH="${config.xdg.configHome}/emacs.doom/bin:$PATH"
   '';
   shellAliases = {
     e = "emacsclient --create-frame"; # gui
