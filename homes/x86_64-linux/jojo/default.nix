@@ -9,7 +9,10 @@
 
     #desktop.kde.enable = true;
     desktop.niri.enable = true;
-    emacs.enable = true;
+    emacs = {
+      enable = true;
+      type = "centaur";
+    };
     terminal = "alacritty";
     gpg.enable = true;
     password-store.enable = true;
@@ -18,7 +21,6 @@
       fcitx5.enable = true;
       packages.enable = true;
     };
-
 
     vcs = {
       user = {

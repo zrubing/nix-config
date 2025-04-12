@@ -7,12 +7,13 @@
   ...
 }:
 with lib;
+with lib.${namespace};
 let
   cfg = config.${namespace}.desktop.niri;
 in
 {
-  options.${namespace}.desktop.niri = with lib; {
-    enable = mkEnableOption "Enable niri config";
+  options.${namespace}.desktop.niri = with types; {
+    enable = mkBoolOpt false "Enable niri config";
   };
 
   config = mkIf cfg.enable {
