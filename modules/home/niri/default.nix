@@ -9,6 +9,7 @@
 with lib;
 with lib.${namespace};
 let
+  hm = config.lib;
   cfg = config.${namespace}.desktop.niri;
 in
 {
@@ -53,12 +54,23 @@ in
 
     ];
 
+    # 修复brave icon没有正确识别问题
+    home.activation.setupIcons = hm.dag.entryAfter [ "writeBoundary" ] ''
+      if [ ! -f "${config.xdg.dataHome}/papirus-icon-theme/Brave-browser.svg" ]; then
+        mkdir -p ${config.xdg.dataHome}/papirus-icon-theme/
+        cp ${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps/brave.svg \
+         ${config.xdg.dataHome}/papirus-icon-theme/Brave-browser.svg
+      fi
+
+    '';
+
     home.file.".config/niri/config.kdl".source = ./config.kdl;
     home.file.".config/rglauncher/rgbar.json".text = ''
       {
         "paths": [
           "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/devices",
-          "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps"
+          "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps",
+          "${config.xdg.dataHome}/papirus-icon-theme"
         ],
         "alias": {
           "app-launcher": [
