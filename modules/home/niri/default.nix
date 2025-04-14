@@ -64,6 +64,10 @@ in
 
     '';
 
+    # set in xdg-config
+    # home.file."${config.xdg.configHome}/xdg-desktop-portal/niri-portals.conf".source =
+    #   ./niri-portals.conf;
+
     home.file.".config/niri/config.kdl".source = ./config.kdl;
     home.file.".config/rglauncher/rgbar.json".text = ''
       {

@@ -29,6 +29,7 @@ in
       ${namespace} = {
         greetd.enable = true;
         fonts.enable = true;
+        xdg-portal.enable = true;
       };
     }
   ]);
