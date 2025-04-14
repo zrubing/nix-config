@@ -92,6 +92,14 @@ in
       xsel
 
     ];
+
+    home.file."${config.xdg.configHome}/xdg-desktop-portal/portals.conf".text = ''
+      ### $XDG_CONFIG_HOME/xdg-desktop-portal/portals.conf ###
+
+      [preferred]
+      org.freedesktop.impl.portal.FileChooser=termfilechooser
+    '';
+
     #https://github.com/hunkyburrito/xdg-desktop-portal-termfilechooser?tab=readme-ov-file#installation
     home.file."${config.xdg.configHome}/xdg-desktop-portal-termfilechooser/config".text = ''
       ### $XDG_CONFIG_HOME/xdg-desktop-portal-termfilechooser/config ###

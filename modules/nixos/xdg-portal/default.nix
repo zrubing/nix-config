@@ -20,9 +20,11 @@ in
 
   config = mkIf cfg.enable {
 
-    # systemd.user.services.xdg-desktop-portal-termfilechooser = {
-    #   serviceConfig.ExecStart = lib.mkForce "${pkgs-unstable.xdg-desktop-portal-termfilechooser}/libexec/xdg-desktop-portal-termfilechooser -l trace";
-    # };
+    # 默认的没带after，partof，启动会超时
+    systemd.user.services.xdg-desktop-portal-gtk = {
+      after = [ "graphical-session.target" ];
+      partOf = [ "graphical-session.target" ];
+    };
 
     xdg.portal = {
       enable = true;
@@ -32,15 +34,15 @@ in
         gnome-keyring
         pkgs-unstable.xdg-desktop-portal-termfilechooser
       ];
-      config = {
-        niri = {
-          default = "gnome;gtk";
-          "org.freedesktop.impl.portal.Access" = "gtk";
-          "org.freedesktop.impl.portal.Notification" = "gtk";
-          "org.freedesktop.impl.portal.Secret" = "gnome-keyring";
-          "org.freedesktop.impl.portal.FileChooser" = "termfilechooser";
-        };
-      };
+      # config = {
+      #   niri = {
+      #     default = "gnome;gtk";
+      #     "org.freedesktop.impl.portal.Access" = "gtk";
+      #     "org.freedesktop.impl.portal.Notification" = "gtk";
+      #     "org.freedesktop.impl.portal.Secret" = "gnome-keyring";
+      #     "org.freedesktop.impl.portal.FileChooser" = "termfilechooser";
+      #   };
+      # };
 
     };
   };
