@@ -33,7 +33,6 @@ let
     home.shellAliases = shellAliases;
     programs.nushell.shellAliases = shellAliases;
 
-
     home.activation.installEmacslib = hm.dag.entryAfter [ "writeBoundary" ] ''
       mkdir -p ${librime-dir}
       ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs.librime}/ ${librime-dir}/
@@ -59,7 +58,27 @@ in
 
   config = mkIf cfg.enable (mkMerge [
     commonConfig
-    (import ./chemacs2.nix {inherit config lib pkgs namespace inputs system;}).config
+    (import ./tree-sitter-libs.nix {
+      inherit
+        config
+        lib
+        pkgs
+        namespace
+        inputs
+        system
+        ;
+    }).config
+
+    (import ./chemacs2.nix {
+      inherit
+        config
+        lib
+        pkgs
+        namespace
+        inputs
+        system
+        ;
+    }).config
     (mkIf (cfg.type == "doom") (
       (import ./doom.nix {
         inherit
