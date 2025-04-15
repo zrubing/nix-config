@@ -22,7 +22,9 @@ in
     services.dunst.enable = true;
     services.swayidle.enable = true;
 
+
     ${namespace} = {
+      copyq.enable = true;
       yazi.enable = true;
       rgbar.enable = true;
       linux.desktop = {
