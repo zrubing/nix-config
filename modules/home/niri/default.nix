@@ -23,6 +23,7 @@ in
 
     ${namespace} = {
       yazi.enable = true;
+      rgbar.enable = true;
       linux.desktop = {
         enable = true;
         type = "niri";
