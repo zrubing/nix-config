@@ -9,7 +9,7 @@
   playwright-driver,
   fetchPypi,
   system,
-  inputs
+  inputs,
 }:
 
 let
@@ -109,7 +109,7 @@ let
 
   aider-chat = python312Packages.buildPythonPackage rec {
     pname = "aider-chat";
-    version = "0.81.0";
+    version = "0.82.0";
     pyproject = true;
 
     src = fetchFromGitHub {
@@ -117,7 +117,7 @@ let
       owner = "Aider-AI";
       repo = "aider";
       tag = "v${version}";
-      hash = "sha256-xWOXsffLAVBZvJM8PuAJ12IrmNLfXuqHrbIMtPM1leE=";
+      hash = "sha256-UlPYUYAYDhPPgoIvEWRLYjCe3iQ2ltH5mT3GkX+IrGI=";
     };
 
     pythonRelaxDeps = true;
