@@ -16,6 +16,11 @@ in
       '';
     };
 
+    xdg.configFile."lsp-bridge-lib/typescript-lib" = {
+      source = "${pkgs.nodePackages.typescript}/lib/node_modules/typescript/lib";
+      recursive = true;
+    };
+
     home.packages =
       with pkgs;
       (
@@ -167,6 +172,9 @@ in
           ]
         #-*- Web Development -*-#
         ++ [
+          # vue
+          pkgs-unstable.vue-language-server
+
           nodePackages.nodejs
           nodePackages.typescript
           nodePackages.typescript-language-server
