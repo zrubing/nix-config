@@ -20,6 +20,7 @@ in
   config = mkIf cfg.enable {
     services.xwayland-satellite.enable = true;
     services.dunst.enable = true;
+    services.swayidle.enable = true;
 
     ${namespace} = {
       yazi.enable = true;
