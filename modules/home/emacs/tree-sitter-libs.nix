@@ -34,6 +34,9 @@ in
         "${pkgs.tree-sitter-grammars.tree-sitter-html.outPath}/parser";
       "tree-sitter-libs/libtree-sitter-python.so".source =
         "${pkgs.tree-sitter-grammars.tree-sitter-python.outPath}/parser";
+      "tree-sitter-libs/libtree-sitter-json.so".source =
+        "${pkgs.tree-sitter-grammars.tree-sitter-json.outPath}/parser";
+
 
     };
   };
