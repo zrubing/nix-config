@@ -157,6 +157,7 @@ in
             maven
             spring-boot-cli
             pkgs-unstable.jdt-language-server
+            pkgs.${namespace}.java-debug
 
             #-- zig
             zls
