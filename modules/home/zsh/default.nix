@@ -18,7 +18,15 @@ in
   programs.zsh = {
     oh-my-zsh = {
       enable = true;
-      plugins = [ "git" ];
+      plugins = [
+        "git"
+        "pass"
+        "zoxide"
+        "spring"
+        "docker"
+        "docker-compose"
+        "dotenv"
+      ];
       theme = "robbyrussell";
     };
 
@@ -106,6 +114,9 @@ in
       md = "mkdir -p";
       ppc = "powerprofilesctl";
       pf = "powerprofilesctl launch -p performance";
+
+      restore-roam = "echo \"restic -r rclone:ali:org-roam-backup restore latest --target ~/org-roam-dir \"";
+      restore-pass = "echo \"restic -r rclone:ali:password-store restore latest --target ~/.local/share/password-store \"";
 
       us = "systemctl --user"; # mnemonic for user systemctl
       rs = "sudo systemctl"; # mnemonic for root systemctl

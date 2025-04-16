@@ -3,7 +3,15 @@ let
   power-off-monitors = "${pkgs.niri}/bin/niri msg action power-off-monitors";
 in
 {
+  systemd.user.services.swayidle = {
+    Unit = {
+      After = [ "graphical-session.target" ];
+      PartOf = [ "graphical-session.target" ];
+    };
+  };
+
   services.swayidle = {
+
     extraArgs = [
       "-d"
     ];
