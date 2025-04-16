@@ -44,7 +44,6 @@ in
     home.packages = with pkgs; [
       mako
       papirus-icon-theme
-      swaylock
       (pkgs.writeScriptBin "brave" ''
         #!/bin/sh
         BRAVE_USER_FLAGS_FILE="$XDG_CONFIG_HOME/brave-flags.conf"

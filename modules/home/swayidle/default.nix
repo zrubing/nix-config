@@ -1,6 +1,5 @@
 { pkgs, ... }:
 let
-  swaylock = "${pkgs.swaylock-effects}/bin/swaylock";
   power-off-monitors = "${pkgs.niri}/bin/niri msg action power-off-monitors";
 in
 {
@@ -11,11 +10,11 @@ in
     events = [
       {
         event = "before-sleep";
-        command = swaylock;
+        command = "swaylock";
       }
       {
         event = "lock";
-        command = swaylock;
+        command = "swaylock";
       }
     ];
     timeouts = [
@@ -25,7 +24,7 @@ in
       }
       {
         timeout = 10 * 60 + 5;
-        command = "${swaylock} --daemonize --debug";
+        command = "swaylock --daemonize --debug";
       }
       {
         timeout = 10;
