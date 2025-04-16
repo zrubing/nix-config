@@ -20,8 +20,8 @@ self: super: {
       owner = "Supreeeme";
       repo = "xwayland-satellite";
       tag = null;
-      rev = "555f9492ad8d6d2f47af728eb4570e40339541a3";
-      sha256 = "sha256-y8+XayMTJE1O2WtHWgUK2/nvLu09p6fX0hRBA1sySJw=";
+      rev = "45185b7f142c153ce3ab50bbc196b2112e0797c2";
+      sha256 = "sha256-ocJQcrr0IQuumaTd9HHH6gtLYmQvJioxFs+dmnySnlw=";
     };
     cargoDeps = super.rustPlatform.fetchCargoVendor {
       inherit src;
