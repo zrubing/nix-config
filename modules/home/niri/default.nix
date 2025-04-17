@@ -27,6 +27,7 @@ in
       copyq.enable = true;
       yazi.enable = true;
       rgbar.enable = true;
+      xdg-portal.enable = true;
       linux.desktop = {
         enable = true;
         type = "niri";

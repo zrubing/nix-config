@@ -20,20 +20,6 @@ in
   config = mkIf cfg.enable {
     programs.yazi = {
       enable = true;
-      package = (
-        pkgs.writeScriptBin "yazi" ''
-          #!/usr/bin/env zsh
-          function y() {
-            local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
-            ${pkgs.yazi}/bin/yazi "$@" --cwd-file="$tmp"
-            if cwd="$(command cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
-              builtin cd -- "$cwd"
-            fi
-            rm -f -- "$tmp"
-          }
-          y
-        ''
-      );
       settings = {
         manager = {
           ratio = [
@@ -93,23 +79,6 @@ in
 
     ];
 
-    home.file."${config.xdg.configHome}/xdg-desktop-portal/portals.conf".text = ''
-      ### $XDG_CONFIG_HOME/xdg-desktop-portal/portals.conf ###
-
-      [preferred]
-      org.freedesktop.impl.portal.FileChooser=termfilechooser
-    '';
-
-    #https://github.com/hunkyburrito/xdg-desktop-portal-termfilechooser?tab=readme-ov-file#installation
-    home.file."${config.xdg.configHome}/xdg-desktop-portal-termfilechooser/config".text = ''
-      ### $XDG_CONFIG_HOME/xdg-desktop-portal-termfilechooser/config ###
-
-      [filechooser]
-      cmd=${pkgs-unstable.xdg-desktop-portal-termfilechooser}/share/xdg-desktop-portal-termfilechooser/yazi-wrapper.sh
-      default_dir=$HOME
-      env=TERMCMD=${pkgs.foot}/bin/foot -T "terminal-filechooser"
-      env=VARIABLE2=VALUE2
-    '';
 
   };
 }

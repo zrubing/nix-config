@@ -33,6 +33,7 @@ in
       devcontainer
       devbox
       zed-editor
+      sioyek
     ];
 
     programs = {

@@ -16,6 +16,16 @@ in
   ];
 
   programs.zsh = {
+    enable = true;
+
+    zplug = {
+      enable = true;
+      plugins = [
+        { name = "zsh-users/zsh-autosuggestions"; } # Simple plugin installation
+        { name = "joshskidmore/zsh-fzf-history-search"; }
+
+      ];
+    };
     oh-my-zsh = {
       enable = true;
       plugins = [
@@ -26,11 +36,11 @@ in
         "docker"
         "docker-compose"
         "dotenv"
+        "history-substring-search"
       ];
       theme = "robbyrussell";
     };
 
-    enable = true;
     #autosuggestion.enable = true;
     autocd = true;
     dirHashes = {
@@ -67,6 +77,11 @@ in
       # Home/End
       bindkey "^[[OH" beginning-of-line
       bindkey "^[[OF" end-of-line
+
+
+      # history search substring
+      bindkey '^[[A' history-substring-search-up
+      bindkey '^[[B' history-substring-search-down
 
       # open commands in $EDITOR with C-e
       # autoload -z edit-command-line

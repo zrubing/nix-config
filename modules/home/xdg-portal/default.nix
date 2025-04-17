@@ -20,14 +20,9 @@ in
 
   config = mkIf cfg.enable {
 
-    # 默认的没带after，partof，启动会超时
-    systemd.user.services.xdg-desktop-portal-gtk = {
-      after = [ "graphical-session.target" ];
-      partOf = [ "graphical-session.target" ];
-    };
-
     xdg.portal = {
       enable = true;
+      xdgOpenUsePortal = true;
       extraPortals = with pkgs; [
         xdg-desktop-portal-gtk
         xdg-desktop-portal-gnome
@@ -45,5 +40,23 @@ in
       };
 
     };
+
+    home.file."${config.xdg.configHome}/xdg-desktop-portal/portals.conf".text = ''
+      ### $XDG_CONFIG_HOME/xdg-desktop-portal/portals.conf ###
+
+      [preferred]
+      org.freedesktop.impl.portal.FileChooser=termfilechooser
+    '';
+
+    #https://github.com/hunkyburrito/xdg-desktop-portal-termfilechooser?tab=readme-ov-file#installation
+    xdg.configFile."xdg-desktop-portal-termfilechooser/config".text = ''
+      ### $XDG_CONFIG_HOME/xdg-desktop-portal-termfilechooser/config ###
+
+      [filechooser]
+      cmd=${pkgs-unstable.xdg-desktop-portal-termfilechooser}/share/xdg-desktop-portal-termfilechooser/yazi-wrapper.sh
+      default_dir=$HOME
+      env=TERMCMD=${pkgs.foot}/bin/foot -T "terminal-filechooser"
+    '';
+
   };
 }
