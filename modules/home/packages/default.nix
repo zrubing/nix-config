@@ -34,6 +34,7 @@ in
       devbox
       zed-editor
       sioyek
+      libreoffice
     ];
 
     programs = {
