@@ -24,6 +24,8 @@ in
         pkgs.${namespace}.rgbar
         fuzzel
         wl-clipboard
+
+        brightnessctl
       ];
       programs.niri.enable = true;
       ${namespace} = {

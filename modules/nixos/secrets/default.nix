@@ -111,18 +111,18 @@ in
       };
 
       # # place secrets in /etc/
-      # environment.etc = {
+      environment.etc = {
 
-      #   "agenix/rclone.conf" = {
-      #     source = config.age.secrets."rclone.conf".path;
-      #   };
+        # "agenix/rclone.conf" = {
+        #   source = config.age.secrets."rclone.conf".path;
+        # };
 
-      #   "agenix/zrubing-gpg-subkeys.priv.age" = {
-      #     source = config.age.secrets."zrubing-gpg-subkeys.priv.age".path;
-      #     mode = "0000";
-      #   };
+        "agenix/zrubing-gpg-subkeys.priv.age" = {
+          source = config.age.secrets."zrubing-gpg-subkeys.priv.age".path;
+          mode = "0000";
+        };
 
-      # };
+      };
     })
 
     (mkIf cfg.server.network.enable {

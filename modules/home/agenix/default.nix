@@ -11,6 +11,7 @@ let
   mysecrets = inputs.mysecrets;
   mystuff = pkgs.writeShellScriptBin "echo-secret" ''
     ${pkgs.coreutils}/bin/cat ${config.age.secrets.authinfo.path} > /home/${username}/.authinfo
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets."rclone.conf".path} > /home/${username}/.config/rclone/rclone.conf
   '';
 in
 {
@@ -19,6 +20,7 @@ in
 
     age.identityPaths = [ "/home/${username}/.ssh/id_ed25519" ];
     age.secrets.authinfo.file = "${mysecrets}/authinfo.age";
+    age.secrets."rclone.conf".file = "${mysecrets}/rclone.conf.age";
 
     home.packages = [
       #inputs.agenix.packages.${system}.agenix
