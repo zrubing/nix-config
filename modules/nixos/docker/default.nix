@@ -10,6 +10,15 @@
   virtualisation = {
     docker = {
       enable = true;
+      daemon.settings = {
+        bip = "172.120.0.1/16";
+        default-address-pools = [
+          {
+            base = "10.219.0.0/16";
+            size = 24;
+          }
+        ];
+      };
       rootless = {
         enable = true;
         setSocketVariable = true;
