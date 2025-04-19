@@ -104,6 +104,11 @@ in
           file = "${mysecrets}/miho-conf.age";
         } // high_security;
 
+        "topsap/env.ini" = {
+          file = "${mysecrets}/topsap/env.ini.age";
+        } // high_security;
+
+
         # ---------------------------------------------
         # user can read this file.
         # ---------------------------------------------
@@ -120,6 +125,9 @@ in
         "agenix/zrubing-gpg-subkeys.priv.age" = {
           source = config.age.secrets."zrubing-gpg-subkeys.priv.age".path;
           mode = "0000";
+        };
+        "agenix/topsap/env.ini" = {
+          source = config.age.secrets."topsap/env.ini".path;
         };
 
       };

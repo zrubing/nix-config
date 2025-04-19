@@ -1,4 +1,5 @@
-{ config, namespace, ... }: {
+{ config, namespace, ... }:
+{
 
   programs.ssh = {
     enable = true;
@@ -10,7 +11,8 @@
         # required to prevent sending default identity files first.
         IdentitiesOnly yes
     '';
-  };
 
+    includes = [ "${config.age.secrets."ssh/topsap-config".path}" ];
+  };
 
 }
