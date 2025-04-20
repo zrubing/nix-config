@@ -10,12 +10,6 @@ let
 in
 {
   config = {
-    nixpkgs.config = {
-      programs.npm.npmrc = ''
-        prefix = ''${HOME}/.npm-global
-      '';
-    };
-
     xdg.configFile."lsp-bridge-lib/typescript-lib" = {
       source = "${pkgs.nodePackages.typescript}/lib/node_modules/typescript/lib";
       recursive = true;
