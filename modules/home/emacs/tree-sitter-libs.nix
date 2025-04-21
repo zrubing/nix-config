@@ -10,6 +10,7 @@ let
   # Map library filename suffix to the corresponding grammar package
   grammarMap = {
     rust = grammars.tree-sitter-rust;
+    php = grammars.tree-sitter-php;
     java = grammars.tree-sitter-java;
     vue = grammars.tree-sitter-vue;
     typescript = grammars.tree-sitter-typescript;
