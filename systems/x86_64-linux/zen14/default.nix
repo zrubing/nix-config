@@ -50,8 +50,8 @@
     networking.wifi.enable = true;
     #builder.enable = true;
     desktop = {
-      #kde.enable = true;
-      niri.enable = true;
+      kde.enable = true;
+      #niri.enable = true;
     };
 
     #dae.enable = true;

@@ -62,11 +62,11 @@
     "doomemacs": {
       "flake": false,
       "locked": {
-        "lastModified": 1744707262,
-        "narHash": "sha256-anjTbcwin8S8v5WMj3xi1tHe4bSniWWaGIe1y5FnuIA=",
+        "lastModified": 1745134331,
+        "narHash": "sha256-OZitzVfqG2rBxv8jVGF40uwDzBiSBGqZYQqOZWqfIJk=",
         "owner": "doomemacs",
         "repo": "doomemacs",
-        "rev": "88b6d350824c7b811d4d87f7c3d79379124db462",
+        "rev": "ed85328f570011e211ac959d6d88eeb156c61211",
         "type": "github"
       },
       "original": {
@@ -192,11 +192,11 @@
     "mysecrets": {
       "flake": false,
       "locked": {
-        "lastModified": 1745053546,
-        "narHash": "sha256-uGcunNV5vLKkCgGTxYf6i7zBAEWuLP9LDT6roP7Elyc=",
+        "lastModified": 1745154681,
+        "narHash": "sha256-ilGwGR9b8Di+oQdUUt++LwV7KV0VMMMvi7vZMsvEcWs=",
         "ref": "main",
-        "rev": "6f53f1bd57060ce3bc77d628e2c2d7e7b5235b5c",
-        "revCount": 46,
+        "rev": "721e6039e3ce07921b9d094f0b722a1d0bc02d8f",
+        "revCount": 47,
         "type": "git",
         "url": "ssh://git@github.com/zrubing/nix-secrets.git"
       },

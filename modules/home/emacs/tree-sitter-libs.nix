@@ -1,19 +1,15 @@
 {
-  config,
   lib,
   pkgs,
-  namespace,
-  inputs,
-  system,
   ...
 }:
 with lib;
 let
-  hm = config.lib;
   grammars = pkgs.tree-sitter-grammars;
 
   # Map library filename suffix to the corresponding grammar package
   grammarMap = {
+    rust = grammars.tree-sitter-rust;
     java = grammars.tree-sitter-java;
     vue = grammars.tree-sitter-vue;
     typescript = grammars.tree-sitter-typescript;

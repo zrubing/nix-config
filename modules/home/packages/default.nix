@@ -22,7 +22,7 @@ in
     home.packages = with pkgs; [
       wireshark-qt
       pkgs-unstable.tdlib
-      localsend
+      pkgs-unstable.localsend
       pkgs.${namespace}.aider
       pkgs-unstable.mise
       pkgs.${namespace}.wl-ocr

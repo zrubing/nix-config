@@ -89,8 +89,18 @@ output "eDP-1" {
     // so to put another output directly adjacent to it on the right, set its x to 1920.
     // If the position is unset or results in an overlap, the output is instead placed
     // automatically.
-    position x=1280 y=0
+    position x=0 y=0
         variable-refresh-rate
+}
+output "HDMI-A-1" {
+
+    mode "1920x1080@60"
+    // You can use integer or fractional scale, for example use 1.5 for 150% scale.
+    scale 1
+    transform "normal"
+
+    position x=0 y=1080
+
 }
 
 
