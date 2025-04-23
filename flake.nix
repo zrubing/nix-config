@@ -45,6 +45,8 @@
       };
     };
 
+    tree-sitter-grammars.url = "github:marsam/tree-sitter-grammars";
+
     sops-nix = {
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";

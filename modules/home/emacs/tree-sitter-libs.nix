@@ -1,14 +1,16 @@
 {
   lib,
   pkgs,
+  inputs,
+  system,
   ...
 }:
 with lib;
 let
   grammars = pkgs.tree-sitter-grammars;
-
   # Map library filename suffix to the corresponding grammar package
   grammarMap = {
+    phpdoc = inputs.tree-sitter-grammars.packages.${system}.tree-sitter-phpdoc;
     rust = grammars.tree-sitter-rust;
     php = grammars.tree-sitter-php;
     java = grammars.tree-sitter-java;
@@ -25,17 +27,29 @@ let
     python = grammars.tree-sitter-python;
     json = grammars.tree-sitter-json;
     yaml = grammars.tree-sitter-yaml;
+    c = grammars.tree-sitter-c;
+    cpp = grammars.tree-sitter-cpp;
+    go = grammars.tree-sitter-go;
+    bash = grammars.tree-sitter-bash;
+    ruby = grammars.tree-sitter-ruby;
+    toml = grammars.tree-sitter-toml;
   };
+
+  grammarFiles = mapAttrs' (name: grammarPkg: {
+    name = "tree-sitter-libs/libtree-sitter-${name}.so";
+    value = {
+      source = 
+        if name == "phpdoc" 
+        then "${grammarPkg}/lib/libtree-sitter-phpdoc.so"
+        else "${grammarPkg.outPath}/parser";
+    };
+  }) grammarMap;
 
 in
 {
   config = {
-    # Generate xdg config entries for each grammar in the map
-    xdg.configFile = mapAttrs' (name: grammarPkg: {
-      # The key for the attribute set, e.g., "tree-sitter-libs/libtree-sitter-java.so"
-      name = "tree-sitter-libs/libtree-sitter-${name}.so";
-      # The value for the attribute set, e.g., { source = ".../parser"; }
-      value = { source = "${grammarPkg.outPath}/parser"; };
-    }) grammarMap;
+    xdg.configFile = grammarFiles;
+
   };
+
 }
