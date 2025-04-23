@@ -11,7 +11,7 @@ in
   };
 
   home.activation.setupVirt = hm.dag.entryAfter [ "writeBoundary" ] ''
-    virsh net-autostart default
+    # virsh net-autostart default
   '';
 
 }

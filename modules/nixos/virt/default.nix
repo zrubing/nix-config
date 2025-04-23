@@ -1,7 +1,7 @@
 { ... }:
 {
 
-  programs.virt-manager.enable = true;
+  programs.virt-manager.enable = false;
 
   users.groups.libvirtd.members = [ "jojo" ];
   users.users.jojo.extraGroups = [ "libvirtd" ];

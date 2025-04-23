@@ -33,6 +33,7 @@ let
     bash = grammars.tree-sitter-bash;
     ruby = grammars.tree-sitter-ruby;
     toml = grammars.tree-sitter-toml;
+    jsdoc = grammars.tree-sitter-jsdoc;
   };
 
   grammarFiles = mapAttrs' (name: grammarPkg: {
