@@ -103,29 +103,28 @@ in
           ;
       }).config
     ))
-    (mkIf desktopCfg.kde.enable (
-      (import ./xserver.nix {
-        inherit
-          config
-          lib
-          pkgs
-          namespace
-          inputs
-          system
-          ;
-      }).config
-    ))
-    (mkIf desktopCfg.niri.enable (
-      (import ./wayland.nix {
-        inherit
-          config
-          lib
-          pkgs
-          namespace
-          inputs
-          system
-          ;
-      }).config
-    ))
+    (import ./xserver.nix {
+      inherit
+        config
+        lib
+        pkgs
+        namespace
+        inputs
+        system
+        ;
+    }).config
+
+    # (mkIf desktopCfg.niri.enable (
+    #   (import ./wayland.nix {
+    #     inherit
+    #       config
+    #       lib
+    #       pkgs
+    #       namespace
+    #       inputs
+    #       system
+    #       ;
+    #   }).config
+    # ))
   ]);
 }

@@ -44,6 +44,7 @@ in
 
     home.packages = with pkgs; [
       mako
+      xorg.xrdb
       papirus-icon-theme
       (pkgs.writeScriptBin "brave" ''
         #!/bin/sh

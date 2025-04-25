@@ -48,6 +48,7 @@
   ${namespace} = {
     user.name = "jojo";
     networking.wifi.enable = true;
+    tailscale.headscaleAuthkeyFile  = "headscale-authkey-nova13.age";
     #builder.enable = true;
     desktop = {
       #kde.enable = true;

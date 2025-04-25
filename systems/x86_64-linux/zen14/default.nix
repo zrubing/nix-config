@@ -48,10 +48,11 @@
   ${namespace} = {
     user.name = "jojo";
     networking.wifi.enable = true;
+    tailscale.headscaleAuthkeyFile = "headscale-authkey-zen14.age";
     #builder.enable = true;
     desktop = {
-      kde.enable = true;
-      #niri.enable = true;
+      #kde.enable = true;
+      niri.enable = true;
     };
 
     #dae.enable = true;

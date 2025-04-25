@@ -7,8 +7,8 @@
 
   internal = {
 
-    desktop.kde.enable = true;
-    #desktop.niri.enable = true;
+    #desktop.kde.enable = true;
+    desktop.niri.enable = true;
     emacs = {
       enable = true;
       type = "doom";

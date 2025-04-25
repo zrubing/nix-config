@@ -15,13 +15,13 @@
 self: super: {
   xwayland-satellite = super.xwayland-satellite.overrideAttrs (old: rec {
 
-    version = "force_unscaled";
+    version = "latest";
     src = super.fetchFromGitHub {
       owner = "Supreeeme";
       repo = "xwayland-satellite";
       tag = null;
-      rev = "45185b7f142c153ce3ab50bbc196b2112e0797c2";
-      sha256 = "sha256-ocJQcrr0IQuumaTd9HHH6gtLYmQvJioxFs+dmnySnlw=";
+      rev = "c31679aa41966ee9272bb240703755cb1e7c72e3";
+      sha256 = "sha256-5DX9lYmEbkdANCzME2v3coV0EnWOhS7NsTlGBQuqmjM=";
     };
     cargoDeps = super.rustPlatform.fetchCargoVendor {
       inherit src;
