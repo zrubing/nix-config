@@ -3,6 +3,7 @@
   config,
   pkgs,
   namespace,
+  inputs,
   ...
 }:
 
@@ -25,6 +26,17 @@ in
       )
 
     '';
+
+    home.file."bin/nix-command-not-found" = {
+      text = ''
+        #!/usr/bin/env bash
+        source ${pkgs.nix-index}/etc/profile.d/command-not-found.sh
+        command_not_found_handle "$@"
+      '';
+
+      executable = true;
+    };
+
     programs = {
       fish = {
         enable = true;
@@ -34,10 +46,13 @@ in
           echo -n -s "$nix_shell_info ~>"
         '';
         plugins = [
-          # Enable a plugin (here grc for colorized command output) from nixpkgs
           {
-            name = "grc";
-            src = pkgs.fishPlugins.grc.src;
+            name = "pure";
+            src = pkgs.fishPlugins.pure.src;
+          }
+          {
+            name = "fzf";
+            src = pkgs.fishPlugins.fzf.src;
           }
           # Manually packaging and enable a plugin
           {
