@@ -13,6 +13,6 @@
       magic-wormhole-rs
     ];
 
-    variables.EDITOR = "hx";
+    variables.EDITOR = "emacsclient -c -a \'emacs\'";
   };
 }

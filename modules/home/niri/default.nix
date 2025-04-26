@@ -67,6 +67,12 @@ in
          ${config.xdg.dataHome}/papirus-icon-theme/Brave-browser.svg
       fi
 
+      if [ ! -f "${config.xdg.dataHome}/papirus-icon-theme/Emacs.svg" ]; then
+        mkdir -p ${config.xdg.dataHome}/papirus-icon-theme/
+        cp ${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps/emacs.svg \
+         ${config.xdg.dataHome}/papirus-icon-theme/Emacs.svg
+      fi
+
     '';
 
     # set in xdg-config

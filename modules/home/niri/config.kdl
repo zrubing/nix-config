@@ -182,7 +182,7 @@ layout {
 // Note that running niri as a session supports xdg-desktop-autostart,
 // which may be more convenient to use.
 // See the binds section below for more spawn examples.
-// spawn-at-startup "alacritty" "-e" "fish"
+spawn-at-startup "alacritty" "-e" "fish"
 
 // Or, if you built it by hand:
 // spawn-at-startup "~/path/to/code/target/release/xwayland-satellite"
@@ -276,7 +276,7 @@ binds {
     Mod+W { toggle-column-tabbed-display; }
 
     // Suggested binds for running programs: terminal, app launcher, screen locker.
-    Mod+Return { spawn "foot"; }
+    Mod+Return { spawn "alacritty" "-e" "fish"; }
     Mod+D { spawn "fuzzel"; }
     Mod+X { spawn "emacs"; }
     Super+Alt+L { spawn "swaylock"; }
