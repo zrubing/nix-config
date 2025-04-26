@@ -6,6 +6,7 @@
 }:
 let
   cfg = config.services.xwayland-satellite;
+  cfg-xwayland = config.xwayland;
   hm = config.lib;
 in
 {
@@ -14,34 +15,35 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+
     home.packages = with pkgs; [
       xwayland-satellite
     ];
 
-    home.activation.setupX = hm.dag.entryAfter [ "writeBoundary" ] ''
-      ${pkgs.xorg.xrdb}/bin/xrdb -merge ~/.Xresources
-    '';
-
+    # 暂时没用到，先生成一个文件
     home.file.".xinitrc".text = ''
       #!/usr/bin/env bash
       ${pkgs.xorg.xrdb}/bin/xrdb -merge ~/.Xresources
     '';
 
-    systemd.user.services.xwayland-satellite = {
+    systemd.user.services.xrdb = {
       Unit = {
-        Description = "Xwayland outside your Wayland";
-        BindsTo = [ "graphical-session.target" ];
-        PartOf = [ "graphical-session.target" ];
-        After = [ "graphical-session.target" ];
-        Requisite = [ "graphical-session.target" ];
+        Description = "Xresources";
+        PartOf = [ "xwayland-satellite.service" ];
+        After = [ "xwayland-satellite.service" ];
+        Requisite = [ "xwayland-satellite.service" ];
       };
-      Install.WantedBy = [ "graphical-session.target" ];
+
+      Install = {
+        WantedBy = [ "xwayland-satellite.service" ];
+      };
+
       Service = {
-        Type = "notify";
-        NotifyAccess = "all";
-        ExecStart = "${pkgs.xwayland-satellite}/bin/xwayland-satellite";
-        StandardOutput = "journal";
+        Type = "oneshot";
+        ExecStart = "/usr/bin/env 'DISPLAY=:0' ${pkgs.xorg.xrdb}/bin/xrdb ${cfg-xwayland.x-resources.source}";
+        Environment = "DISPLAY=:0";
       };
     };
+
   };
 }

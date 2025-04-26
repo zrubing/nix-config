@@ -184,7 +184,6 @@ layout {
 // See the binds section below for more spawn examples.
 // spawn-at-startup "alacritty" "-e" "fish"
 
-spawn-at-startup "xwayland-satellite"
 // Or, if you built it by hand:
 // spawn-at-startup "~/path/to/code/target/release/xwayland-satellite"
 

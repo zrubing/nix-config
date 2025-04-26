@@ -31,5 +31,13 @@ self: super: {
     cargoSha256 = "sha256-iuIwRCmFk/Xq8Is+DlVRQNDiR0l1Zte1bUb1xC3yd8A=";
     cargoVendorDir = null;
 
+    postInstall = ''
+      wrapProgram $out/bin/xwayland-satellite \
+        --prefix PATH : "${lib.makeBinPath [ super.pkgs.xwayland ]}"
+      mkdir -p $out/lib/systemd/user
+      substitute $src/resources/xwayland-satellite.service $out/lib/systemd/user/xwayland-satellite.service \
+        --replace-fail '/usr/local/bin' "$out/bin"
+    '';
+
   });
 }
