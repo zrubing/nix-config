@@ -21,6 +21,7 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          # for emacs dirvish
           vips
 
           nix-direnv
