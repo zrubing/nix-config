@@ -61,37 +61,6 @@
     };
 
   };
-
-  # outputs =
-  #   inputs:
-  #   let
-  #     secrets = { lib, ... }: {
-  #       age.secrets = with lib;
-  #         listToAttrs (map
-  #           (name: {
-  #             name = removeSuffix ".age" name;
-  #             value = {
-  #               file = (snowfall.fs.get-file "secrets/${name}");
-  #             };
-  #           })
-  #           (attrNames (import (snowfall.fs.get-file "secrets/secrets.nix"))));
-  #     };
-  #   in
-  #   (inputs.snowfall-lib.mkFlake {
-  #     inherit inputs;
-  #     src = ./.;
-
-  #     channels-config = {
-  #       allowUnfree = true;
-  #     };
-
-  #     systems.modules.nixos = with inputs; [
-  #       agenix.darwinModules.default
-  #       secrets
-  #     ];
-
-  #   });
-
   outputs =
     inputs:
     let
@@ -120,42 +89,14 @@
         agenix.homeManagerModules.default
       ];
 
+      # The attribute set specified here will be passed directly to NixPkgs when
+      # instantiating the package set.
+      channels-config = {
+        # Allow unfree packages.
+        allowUnfree = true;
+
+      };
+
     };
 
-  # outputs = { self, nixpkgs, home-manager, agenix, ... }@inputs: {
-  #   nixosConfigurations.nixos = let
-  #     username = "jojo";
-  #     system = "x86_64-linux";
-
-  #     # use unstable branch for some packages to get the latest updates
-  #     pkgs-unstable = import inputs.nixpkgs-unstable {
-  #       inherit system; # refer the `system` parameter form outer scope recursively
-  #       # To use chrome, we need to allow the installation of non-free software
-  #       config.allowUnfree = true;
-  #     };
-
-  #     specialArgs = { inherit username inputs pkgs-unstable; };
-  #   in nixpkgs.lib.nixosSystem {
-  #     inherit specialArgs system;
-
-  #     modules = [
-  #       {
-  #         modules.desktop.wayland.enable = true;
-  #       }
-  #       ./hosts/nixos
-  #       ./users/${username}/nixos.nix
-  #       agenix.nixosModules.default
-
-  #       home-manager.nixosModules.home-manager
-  #       {
-  #         home-manager.useGlobalPkgs = true;
-  #         home-manager.useUserPackages = true;
-
-  #         home-manager.extraSpecialArgs = inputs // specialArgs;
-  #         home-manager.users.${username} = import ./users/${username}/home.nix;
-  #       }
-  #     ];
-  #   };
-
-  # }
 }

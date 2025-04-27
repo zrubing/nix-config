@@ -20,6 +20,9 @@ in
       (
         # -*- Data & Configuration Languages -*-#
         [
+
+          vips
+
           nix-direnv
           direnv
           #-- nix
@@ -152,6 +155,8 @@ in
             spring-boot-cli
             pkgs-unstable.jdt-language-server
             pkgs.${namespace}.java-debug
+            # php
+            intelephense
 
             #-- zig
             zls
@@ -164,6 +169,7 @@ in
             nodePackages.bash-language-server
             shellcheck
             shfmt
+            #bitcoin
           ]
         #-*- Web Development -*-#
         ++ [
