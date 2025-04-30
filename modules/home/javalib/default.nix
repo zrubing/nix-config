@@ -14,6 +14,7 @@ in {
     ];
 
     home.file."${javalib-dir}/lombok.jar".source = "${pkgs.lombok}/share/java/lombok.jar";
+    home.file."${javalib-dir}/java-debug.jar".source = "${pkgs.${namespace}.java-debug}/lib/java-debug.jar";
 
   };
 }
