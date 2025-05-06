@@ -26,10 +26,10 @@ in
 
       }
       // lib.optionalAttrs
-        (!(config.${namespace}.desktop.kde.enable || config.${namespace}.desktop.niri.enable))
+        (config.${namespace}.desktop.kde.enable || config.${namespace}.desktop.niri.enable)
         {
-          GTK_IM_MODULE = lib.mkForce "fcitx";
-          QT_IM_MODULE = lib.mkForce "fcitx";
+          GTK_IM_MODULE = lib.mkForce "fcitx5";
+          QT_IM_MODULE = lib.mkForce "wayland";
         };
 
     i18n.inputMethod = {

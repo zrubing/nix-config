@@ -20,6 +20,8 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      code-cursor
+      mysql84
       wireshark-qt
       pkgs-unstable.tdlib
       pkgs-unstable.localsend
@@ -30,7 +32,7 @@ in
       pkgs-unstable.tailscale
       dbeaver-bin
       devenv
-      devcontainer
+      devpod
       devbox
       zed-editor
       sioyek
