@@ -18,6 +18,9 @@ in
       # used by browser for wireshark
       SSLKEYLOGFILE = "/home/${username}/.ssl-key.log";
 
+      # Force apps to use wayland
+      NIXOS_OZONE_WL=1;
+
     };
 
   };

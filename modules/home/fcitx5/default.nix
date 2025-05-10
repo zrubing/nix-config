@@ -45,6 +45,25 @@ in
       ];
     };
 
+    systemd.user.services = {
+      "fcitx5" = {
+        Install = {
+          WantedBy = [ "graphical-session.target" ];
+        };
+        Unit = {
+          PartOf = [ "graphical-session.target" ];
+          After = [
+            "graphical-session.target"
+            "xwayland-satellite.service"
+          ];
+        };
+        Service = {
+          ExecStart = "${lib.getExe' config.i18n.inputMethod.package "fcitx5"} --replace";
+          Restart = "on-failure";
+        };
+      };
+    };
+
   };
   #home.file.".config/rime/default.custom.yaml".source = ./rime-data-flypy/share/rime-data/default.custom.yaml;
 

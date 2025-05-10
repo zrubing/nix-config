@@ -26,6 +26,7 @@ in
     age.secrets."rclone.conf".file = "${mysecrets}/rclone.conf.age";
     age.secrets."topsap/env.ini".file = "${mysecrets}/topsap/env.ini.age";
     age.secrets."ssh/topsap-config".file = "${mysecrets}/ssh/topsap-config.age";
+    age.secrets."ssh/work-config".file = "${mysecrets}/ssh/work-config.age";
 
     home.packages = [
       #inputs.agenix.packages.${system}.agenix

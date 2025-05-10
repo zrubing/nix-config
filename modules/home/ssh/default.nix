@@ -12,7 +12,10 @@
         IdentitiesOnly yes
     '';
 
-    includes = [ "${config.age.secrets."ssh/topsap-config".path}" ];
+    includes = [
+      "${config.age.secrets."ssh/topsap-config".path}"
+      "${config.age.secrets."ssh/work-config".path}"
+    ];
   };
 
 }

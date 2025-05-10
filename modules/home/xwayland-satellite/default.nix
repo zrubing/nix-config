@@ -28,20 +28,42 @@ in
 
     systemd.user.services.xrdb = {
       Unit = {
-        Description = "Xresources";
-        PartOf = [ "xwayland-satellite.service" ];
-        After = [ "xwayland-satellite.service" ];
+        Description = "xrdb";
+        PartOf = [ "graphical-session.target" ];
+        After = [
+          "graphical-session.target"
+          "xwayland-satellite.service"
+        ];
         Requisite = [ "xwayland-satellite.service" ];
       };
 
       Install = {
-        WantedBy = [ "xwayland-satellite.service" ];
+        WantedBy = [ "graphical-session.target" ];
       };
 
       Service = {
         Type = "oneshot";
         ExecStart = "/usr/bin/env 'DISPLAY=:0' ${pkgs.xorg.xrdb}/bin/xrdb ${cfg-xwayland.x-resources.source}";
         Environment = "DISPLAY=:0";
+      };
+    };
+
+    systemd.user.services."xwayland-satellite" = {
+      Install = {
+        WantedBy = [ "graphical-session.target" ];
+      };
+      Unit = {
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session.target" ];
+        Before = [
+          "xrdb.service"
+          "fcitx5.service"
+        ];
+      };
+      Service = {
+        Type="notify";
+        ExecStart = "${lib.getExe pkgs.xwayland-satellite} :0";
+        Restart = "on-failure";
       };
     };
 
