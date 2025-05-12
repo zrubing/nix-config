@@ -25,7 +25,7 @@ in
     #age.secrets.tailscale-authkey.file = "${mysecrets}/tailscale-authkey.age";
     age.secrets.headscale-authkey.file = "${mysecrets}/${cfg.headscaleAuthkeyFile}";
     services.tailscale = {
-      enable = true;
+      enable = false;
       extraUpFlags = [
         "--login-server=http://127.0.0.1:2001"
         "--accept-dns=true"

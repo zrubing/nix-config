@@ -20,6 +20,8 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      # for aider
+      python312Packages.playwright
       code-cursor
       mysql84
       wireshark-qt
