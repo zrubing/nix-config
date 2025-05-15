@@ -20,6 +20,7 @@ in
 
   config = mkIf cfg.enable {
 
+
     xdg.portal = {
       enable = true;
       xdgOpenUsePortal = true;
@@ -30,6 +31,7 @@ in
         pkgs-unstable.xdg-desktop-portal-termfilechooser
       ];
       config = {
+        common.default = "*";
         niri = {
           default = "gnome;gtk";
           "org.freedesktop.impl.portal.Access" = "gtk";

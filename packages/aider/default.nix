@@ -109,7 +109,7 @@ let
 
   aider-chat = python312Packages.buildPythonPackage rec {
     pname = "aider-chat";
-    version = "0.82.0";
+    version = "0.83.0";
     pyproject = true;
 
     src = fetchFromGitHub {
@@ -117,7 +117,7 @@ let
       owner = "Aider-AI";
       repo = "aider";
       tag = "v${version}";
-      hash = "sha256-UlPYUYAYDhPPgoIvEWRLYjCe3iQ2ltH5mT3GkX+IrGI=";
+      hash = "sha256-hXKrjo/9Y3WLgluwEK2q123QcfBVA0ByEKaq8Rtd70E=";
     };
 
     pythonRelaxDeps = true;
@@ -224,6 +224,29 @@ let
       python-dateutil
 
       typing-inspection
+      # 83.0
+      cachetools
+      google-ai-generativelanguage
+      google-api-core
+      google-api-python-client
+      google-auth
+      google-auth-httplib2
+      google-generativeai
+      googleapis-common-protos
+      grpcio
+      grpcio-status
+      hf-xet
+      httplib2
+      mslex
+      oslex
+      proto-plus
+      protobuf
+      pyasn1
+      pyasn1-modules
+      pyparsing
+      rsa
+      shtab
+      uritemplate
     ];
 
     buildInputs = [
@@ -254,6 +277,10 @@ let
         "test_main_exit_calls_version_check"
         # AssertionError: assert 2 == 1
         "test_simple_send_non_retryable_error"
+
+        # 83.0
+        "test_language_ocaml_interface"
+        "test_language_ocaml"
       ]
       ++ lib.optionals stdenv.hostPlatform.isDarwin [
         # Tests fails on darwin

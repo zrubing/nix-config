@@ -33,15 +33,6 @@ in
         type = "niri";
       };
     };
-    xdg.desktopEntries = {
-      "brave" = {
-        name = "brave";
-        exec = "brave";
-        type = "Application";
-        categories = [ "WebBrowser" ];
-      };
-    };
-
     home.packages = with pkgs; [
       mako
       xorg.xrdb

@@ -19,6 +19,8 @@ in
   config = mkIf cfg.enable (mkMerge [
     xwayland-conf
     {
+
+      services.flatpak.enable = true;
       environment.systemPackages = with pkgs; [
         dunst
         pkgs.${namespace}.rgbar

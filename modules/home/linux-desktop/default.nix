@@ -59,7 +59,7 @@ in
                 "image/x-tga"
                 "image/x-xbitmap"
               ];
-              "firefox.desktop" = [
+              "brave.desktop" = [
                 "x-scheme-handler/http"
                 "x-scheme-handler/https"
                 "x-scheme-handler/chrome"
@@ -88,6 +88,36 @@ in
           lib.attrsets.concatMapAttrs (
             application: mimes: lib.attrsets.genAttrs mimes (_mime: [ application ])
           ) applications;
+      };
+      desktopEntries = {
+
+        brave = {
+          name = "brave";
+          exec = ''${pkgs.brave}/bin/brave'';
+          icon = "brave-browser";
+          terminal = false;
+          type = "Application";
+          categories = [
+            "WebBrowser"
+            "Network"
+          ];
+          mimeType = [
+            "application/pdf"
+            "application/rdf+xml"
+            "application/rss+xml"
+            "application/xhtml+xml"
+            "application/xhtml_xml"
+            "application/xml"
+            "image/gif"
+            "image/jpeg"
+            "image/png"
+            "image/webp"
+            "text/html"
+            "text/xml"
+            "x-scheme-handler/http"
+            "x-scheme-handler/https"
+          ];
+        };
       };
     };
 

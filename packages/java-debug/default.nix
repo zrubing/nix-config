@@ -8,16 +8,16 @@
 
 maven.buildMavenPackage rec {
   pname = "java-debug";
-  version = "0.53.1";
+  version = "0.53.2";
 
   src = fetchFromGitHub {
     owner = "microsoft";
     repo = "${pname}";
-    rev = "5c7562ade22977b15f76f46d13c098e82cc58ced";
-    sha256 = "sha256-7h2U0l8OE8VrXymggfQ3XSXacvfBbQKCJmQVSo8J4M0=";
+    rev = "54058b9eb466576a7a77c9303963ca88967ec58b";
+    sha256 = "sha256-nqvUCI2Lf+WGleSaAGbHAJLa10PHbjwWY19hazWwnsU=";
   };
 
-  mvnHash = "sha256-/O204NYQij0rMMKkQBUusJrqwh9EkIm9q5CG+yJ7Uog=";
+  mvnHash = "sha256-NO2AqU9q5K998HfJm9q3imlVzs3O1R+MafoK890sIN0=";
 
   nativeBuildInputs = [
     maven
@@ -34,7 +34,7 @@ maven.buildMavenPackage rec {
 
   installPhase = ''
     mkdir -p $out/lib
-    mv com.microsoft.java.debug.plugin/target/com.microsoft.java.debug.plugin-0.53.1.jar \
+    mv com.microsoft.java.debug.plugin/target/com.microsoft.java.debug.plugin-0.53.2.jar \
     $out/lib/java-debug.jar
   '';
 }

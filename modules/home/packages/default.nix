@@ -20,6 +20,8 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      vscode
+      ollama-rocm
       # for aider
       python312Packages.playwright
       code-cursor
