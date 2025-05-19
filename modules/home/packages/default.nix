@@ -20,6 +20,8 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      wechat-uos
+
       vscode
       ollama-rocm
       # for aider
