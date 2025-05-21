@@ -20,7 +20,7 @@ in
       (
         # -*- Data & Configuration Languages -*-#
         [
-
+          uv
           # for emacs dirvish
           vips
 
