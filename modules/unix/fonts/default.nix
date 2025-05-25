@@ -9,9 +9,8 @@ in {
       jetbrains-mono
       inter
       ibm-plex
-      (nerdfonts.override {
-        fonts = [ "NerdFontsSymbolsOnly" "JetBrainsMono" ];
-      })
+      nerd-fonts.jetbrains-mono
+      nerd-fonts.fira-code
     ];
   };
 }
