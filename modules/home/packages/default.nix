@@ -21,7 +21,7 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
       wechat-uos
-
+      conda
       vscode
       ollama-rocm
       # for aider
