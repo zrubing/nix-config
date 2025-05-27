@@ -83,6 +83,8 @@ in
             vscode-extensions.vadimcn.vscode-lldb.adapter # codelldb - debugger
 
             #-- python
+            basedpyright
+
             pyright # python language server
             (python312.withPackages (
               ps: with ps; [
