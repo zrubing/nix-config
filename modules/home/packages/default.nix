@@ -20,6 +20,8 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      redisinsight
+      feishu
       wechat-uos
       conda
       vscode

@@ -20,6 +20,7 @@ in
       (
         # -*- Data & Configuration Languages -*-#
         [
+          firefox
           uv
           # for emacs dirvish
           vips
@@ -152,11 +153,11 @@ in
 
             # -- java
             # jdk21
-            zulu23
+            zulu24
             gradle
             maven
             spring-boot-cli
-            pkgs-unstable.jdt-language-server
+            jdt-language-server
             pkgs.${namespace}.java-debug
             # php
             intelephense

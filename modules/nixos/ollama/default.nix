@@ -21,7 +21,7 @@ in
   config = lib.mkIf cfg.enable {
 
     services.ollama = {
-      enable = true;
+      enable = false;
       package = pkgs.ollama-rocm;
       acceleration = "rocm";
     };
