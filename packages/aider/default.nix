@@ -109,7 +109,7 @@ let
 
   aider-chat = python312Packages.buildPythonPackage rec {
     pname = "aider-chat";
-    version = "0.83.0";
+    version = "0.84.0";
     pyproject = true;
 
     src = fetchFromGitHub {
@@ -117,7 +117,7 @@ let
       owner = "Aider-AI";
       repo = "aider";
       tag = "v${version}";
-      hash = "sha256-hXKrjo/9Y3WLgluwEK2q123QcfBVA0ByEKaq8Rtd70E=";
+      hash = "sha256-TOlqwJM9wIAURSimuh9mysYDwgH9AfFev8jY9elLNk8=";
     };
 
     pythonRelaxDeps = true;
