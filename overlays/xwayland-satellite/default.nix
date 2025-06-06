@@ -20,15 +20,15 @@ self: super: {
       owner = "Supreeeme";
       repo = "xwayland-satellite";
       tag = null;
-      rev = "c31679aa41966ee9272bb240703755cb1e7c72e3";
-      sha256 = "sha256-5DX9lYmEbkdANCzME2v3coV0EnWOhS7NsTlGBQuqmjM=";
+      rev = "3ba30b149f9eb2bbf42cf4758d2158ca8cceef73";
+      sha256 = "sha256-IiLr1alzKFIy5tGGpDlabQbe6LV1c9ABvkH6T5WmyRI=";
     };
     cargoDeps = super.rustPlatform.fetchCargoVendor {
       inherit src;
-      hash = "sha256-QsU960aRU+ErU7vwoNyuOf2YmKjEWW3yCnQoikLaYeA=";
+      hash = "sha256-R3xXyXpHQw/Vh5Y4vFUl7n7jwBEEqwUCIZGAf9+SY1M=";
     };
 
-    cargoSha256 = "sha256-iuIwRCmFk/Xq8Is+DlVRQNDiR0l1Zte1bUb1xC3yd8A=";
+    cargoSha256 = lib.fakeHash;
     cargoVendorDir = null;
 
     postInstall = ''
