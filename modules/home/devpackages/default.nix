@@ -152,8 +152,9 @@ in
             delve # go debugger
 
             # -- java
-            # jdk21
-            zulu24
+            # jdk24
+            temurin-bin-24
+
             gradle
             maven
             spring-boot-cli

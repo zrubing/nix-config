@@ -1,4 +1,4 @@
-{ config, namespace, ... }:
+{ config, lib, namespace, ... }:
 {
 
   programs.ssh = {
@@ -13,8 +13,9 @@
     '';
 
     includes = [
-      "${config.age.secrets."ssh/topsap-config".path}"
-      "${config.age.secrets."ssh/work-config".path}"
+      # support for fish shell
+      (lib.replaceStrings ["$\{XDG_RUNTIME_DIR}"] ["$XDG_RUNTIME_DIR"] config.age.secrets."ssh/topsap-config".path)
+      (lib.replaceStrings ["$\{XDG_RUNTIME_DIR}"] ["$XDG_RUNTIME_DIR"] config.age.secrets."ssh/work-config".path)
     ];
   };
 

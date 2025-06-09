@@ -41,9 +41,15 @@ in
       fish = {
         enable = true;
         interactiveShellInit = ''
-          set fish_greeting # Disable greeting
-
-          echo -n -s "$nix_shell_info ~>"
+          set -U fish_greeting
+          set -U pure_symbol_prompt ">"
+          set -U pure_color_mute "brgreen"
+          set -U pure_enable_nixdevshell true
+          set -U pure_enable_single_line_prompt true
+          set -U fish_color_autosuggestion 586e75
+          fish_add_path $HOME/bin
+          fish_add_path $HOME/.local/bin/
+          ${pkgs.mise}/bin/mise activate fish | source
         '';
         plugins = [
           {

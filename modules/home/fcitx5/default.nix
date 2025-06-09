@@ -29,7 +29,7 @@ in
         (config.${namespace}.desktop.kde.enable || config.${namespace}.desktop.niri.enable)
         {
           GTK_IM_MODULE = lib.mkForce "fcitx5";
-          QT_IM_MODULE = lib.mkForce "wayland";
+          QT_IM_MODULE = lib.mkForce "fcitx";
         };
 
     i18n.inputMethod = {
