@@ -154,6 +154,7 @@ in
             # -- java
             # jdk24
             temurin-bin-24
+            leiningen
 
             gradle
             maven
