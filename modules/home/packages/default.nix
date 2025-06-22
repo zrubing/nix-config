@@ -20,6 +20,7 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      nautilus
       cherry-studio
       redisinsight
       feishu
