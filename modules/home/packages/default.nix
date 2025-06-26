@@ -40,7 +40,7 @@ in
       pkgs.${namespace}.wl-ocr
       tesseract
       pkgs-unstable.tailscale
-      dbeaver-bin
+      pkgs-unstable.dbeaver-bin
       devenv
       devpod
       devbox
