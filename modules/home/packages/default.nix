@@ -35,7 +35,8 @@ in
       wireshark-qt
       pkgs-unstable.tdlib
       pkgs-unstable.localsend
-      pkgs.${namespace}.aider
+      #pkgs.${namespace}.aider
+      pkgs-unstable.aider-chat
       pkgs-unstable.mise
       pkgs.${namespace}.wl-ocr
       tesseract
