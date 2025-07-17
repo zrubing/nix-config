@@ -40,7 +40,7 @@ in
           let
             applications = {
               "nnn.desktop" = [ "inode/directory" ];
-              "mupdf.desktop" = [ "application/pdf" ];
+              "sioyek.desktop" = [ "application/pdf" ];
               "imv-dir.desktop" = [
                 "image/bmp"
                 "image/gif"

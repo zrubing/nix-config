@@ -85,6 +85,7 @@ in
 
             #-- python
             basedpyright
+            pkgs-unstable.ty
 
             pyright # python language server
             (python312.withPackages (
