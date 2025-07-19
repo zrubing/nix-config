@@ -32,6 +32,8 @@ let
     programs.zsh.envExtra = envExtra;
     home.shellAliases = shellAliases;
     programs.nushell.shellAliases = shellAliases;
+    programs.fish.shellAliases = shellAliases;
+    programs.fish.shellInit = envExtra;
 
     home.activation.installEmacslib = hm.dag.entryAfter [ "writeBoundary" ] ''
       mkdir -p ${librime-dir}
