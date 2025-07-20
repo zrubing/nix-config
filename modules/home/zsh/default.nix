@@ -120,6 +120,11 @@ in
             export PATH=$PATH:''${RUSTUP_HOME:-~/.rustup}/toolchains/$RUSTC_VERSION-x86_64-unknown-linux-gnu/bin
 
 
+            # emacs eat shell
+            [ -n "$EAT_SHELL_INTEGRATION_DIR" ] && \
+                      source "$EAT_SHELL_INTEGRATION_DIR/zsh"
+
+
     '';
     shellAliases = {
       g = "git";

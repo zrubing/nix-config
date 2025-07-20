@@ -20,6 +20,9 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      grim
+      satty
+
       nautilus
       cherry-studio
       redisinsight

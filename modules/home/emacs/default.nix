@@ -17,10 +17,15 @@ let
   librime-dir = "${config.xdg.dataHome}/emacs/librime";
   tdlib-dir = "${config.xdg.dataHome}/tdlib";
   rime-data-dir = "${config.xdg.dataHome}/rime-data";
-  librime-emacs-dir = "${config.xdg.configHome}/emacs/.local/straight/repos/emacs-rime";
 
-  envExtra = lib.mkAfter ''
+  doom-repo = "${config.xdg.configHome}/emacs.doom/.local/straight/repos";
+
+  envConfig = ''
     export PATH="${config.xdg.configHome}/emacs.doom/bin:$PATH"
+    export EAT_SHELL_INTEGRATION_DIR="${doom-repo}/eat/integration"
+  '';
+  envExtra = lib.mkAfter ''
+    ${envConfig}
   '';
   shellAliases = {
     e = "emacsclient --create-frame"; # gui
@@ -29,7 +34,9 @@ let
 
   commonConfig = {
     programs.bash.bashrcExtra = envExtra;
-    programs.zsh.envExtra = envExtra;
+    programs.zsh.envExtra = lib.mkAfter ''
+      ${envConfig}
+    '';
     home.shellAliases = shellAliases;
     programs.nushell.shellAliases = shellAliases;
     programs.fish.shellAliases = shellAliases;
