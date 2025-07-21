@@ -15,6 +15,9 @@ let
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."rclone.conf".path} > /home/${username}/.config/rclone/rclone.conf
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.config/topsap
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."topsap/env.ini".path} > /home/${username}/.config/topsap/env.ini
+
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets.netrc.path} > /home/${username}/.netrc
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/milvzn.kube".path} > /home/${username}/.kube
   '';
 in
 {
@@ -27,6 +30,9 @@ in
     age.secrets."topsap/env.ini".file = "${mysecrets}/topsap/env.ini.age";
     age.secrets."ssh/topsap-config".file = "${mysecrets}/ssh/topsap-config.age";
     age.secrets."ssh/work-config".file = "${mysecrets}/ssh/work-config.age";
+
+    age.secrets.netrc.file = "${mysecrets}/netrc.age";
+    age.secrets."work/k8s/milvzn.kube".file = "${mysecrets}/work/k8s/milvzn.kube.age";
 
     home.packages = [
       #inputs.agenix.packages.${system}.agenix
