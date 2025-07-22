@@ -28,7 +28,7 @@ in
     };
 
     services.dnsmasq = {
-      enable = true;
+      enable = false;
 
       settings = {
 

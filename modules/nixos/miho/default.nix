@@ -31,6 +31,12 @@ in
       configFile = "/run/agenix/miho-conf";
       tunMode = true;
     };
+
+    systemd.services.mihomo.serviceConfig = {
+      AmbientCapabilities = lib.mkForce "CAP_NET_ADMIN CAP_NET_BIND_SERVICE";
+      CapabilityBoundingSet = lib.mkForce "CAP_NET_ADMIN CAP_NET_BIND_SERVICE";
+    };
+
   };
 
 }
