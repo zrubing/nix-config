@@ -12,7 +12,6 @@
   libxcrypt-legacy,
   nss,
   alsa-lib,
-  libXScrnSaver,
   pkgs,
   unzip,
   patchelf,
@@ -92,7 +91,7 @@ stdenv.mkDerivation rec {
     libcrypt-compat
     nss
     alsa-lib
-    libXScrnSaver
+    xorg.libXScrnSaver
     pkgs.gnome2.GConf
     libwidevinecdm-compat
   ];
