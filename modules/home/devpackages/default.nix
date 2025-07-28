@@ -20,6 +20,8 @@ in
       (
         # -*- Data & Configuration Languages -*-#
         [
+
+          pkgs.${namespace}.sunloginclient
           firefox
           uv
           # for emacs dirvish
