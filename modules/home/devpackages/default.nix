@@ -184,7 +184,7 @@ in
         #-*- Web Development -*-#
         ++ [
           # vue
-          pkgs-unstable.vue-language-server
+          pkgs.vue-language-server
 
           nodePackages.nodejs
           nodePackages.typescript
