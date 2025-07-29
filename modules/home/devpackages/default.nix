@@ -163,6 +163,7 @@ in
             maven
             spring-boot-cli
             jdt-language-server
+            lemminx
             pkgs.${namespace}.java-debug
             # php
             intelephense
