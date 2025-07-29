@@ -8,7 +8,8 @@
   ...
 }:
 let
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
+  pkgs-unstable = import inputs.nixpkgs-unstable {inherit system; config.allowUnfree = true; };
+
 
   cfg = config.${namespace}.modules.packages;
 in
@@ -41,6 +42,7 @@ in
       #pkgs.${namespace}.aider
       #pkgs-unstable.aider-chat-with-playwright
       pkgs-unstable.aider-chat
+      pkgs-unstable.claude-code
       pkgs-unstable.mise
       pkgs.${namespace}.wl-ocr
       tesseract
