@@ -32,7 +32,7 @@ in
     #   "1.0.0.1"
     # ];
     services.resolved = {
-      enable = true;
+      enable = false;
       extraConfig = ''
         [Resolve]
         DNS=127.0.0.1:1053
@@ -65,6 +65,7 @@ in
 
       nameservers = [
         #"100.100.100.100" # for headscale
+        "127.0.0.1"
         "1.1.1.1"
         "1.0.0.1"
         "2606:4700:4700::1111"
