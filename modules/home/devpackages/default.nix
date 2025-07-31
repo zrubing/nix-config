@@ -165,6 +165,7 @@ in
             jdt-language-server
             lemminx
             pkgs.${namespace}.java-debug
+            pkgs.${namespace}.claude-code-proxy
             # php
             intelephense
 
