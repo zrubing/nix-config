@@ -13,11 +13,11 @@ maven.buildMavenPackage rec {
   src = fetchFromGitHub {
     owner = "microsoft";
     repo = "${pname}";
-    rev = "54058b9eb466576a7a77c9303963ca88967ec58b";
-    sha256 = "sha256-nqvUCI2Lf+WGleSaAGbHAJLa10PHbjwWY19hazWwnsU=";
+    rev = "a1f68f4265458e9386bf16d107c2383b68690e43";
+    sha256 = "sha256-Bd/4pzP6mC4N5yXIAMhnTUifu2bSrWZatp9T+sRfCj8=";
   };
 
-  mvnHash = "sha256-NO2AqU9q5K998HfJm9q3imlVzs3O1R+MafoK890sIN0=";
+  mvnHash = "sha256-su86q2zWS7UmW2TELl/Xs+Z7Mx1ZS5a+V5E+50hCwuk=";
 
   nativeBuildInputs = [
     maven
