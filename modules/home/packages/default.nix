@@ -24,6 +24,8 @@ in
       grim
       satty
 
+      jujutsu
+
       nautilus
       cherry-studio
       redisinsight
