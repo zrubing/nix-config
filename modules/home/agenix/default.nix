@@ -32,6 +32,7 @@ in
     age.secrets."topsap/env.ini".file = "${mysecrets}/topsap/env.ini.age";
     age.secrets."ssh/topsap-config".file = "${mysecrets}/ssh/topsap-config.age";
     age.secrets."ssh/work-config".file = "${mysecrets}/ssh/work-config.age";
+    age.secrets."ssh/default-config".file = "${mysecrets}/ssh/default-config.age";
 
     age.secrets.netrc.file = "${mysecrets}/netrc.age";
     age.secrets."work/k8s/milvzn.kube".file = "${mysecrets}/work/k8s/milvzn.kube.age";
