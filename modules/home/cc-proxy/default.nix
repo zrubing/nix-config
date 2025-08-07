@@ -24,6 +24,10 @@ in
     age.secrets."ccp-work-volcengine.kimi.env".file =
       "${mysecrets}/env/cc-proxy-work-volcengine.kimi.env.age";
 
+    age.secrets."ccp-self-zhipu.glm.env".file =
+      "${mysecrets}/env/cc-proxy-self-zhipu.glm.env.age";
+
+
     systemd.user.services."cc-proxy@" = {
       Unit = {
         After = [ "graphical-session.target" ];
@@ -31,6 +35,17 @@ in
       Service = {
         Environment = "XDG_RUNTIME_DIR=/run/user/%i";
         EnvironmentFile = "/run/user/%i/agenix/ccp-self-bailian.kimi-qwen3.env";
+        ExecStart = "${pkgs.${namespace}.claude-code-proxy}/bin/claude-code-proxy";
+      };
+    };
+
+    systemd.user.services."cc-zhipu-proxy@" = {
+      Unit = {
+        After = [ "graphical-session.target" ];
+      };
+      Service = {
+        Environment = "XDG_RUNTIME_DIR=/run/user/%i";
+        EnvironmentFile = "/run/user/%i/agenix/ccp-self-zhipu.glm.env";
         ExecStart = "${pkgs.${namespace}.claude-code-proxy}/bin/claude-code-proxy";
       };
     };
