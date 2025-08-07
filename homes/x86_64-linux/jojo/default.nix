@@ -18,6 +18,8 @@
     password-store.enable = true;
     fish.enable = true;
 
+    cc-proxy.enable = true;
+
     modules = {
       fcitx5.enable = true;
       packages.enable = true;
