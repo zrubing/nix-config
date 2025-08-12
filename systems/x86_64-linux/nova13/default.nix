@@ -15,7 +15,7 @@
 
   imports = [ ./hardware.nix ];
 
-  system.stateVersion = "24.11";
+  system.stateVersion = "25.05";
 
   users.mutableUsers = true;
   users.users = {

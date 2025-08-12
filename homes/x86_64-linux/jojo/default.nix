@@ -1,9 +1,11 @@
 { lib, config, ... }:
 {
 
-  #home.stateVersion = "24.11";
+  home.stateVersion = "25.05";
 
   internal.javalib.enable = true;
+
+  snowfallorg.user.enable = true;
 
   internal = {
 

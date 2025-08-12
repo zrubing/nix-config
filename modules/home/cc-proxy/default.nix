@@ -10,6 +10,7 @@ with lib;
 let
   cfg = config.${namespace}.cc-proxy;
   mysecrets = inputs.mysecrets;
+  uid = toString 1000;
 in
 {
   options.${namespace}.cc-proxy = with lib; {
@@ -24,13 +25,13 @@ in
     age.secrets."ccp-work-volcengine.kimi.env".file =
       "${mysecrets}/env/cc-proxy-work-volcengine.kimi.env.age";
 
-    age.secrets."ccp-self-zhipu.glm.env".file =
-      "${mysecrets}/env/cc-proxy-self-zhipu.glm.env.age";
+    age.secrets."ccp-self-zhipu.glm.env".file = "${mysecrets}/env/cc-proxy-self-zhipu.glm.env.age";
 
-
-    systemd.user.services."cc-proxy@" = {
+    systemd.user.services."cc-proxy@${uid}" = {
       Unit = {
-        After = [ "graphical-session.target" ];
+      };
+      Install = {
+        WantedBy = [ "default.target" ];
       };
       Service = {
         Environment = "XDG_RUNTIME_DIR=/run/user/%i";
@@ -39,9 +40,11 @@ in
       };
     };
 
-    systemd.user.services."cc-zhipu-proxy@" = {
+    systemd.user.services."cc-zhipu-proxy@${uid}" = {
       Unit = {
-        After = [ "graphical-session.target" ];
+      };
+      Install = {
+        WantedBy = [ "default.target" ];
       };
       Service = {
         Environment = "XDG_RUNTIME_DIR=/run/user/%i";

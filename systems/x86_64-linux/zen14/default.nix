@@ -15,12 +15,13 @@
 
   imports = [ ./hardware.nix ];
 
-  system.stateVersion = "24.11";
+  system.stateVersion = "25.05";
 
   users.mutableUsers = true;
   users.users = {
 
     jojo = {
+      uid = 1000;
       isNormalUser = true;
       group = "users";
       extraGroups = [
