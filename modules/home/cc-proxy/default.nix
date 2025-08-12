@@ -19,15 +19,12 @@ in
 
   config = mkIf cfg.enable {
 
-    age.secrets."ccp-self-bailian.kimi-qwen3.env".file =
-      "${mysecrets}/env/cc-proxy-self-bailian.kimi-qwen3.env.age";
-
     age.secrets."ccp-work-volcengine.kimi.env".file =
       "${mysecrets}/env/cc-proxy-work-volcengine.kimi.env.age";
 
     age.secrets."ccp-self-zhipu.glm.env".file = "${mysecrets}/env/cc-proxy-self-zhipu.glm.env.age";
 
-    systemd.user.services."cc-proxy@${uid}" = {
+    systemd.user.services."cc-work-volcengine-kimi-proxy-@${uid}" = {
       Unit = {
       };
       Install = {
@@ -35,12 +32,12 @@ in
       };
       Service = {
         Environment = "XDG_RUNTIME_DIR=/run/user/%i";
-        EnvironmentFile = "/run/user/%i/agenix/ccp-self-bailian.kimi-qwen3.env";
+        EnvironmentFile = "/run/user/%i/agenix/ccp-work-volcengine.kimi.env";
         ExecStart = "${pkgs.${namespace}.claude-code-proxy}/bin/claude-code-proxy";
       };
     };
 
-    systemd.user.services."cc-zhipu-proxy@${uid}" = {
+    systemd.user.services."cc-self-zhipu-glm-proxy@${uid}" = {
       Unit = {
       };
       Install = {
