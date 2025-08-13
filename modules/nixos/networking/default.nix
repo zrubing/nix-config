@@ -16,6 +16,11 @@ in
 
     networking.firewall.enable = false;
 
+    networking.extraHosts = ''
+    127.0.0.1 cc-proxy-work-volcengine-kimi.local
+    127.0.0.1 cc-proxy-self-zhipu-glm.local
+    '';
+
     # Enable the OpenSSH daemon.
     services.openssh = {
       enable = true;
