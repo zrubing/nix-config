@@ -44,7 +44,8 @@ in
       #pkgs.${namespace}.aider
       pkgs-unstable.aider-chat-with-playwright
       #pkgs-unstable.aider-chat
-      pkgs-unstable.claude-code
+      #pkgs-unstable.claude-code
+      pkgs.${namespace}.claude-code
       pkgs-unstable.mise
       pkgs.${namespace}.wl-ocr
       tesseract
