@@ -29,6 +29,7 @@ in
       };
       Install = {
         WantedBy = [ "default.target" ];
+        After = ["agenix.service"];
       };
       Service = {
         Environment = "XDG_RUNTIME_DIR=/run/user/%i";
@@ -42,6 +43,7 @@ in
       };
       Install = {
         WantedBy = [ "default.target" ];
+        After = ["agenix.service"];
       };
       Service = {
         Environment = "XDG_RUNTIME_DIR=/run/user/%i";
