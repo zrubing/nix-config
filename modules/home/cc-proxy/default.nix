@@ -26,10 +26,10 @@ in
 
     systemd.user.services."cc-work-volcengine-kimi-proxy-@${uid}" = {
       Unit = {
+        After = ["agenix.service"];
       };
       Install = {
         WantedBy = [ "default.target" ];
-        After = ["agenix.service"];
       };
       Service = {
         Environment = "XDG_RUNTIME_DIR=/run/user/%i";
@@ -40,10 +40,10 @@ in
 
     systemd.user.services."cc-self-zhipu-glm-proxy@${uid}" = {
       Unit = {
+        After = ["agenix.service"];
       };
       Install = {
         WantedBy = [ "default.target" ];
-        After = ["agenix.service"];
       };
       Service = {
         Environment = "XDG_RUNTIME_DIR=/run/user/%i";
