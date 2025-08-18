@@ -162,10 +162,10 @@ in
             gradle
             maven
             spring-boot-cli
-            jdt-language-server
             lemminx
             pkgs.${namespace}.java-debug
             pkgs.${namespace}.claude-code-proxy
+            jdt-language-server
             # php
             intelephense
 
