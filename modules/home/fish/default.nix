@@ -24,7 +24,6 @@ in
         interactiveShellInit = ''
           set --universal pure_show_system_time true
           set --universal pure_symbol_ssh_prefix "ssh-->"
-          set -g direnv_fish_mode eval_on_arrow
 
           fish_add_path $HOME/bin
           fish_add_path $HOME/.local/bin/

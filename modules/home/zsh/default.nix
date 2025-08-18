@@ -124,8 +124,6 @@ in
             [ -n "$EAT_SHELL_INTEGRATION_DIR" ] && \
                       source "$EAT_SHELL_INTEGRATION_DIR/zsh"
 
-            eval "$(direnv hook zsh)"
-
     '';
     shellAliases = {
       g = "git";
