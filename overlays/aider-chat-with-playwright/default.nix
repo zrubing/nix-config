@@ -17,7 +17,13 @@ self: super: {
     channels.nixpkgs-unstable.aider-chat-with-playwright.overrideAttrs
       (old: rec {
 
-        disabledTests = old.disabledTests ++ [ "test_commands" "test_repomap" ];
+        disabledTests = old.disabledTests ++ [
+          "test_commands"
+          "test_repomap"
+        ];
+        patches = old.patches ++ [
+          ./fix-tree-sitter.patch
+        ];
 
       });
 }
