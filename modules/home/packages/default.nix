@@ -42,7 +42,7 @@ in
       pkgs-unstable.tdlib
       pkgs-unstable.localsend
       #pkgs.${namespace}.aider
-      pkgs-unstable.aider-chat-with-playwright
+      pkgs.aider-chat-with-playwright
       #pkgs-unstable.aider-chat
       #pkgs-unstable.claude-code
       pkgs.${namespace}.claude-code

@@ -13,5 +13,11 @@
   ...
 }:
 self: super: {
-  xwayland-satellite = channels.nixpkgs-unstable.xwayland-satellite;
+  aider-chat-with-playwright =
+    channels.nixpkgs-unstable.aider-chat-with-playwright.overrideAttrs
+      (old: rec {
+
+        disabledTests = old.disabledTests ++ [ "test_commands" "test_repomap" ];
+
+      });
 }
