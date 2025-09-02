@@ -85,6 +85,7 @@ in
       emacs = [ "Emacs" ]
       brave = [ "Brave-browser" ]
       feishu = [ "Bytedance-feishu" ]
+      dbeaver = [ "DBeaver" ]
 
 
     '';
