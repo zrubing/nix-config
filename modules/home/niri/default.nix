@@ -49,25 +49,15 @@ in
 
     ];
 
-    # 修复brave icon没有正确识别问题
-    home.activation.setupIcons = hm.dag.entryAfter [ "writeBoundary" ] ''
-      if [ ! -f "${config.xdg.dataHome}/papirus-icon-theme/Brave-browser.svg" ]; then
-        mkdir -p ${config.xdg.dataHome}/papirus-icon-theme/
-        cp ${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps/brave.svg \
-         ${config.xdg.dataHome}/papirus-icon-theme/Brave-browser.svg
-      fi
-
-      if [ ! -f "${config.xdg.dataHome}/papirus-icon-theme/Emacs.svg" ]; then
-        mkdir -p ${config.xdg.dataHome}/papirus-icon-theme/
-        cp ${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps/emacs.svg \
-         ${config.xdg.dataHome}/papirus-icon-theme/Emacs.svg
-      fi
-
-    '';
 
     # set in xdg-config
     # home.file."${config.xdg.configHome}/xdg-desktop-portal/niri-portals.conf".source =
     #   ./niri-portals.conf;
+
+    home.file."${config.xdg.dataHome}/custom-icons" = {
+      source = ./icons;
+      recursive = true;
+    };
 
     home.file.".config/niri/config.kdl".source = ./config.kdl;
     home.file.".config/rgui/rgbar.toml".text = ''
@@ -83,6 +73,7 @@ in
     home.file.".config/rgui/icon-config.toml".text = ''
       paths = [
           "${config.xdg.dataHome}/papirus-icon-theme",
+          "${config.xdg.dataHome}/custom-icons",
           "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/devices",
           "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps"
       ]
@@ -92,6 +83,8 @@ in
             "org.codeberg.wangzh.rglauncher"
       ]
       emacs = [ "Emacs" ]
+      brave = [ "Brave-browser" ]
+      feishu = [ "Bytedance-feishu" ]
 
 
     '';
