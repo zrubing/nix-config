@@ -70,21 +70,29 @@ in
     #   ./niri-portals.conf;
 
     home.file.".config/niri/config.kdl".source = ./config.kdl;
-    home.file.".config/rgui/rgbar.toml".source = ./rgbar.toml;
-    home.file.".config/rgui/icon-config.toml".text = ''
-      paths= [
+    home.file.".config/rgui/rgbar.toml".text = ''
+      icon_path = "icon-config.toml"
+      [icon]
+      paths = [
           "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/devices",
           "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps",
           "${config.xdg.dataHome}/papirus-icon-theme"
-        ]
+      ]
+
+    '';
+    home.file.".config/rgui/icon-config.toml".text = ''
+      paths = [
+          "${config.xdg.dataHome}/papirus-icon-theme",
+          "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/devices",
+          "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps"
+      ]
 
       [alias]
-      app-launcher=[
+      app-launcher = [
             "org.codeberg.wangzh.rglauncher"
       ]
+      emacs = [ "Emacs" ]
 
-      code= [
-      ]
 
     '';
 
