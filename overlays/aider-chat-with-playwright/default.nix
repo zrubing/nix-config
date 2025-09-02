@@ -21,9 +21,5 @@ self: super: {
           "test_commands"
           "test_repomap"
         ];
-        patches = old.patches ++ [
-          ./fix-tree-sitter.patch
-        ];
-
       });
 }

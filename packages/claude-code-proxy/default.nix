@@ -15,7 +15,7 @@ python3Packages.buildPythonApplication rec {
     owner = "fuergaosi233";
     repo = "claude-code-proxy";
     rev = "main"; # 可换成具体 commit
-    hash = "sha256-5xanBhiTfy9rBVxDz3nG/aOV3pu5Fbg+kpiBQDvlzEE="; # nix-prefetch-url 生成
+    hash = "sha256-qZtiGONKGyCszWKNsGcT7JEjDIH1zRKnmXMqav5439o="; # nix-prefetch-url 生成
   };
   build-system = [ python3Packages.hatchling ];
 
