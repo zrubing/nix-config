@@ -45,6 +45,7 @@
         flake-compat.follows = "flake-compat";
       };
     };
+    niri.url = "github:sodiboo/niri-flake";
 
     tree-sitter-grammars.url = "github:marsam/tree-sitter-grammars";
 
@@ -82,7 +83,10 @@
       # systems.hosts.nova13.specialArgs = specialArgs;
 
       # Add modules to all NixOS systems.
-      systems.modules.nixos = with inputs; [ agenix.nixosModules.default ];
+      systems.modules.nixos = with inputs; [
+        agenix.nixosModules.default
+        niri.nixosModules.niri
+      ];
 
       systems.modules.darwin = with inputs; [ ];
 

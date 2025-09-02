@@ -22,7 +22,6 @@ in
     services.dunst.enable = true;
     services.swayidle.enable = true;
 
-
     ${namespace} = {
       copyq.enable = true;
       yazi.enable = true;
@@ -71,23 +70,21 @@ in
     #   ./niri-portals.conf;
 
     home.file.".config/niri/config.kdl".source = ./config.kdl;
-    home.file.".config/rglauncher/rgbar.json".text = ''
-      {
-        "paths": [
+    home.file.".config/rgui/rgbar.toml".source = ./rgbar.toml;
+    home.file.".config/rgui/icon-config.toml".text = ''
+      paths= [
           "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/devices",
           "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps",
           "${config.xdg.dataHome}/papirus-icon-theme"
-        ],
-        "alias": {
-          "app-launcher": [
-            "org.codeberg.wangzh.rglauncher"
-          ],
-          "code": [
-            "chrome-obcppbejhdfcplncjdlmagmpfjhmipii-Default"
-          ]
-        }
-      }
+        ]
 
+      [alias]
+      app-launcher=[
+            "org.codeberg.wangzh.rglauncher"
+      ]
+
+      code= [
+      ]
 
     '';
 
