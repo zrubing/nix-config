@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "EventName": [
+      {
+        "matcher": "Stop",
+        "hooks": [
+          {
+            "type": "command",
+              "command": "notify-send \"cc\" \"finish\""
+          }
+        ]
+      }
+    ]
+  }
+}

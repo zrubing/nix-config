@@ -19,6 +19,13 @@ in
 
   config = mkIf cfg.enable {
 
+    home.file = {
+      ".claude/settings.json".source = ./cc/settings.json;
+    };
+    home.packages = with pkgs; [
+      libnotify
+    ];
+
     age.secrets."ccp-work-volcengine.kimi.env".file =
       "${mysecrets}/env/cc-proxy-work-volcengine.kimi.env.age";
 
@@ -26,7 +33,7 @@ in
 
     systemd.user.services."cc-work-volcengine-kimi-proxy-@${uid}" = {
       Unit = {
-        After = ["agenix.service"];
+        After = [ "agenix.service" ];
       };
       Install = {
         WantedBy = [ "default.target" ];
@@ -40,7 +47,7 @@ in
 
     systemd.user.services."cc-self-zhipu-glm-proxy@${uid}" = {
       Unit = {
-        After = ["agenix.service"];
+        After = [ "agenix.service" ];
       };
       Install = {
         WantedBy = [ "default.target" ];
