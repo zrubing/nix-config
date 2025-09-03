@@ -116,6 +116,8 @@ in
                 watchdog
                 packaging
 
+                copilot-language-server
+
                 ## emacs emigo dependencies
                 pkgs.${namespace}.grep-ast
                 pkgs.${namespace}.tree-sitter-language-pack
