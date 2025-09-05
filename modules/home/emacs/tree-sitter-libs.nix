@@ -21,8 +21,8 @@ let
     css = grammars.tree-sitter-css;
     scss = grammars.tree-sitter-scss;
     # Special cases for markdown: the original config swapped these
-    markdown = grammars.tree-sitter-markdown-inline;
-    "markdown-inline" = grammars.tree-sitter-markdown;
+    markdown = grammars.tree-sitter-markdown;
+    "markdown-inline" = grammars.tree-sitter-markdown-inline;
     html = grammars.tree-sitter-html;
     python = grammars.tree-sitter-python;
     json = grammars.tree-sitter-json;
