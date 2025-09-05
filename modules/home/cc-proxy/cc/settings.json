@@ -1,8 +1,7 @@
 {
   "hooks": {
-    "EventName": [
+    "Stop": [
       {
-        "matcher": "Stop",
         "hooks": [
           {
             "type": "command",

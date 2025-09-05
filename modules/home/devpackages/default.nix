@@ -20,12 +20,16 @@ in
       (
         # -*- Data & Configuration Languages -*-#
         [
+          busybox
 
           pkgs.${namespace}.sunloginclient
           firefox
           uv
           # for emacs dirvish
           vips
+
+
+          copilot-language-server
 
           nix-direnv
           direnv
@@ -116,7 +120,6 @@ in
                 watchdog
                 packaging
 
-                copilot-language-server
 
                 ## emacs emigo dependencies
                 pkgs.${namespace}.grep-ast
