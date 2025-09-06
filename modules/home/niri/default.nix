@@ -18,7 +18,7 @@ in
   };
 
   config = mkIf cfg.enable {
-    services.xwayland-satellite.enable = false;
+    services.xwayland-satellite.enable = true;
 
     services.dunst.enable = true;
     services.swayidle.enable = true;

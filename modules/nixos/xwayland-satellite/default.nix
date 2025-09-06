@@ -11,9 +11,9 @@ in
 {
   config = lib.mkIf cfg.enable {
 
-    environment.systemPackages = [ pkgs.xwayland-satellite ];
+    # environment.systemPackages = [ pkgs.xwayland-satellite ];
 
-    systemd.packages = [ pkgs.xwayland-satellite ];
-    systemd.user.services.xwayland-satellite.wantedBy = [ "niri.service" ];
+    # systemd.packages = [ pkgs.xwayland-satellite ];
+    # systemd.user.services.xwayland-satellite.wantedBy = [ "niri.service" ];
   };
 }
