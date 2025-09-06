@@ -18,7 +18,8 @@ in
   };
 
   config = mkIf cfg.enable {
-    services.xwayland-satellite.enable = true;
+    services.xwayland-satellite.enable = false;
+
     services.dunst.enable = true;
     services.swayidle.enable = true;
 
@@ -31,6 +32,10 @@ in
         enable = true;
         type = "niri";
       };
+
+      # 使用niri-flake自带的xwayland-satellite
+      niri-flake.enable = true;
+
     };
     home.packages = with pkgs; [
       mako
@@ -48,7 +53,6 @@ in
       '')
 
     ];
-
 
     # set in xdg-config
     # home.file."${config.xdg.configHome}/xdg-desktop-portal/niri-portals.conf".source =
