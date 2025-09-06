@@ -30,7 +30,6 @@ in
       cherry-studio
       redisinsight
       feishu
-      wechat-uos
       conda
       vscode
       ollama-rocm
