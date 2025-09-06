@@ -16,14 +16,20 @@ in
 {
   home.packages = [
     wechat-uos-wrapper
+    #pkgs.wechat-uos
   ];
 
   xdg.desktopEntries.wechat-uos = {
-    name = "WeChat UOS";
+    name = "微信";
     genericName = "WeChat";
+    startupNotify = true;
     exec = "${wechat-uos-wrapper}/bin/wechat-uos-wrapper %U";
-    icon = "wechat-uos";
+    icon = "com.tencent.wechat";
     type = "Application";
-    categories = [ "Network" "InstantMessaging" ];
+    terminal = false;
+    categories = [
+      "Network"
+      "InstantMessaging"
+    ];
   };
 }
