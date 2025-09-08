@@ -19,9 +19,7 @@ in
 
   config = mkIf cfg.enable {
 
-    home.file = {
-      ".claude/settings.json".source = ./cc/settings.json;
-    };
+
     home.packages = with pkgs; [
       libnotify
     ];

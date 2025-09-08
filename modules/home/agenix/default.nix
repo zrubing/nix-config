@@ -20,6 +20,10 @@ let
 
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.kube
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/milvzn.kube".path} > /home/${username}/.kube/config
+
+    ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.claude
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets."claude.settings.json".path} > /home/${username}/.claude/settings.json
+
   '';
 in
 {
@@ -36,6 +40,8 @@ in
 
     age.secrets.netrc.file = "${mysecrets}/netrc.age";
     age.secrets."work/k8s/milvzn.kube".file = "${mysecrets}/work/k8s/milvzn.kube.age";
+
+    age.secrets."claude.settings.json".file = "${mysecrets}/claude.settings.json.age";
 
     home.packages = [
       #inputs.agenix.packages.${system}.agenix
