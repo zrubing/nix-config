@@ -20,7 +20,6 @@ in
       (
         # -*- Data & Configuration Languages -*-#
         [
-          busybox
 
           pkgs.${namespace}.sunloginclient
           firefox
