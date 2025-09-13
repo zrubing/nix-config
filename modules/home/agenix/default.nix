@@ -24,6 +24,19 @@ let
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.claude
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."claude.settings.json".path} > /home/${username}/.claude/settings.json
 
+
+    conf=$HOME/.claude.json
+
+    # 1. 如果主配置不存在，先写一个空对象进去
+    [[ -f $conf ]] || echo '{}' > "$conf"
+
+    # 使用jq将claude.settings.json中的mcpServers合并到~/.claude.json
+
+    ${pkgs.jq}/bin/jq --slurpfile mcp /home/${username}/.claude/settings.json \
+      '.mcpServers = ((.mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
+      /home/${username}/.claude.json > /tmp/.claude.json.tmp && \
+    ${pkgs.coreutils}/bin/mv /tmp/.claude.json.tmp /home/"${username}"/.claude.json
+
   '';
 in
 {
