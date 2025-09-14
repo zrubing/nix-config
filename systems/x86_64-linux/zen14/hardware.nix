@@ -1,5 +1,5 @@
 {
-  imports = [ ../../../hardware/xiaoxinpro13.nix ];
+  imports = [ ../../../hardware/zen14.nix ];
 
   # bootloader
   boot.loader.efi.canTouchEfiVariables = true;
