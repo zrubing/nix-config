@@ -90,6 +90,7 @@ in
       brave = [ "Brave-browser" ]
       feishu = [ "Bytedance-feishu" ]
       dbeaver = [ "DBeaver" ]
+      cherry-studio = [ "CherryStudio" ]
 
 
     '';
