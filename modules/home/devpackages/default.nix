@@ -20,13 +20,13 @@ in
       (
         # -*- Data & Configuration Languages -*-#
         [
+          inputs.codex-nix.packages.${pkgs.system}.default
 
           pkgs.${namespace}.sunloginclient
           firefox
           uv
           # for emacs dirvish
           vips
-
 
           copilot-language-server
 
@@ -118,7 +118,6 @@ in
                 rapidfuzz
                 watchdog
                 packaging
-
 
                 ## emacs emigo dependencies
                 pkgs.${namespace}.grep-ast

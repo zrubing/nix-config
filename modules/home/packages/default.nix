@@ -27,7 +27,8 @@ in
       jujutsu
 
       nautilus
-      cherry-studio
+      #pkgs.${namespace}.cherry-studio
+      pkgs.cherry-studio
       redisinsight
       feishu
       conda
