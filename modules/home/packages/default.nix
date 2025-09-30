@@ -30,6 +30,9 @@ in
       #pkgs.${namespace}.cherry-studio
       pkgs.cherry-studio
       redisinsight
+
+      mongodb-compass
+
       feishu
       conda
       vscode
