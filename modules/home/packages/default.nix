@@ -27,8 +27,7 @@ in
       jujutsu
 
       nautilus
-      #pkgs.${namespace}.cherry-studio
-      pkgs.cherry-studio
+      pkgs-unstable.cherry-studio
       redisinsight
 
       mongodb-compass
