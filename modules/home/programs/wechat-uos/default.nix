@@ -1,8 +1,13 @@
-{ pkgs, inputs, ... }:
+{
+  pkgs,
+  inputs,
+  system,
+  ...
+}:
 
 let
   pkgs-unstable = import inputs.nixpkgs-unstable {
-    system = pkgs.system;
+    system = system;
     config.allowUnfree = true;
   };
 
@@ -15,7 +20,7 @@ let
     export GTK_IM_MODULE=fcitx5
     export XMODIFIERS="@im=fcitx5"
 
-    exec ${pkgs-unstable.wechat}/bin/wechat-uos "$@"
+    exec ${pkgs-unstable.wechat-uos}/bin/wechat-uos "$@"
   '';
 in
 {
