@@ -1,6 +1,11 @@
-{ pkgs, ... }:
+{ pkgs, inputs, ... }:
 
 let
+  pkgs-unstable = import inputs.nixpkgs-unstable {
+    system = pkgs.system;
+    config.allowUnfree = true;
+  };
+
   wechat-uos-wrapper = pkgs.writeShellScriptBin "wechat-uos-wrapper" ''
     export QT_QPA_PLATFORM=xcb
     export QT_AUTO_SCREEN_SCALE_FACTOR=1
@@ -10,13 +15,13 @@ let
     export GTK_IM_MODULE=fcitx5
     export XMODIFIERS="@im=fcitx5"
 
-    exec ${pkgs.wechat-uos}/bin/wechat-uos "$@"
+    exec ${pkgs-unstable.wechat}/bin/wechat-uos "$@"
   '';
 in
 {
   home.packages = [
     wechat-uos-wrapper
-    #pkgs.wechat-uos
+    #pkgs-unstable.wechat-uos
   ];
 
   xdg.desktopEntries.wechat-uos = {

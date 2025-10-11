@@ -86,9 +86,6 @@
     # };
     lib.mkFlake {
 
-      # homes.users.jojo.specialArgs = specialArgs;
-      # systems.hosts.nova13.specialArgs = specialArgs;
-
       # Add modules to all NixOS systems.
       systems.modules.nixos = with inputs; [
         agenix.nixosModules.default
@@ -101,6 +98,7 @@
         agenix.homeManagerModules.default
       ];
 
+      
       # The attribute set specified here will be passed directly to NixPkgs when
       # instantiating the package set.
       channels-config = {
