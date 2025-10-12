@@ -10,6 +10,7 @@ with lib;
 let
   cfg = config.${namespace}.cc-proxy;
   mysecrets = inputs.mysecrets;
+  subagents = inputs.subagents;
   uid = toString 1000;
 in
 {
@@ -19,6 +20,10 @@ in
 
   config = mkIf cfg.enable {
 
+    home.file.".claude/agents" = {
+      source = "${subagents}/agents";
+      force = true;
+    };
 
     home.packages = with pkgs; [
       libnotify
@@ -29,7 +34,6 @@ in
 
     age.secrets."ccp-work-volcengine.deepseek.env".file =
       "${mysecrets}/env/cc-proxy-work-volcengine.deepseek.env.age";
-
 
     age.secrets."ccp-self-zhipu.glm.env".file = "${mysecrets}/env/cc-proxy-self-zhipu.glm.env.age";
 
@@ -46,7 +50,6 @@ in
         ExecStart = "${pkgs.${namespace}.claude-code-proxy}/bin/claude-code-proxy";
       };
     };
-
 
     systemd.user.services."cc-work-volcengine-kimi-proxy-@${uid}" = {
       Unit = {

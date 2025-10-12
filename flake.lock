@@ -489,6 +489,8 @@
         "rime-3gram": "rime-3gram",
         "snowfall-lib": "snowfall-lib",
         "sops-nix": "sops-nix",
+        "subagents": "subagents",
+        "subagents2": "subagents2",
         "tree-sitter-grammars": "tree-sitter-grammars"
       }
     },
@@ -536,6 +538,39 @@
         "owner": "Mic92",
         "repo": "sops-nix",
         "type": "github"
+      }
+    },
+    "subagents": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1760230709,
+        "narHash": "sha256-s1n0HfW/ioax4mE78IW+jnIrG2ARCZAHkwqYaGsksHI=",
+        "ref": "main",
+        "rev": "bd145d26e2c365dd1b7fa0d75d108c6bbfbfd530",
+        "revCount": 126,
+        "type": "git",
+        "url": "ssh://git@github.com/wshobson/agents"
+      },
+      "original": {
+        "ref": "main",
+        "type": "git",
+        "url": "ssh://git@github.com/wshobson/agents"
+      }
+    },
+    "subagents2": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1757663334,
+        "narHash": "sha256-9i2rnMfvuugmurdUy2oxEQszdcxzElpBHdVQROW9DD0=",
+        "ref": "refs/heads/main",
+        "rev": "85f8aae6765f506c7a39ec2816d5974032c2f3ae",
+        "revCount": 44,
+        "type": "git",
+        "url": "ssh://git@github.com/VoltAgent/awesome-claude-code-subagents"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://git@github.com/VoltAgent/awesome-claude-code-subagents"
       }
     },
     "systems": {

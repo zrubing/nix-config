@@ -59,6 +59,16 @@
       flake = false;
     };
 
+    subagents = {
+      url = "git+ssh://git@github.com/wshobson/agents?ref=main";
+      flake = false;
+    };
+
+    subagents2 = {
+      url = "git+ssh://git@github.com/VoltAgent/awesome-claude-code-subagents";
+      flake = false;
+    };
+
     codex-nix.url = "github:sadjow/codex-nix";
 
     ########################  My own repositories  #########################################
@@ -98,7 +108,6 @@
         agenix.homeManagerModules.default
       ];
 
-      
       # The attribute set specified here will be passed directly to NixPkgs when
       # instantiating the package set.
       channels-config = {
