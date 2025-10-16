@@ -106,6 +106,7 @@
 
       homes.modules = with inputs; [
         agenix.homeManagerModules.default
+        sops-nix.homeManagerModules.sops
       ];
 
       # The attribute set specified here will be passed directly to NixPkgs when

@@ -8,10 +8,12 @@
 }:
 with lib;
 let
+  hm = config.lib;
   cfg = config.${namespace}.cc-proxy;
   mysecrets = inputs.mysecrets;
   subagents = inputs.subagents;
   uid = toString 1000;
+  username = config.snowfallorg.user.name;
 in
 {
   options.${namespace}.cc-proxy = with lib; {
@@ -19,6 +21,20 @@ in
   };
 
   config = mkIf cfg.enable {
+
+    sops.age.sshKeyPaths = [ "/home/${username}/.ssh/id_ed25519" ];
+
+    sops.secrets."anthropic/base_url" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+    sops.secrets."anthropic/api_key" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+
+    home.activation.setAnthropicEnv = hm.dag.entryAfter [ "writeBoundary" ] ''
+      export ANTHROPIC_BASE_URL=$(cat ${config.sops.secrets."anthropic/base_url".path})
+      export ANTHROPIC_API_KEY=$(cat ${config.sops.secrets."anthropic/api_key".path})
+    '';
 
     home.file.".claude/agents" = {
       source = "${subagents}/agents";
