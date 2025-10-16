@@ -47,7 +47,7 @@ in
       pkgs.aider-chat-with-playwright
       #pkgs-unstable.aider-chat
       #pkgs-unstable.claude-code
-      pkgs.${namespace}.claude-code
+      pkgs.claude-code
       pkgs.${namespace}.emacs-lsp-proxy
       pkgs-unstable.mise
       pkgs.${namespace}.wl-ocr
