@@ -8,8 +8,10 @@
   ...
 }:
 let
-  pkgs-unstable = import inputs.nixpkgs-unstable {inherit system; config.allowUnfree = true; };
-
+  pkgs-unstable = import inputs.nixpkgs-unstable {
+    inherit system;
+    config.allowUnfree = true;
+  };
 
   cfg = config.${namespace}.modules.packages;
 in
@@ -70,6 +72,20 @@ in
         nix-direnv.enable = true;
       };
     };
+
+    # 创建自定义桌面项
+    xdg.desktopEntries.mongodb-compass = {
+      name = "MongoDB Compass";
+      exec = "env XDG_CURRENT_DESKTOP=GNOME mongodb-compass --password-store=gnome-libsecret --ignore-additional-command-line-flags %U";
+      icon = "mongodb-compass";
+      comment = "MongoDB GUI";
+      categories = [
+        "Development"
+        "Database"
+      ];
+      terminal = false;
+    };
+
   };
 
 }
