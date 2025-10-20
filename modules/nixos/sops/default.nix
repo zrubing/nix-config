@@ -16,13 +16,8 @@ in
   sops.secrets."easytier/ali/network_name" = {
     sopsFile = "${mysecrets}/secrets/env.yaml";
   };
-
-  sops.templates."easytier-config".content = ''
-    instance_name = "zen14"
-
-    [network_identity]
-    network_name = "file://${config.sops.secrets."easytier/ali/network_name".path}"
-    network_secret = "file://${config.sops.secrets."easytier/ali/network_secret".path}"
-  '';
+  sops.secrets."easytier/ali/peer" = {
+    sopsFile = "${mysecrets}/secrets/env.yaml";
+  };
 
 }
