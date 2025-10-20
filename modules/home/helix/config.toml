@@ -1,0 +1,3 @@
+[editor]
+# 对于 Wayland (如现代 GNOME，使用 wl-clipboard)
+clipboard-provider = "wayland"

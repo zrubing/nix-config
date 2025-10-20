@@ -21,6 +21,7 @@ in
       # Force apps to use wayland
       NIXOS_OZONE_WL=1;
 
+      SUDO_EDITOR="emacsclient --create-frame";
     };
 
   };

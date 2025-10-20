@@ -102,6 +102,7 @@
       systems.modules.nixos = with inputs; [
         agenix.nixosModules.default
         niri.nixosModules.niri
+        sops-nix.nixosModules.sops
       ];
 
       systems.modules.darwin = with inputs; [ ];
