@@ -2,10 +2,10 @@
 {
   nix = {
     extraOptions = ''
-        trusted-users = root jojo
+      trusted-users = root jojo
 
-        extra-substituters = https://devenv.cachix.org
-        extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
+      extra-substituters = https://devenv.cachix.org
+      extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
     '';
     # TODO try this?
     # enable = config.host.role != "cloud-server";
@@ -31,7 +31,10 @@
       log-lines = 50;
       use-xdg-base-directories = true;
       warn-dirty = false;
-      trusted-users = [ "@wheel" "jojo" ]; # TODO revise this?
+      trusted-users = [
+        "@wheel"
+        "jojo"
+      ]; # TODO revise this?
 
       allow-import-from-derivation = true;
       substituters = [
@@ -39,11 +42,14 @@
         "https://mirrors.nju.edu.cn/nix-channels/store"
         "https://nix-community.cachix.org"
         "https://niri.cachix.org"
+
+        "https://numtide.cachix.org"
       ];
 
       trusted-public-keys = [
         "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
         "niri.cachix.org-1:Wv0OmO7PsuocRKzfDoJ3mulSl7Z6oezYhGhR+3W2964="
+        "numtide.cachix.org-1:2ps1kLBUWjxIneOy1Ik6cQjb41X0iXVXeHigGmycPPE="
       ];
     };
 

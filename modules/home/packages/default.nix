@@ -13,6 +13,8 @@ let
     config.allowUnfree = true;
   };
 
+  pkgs-nix-ai = inputs.nix-ai-tools.packages.${pkgs.system};
+
   cfg = config.${namespace}.modules.packages;
 in
 {
@@ -56,6 +58,7 @@ in
       #pkgs-unstable.aider-chat
       #pkgs-unstable.claude-code
       pkgs.claude-code
+      #pkgs-nix-ai.gemini-cli
       pkgs.${namespace}.openspec
       pkgs.${namespace}.emacs-lsp-proxy
       pkgs-unstable.mise

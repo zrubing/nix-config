@@ -22,7 +22,7 @@ in
 
     environment.systemPackages = with pkgs; [ pkgs-unstable.mihomo ];
 
-    age.secrets.miho-conf.file = "${mysecrets}/miho-conf.age";
+    age.secrets.miho-conf.file = "${mysecrets}/miho-conf/zen14-test.age";
     age.identityPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
 
     services.mihomo = {

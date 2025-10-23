@@ -100,9 +100,9 @@ in
           file = "${mysecrets}/restic-password.age";
         } // high_security;
 
-        "miho-conf" = {
-          file = "${mysecrets}/miho-conf.age";
-        } // high_security;
+        # "miho-conf" = {
+        #   file = "${mysecrets}/miho-conf.age";
+        # } // high_security;
 
         "topsap/env.ini" = {
           file = "${mysecrets}/topsap/env.ini.age";
