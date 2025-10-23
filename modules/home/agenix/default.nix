@@ -9,6 +9,10 @@ let
   inherit (pkgs.stdenv.hostPlatform) system; # for agenix pkg
   username = config.snowfallorg.user.name;
   mysecrets = inputs.mysecrets;
+  pkgs-unstable = import inputs.nixpkgs-unstable {
+    system = system;
+    config.allowUnfree = true;
+  };
   mystuff = pkgs.writeShellScriptBin "echo-secret" ''
     ${pkgs.coreutils}/bin/cat ${config.age.secrets.authinfo.path} > /home/${username}/.authinfo
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.config/rclone
@@ -34,10 +38,14 @@ let
 
     # 使用jq将claude.settings.json中的mcpServers合并到~/.claude.json
 
-    ${pkgs.jq}/bin/jq --slurpfile mcp /home/${username}/.claude/settings.json \
+    ${pkgs.jq}/bin/jq \
+      --arg chrome "${pkgs-unstable.google-chrome}/bin/google-chrome-stable" \
+      '.mcpServers["chrome-devtools"].args[2] = $chrome' \
+      /home/${username}/.claude/settings.json > /tmp/settings.json && \
+    ${pkgs.jq}/bin/jq --slurpfile mcp /tmp/settings.json \
       '.mcpServers = ((.mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
       /home/${username}/.claude.json > /tmp/.claude.json.tmp && \
-    ${pkgs.coreutils}/bin/mv /tmp/.claude.json.tmp /home/"${username}"/.claude.json
+    ${pkgs.coreutils}/bin/mv /tmp/.claude.json.tmp /home/${username}/.claude.json
 
   '';
 in
