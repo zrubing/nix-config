@@ -34,6 +34,8 @@ in
       extraArgs = [
         "-i"
         "10.144.144.2"
+        "--accept-dns"
+        "true"
       ];
       configFile = "${config.sops.templates."easytier-config".path}";
     };

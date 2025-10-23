@@ -17,10 +17,10 @@ in
     networking.firewall.enable = false;
 
     networking.extraHosts = ''
-    127.0.0.1 cc-proxy-work-volcengine-kimi.local
-    127.0.0.1 cc-proxy-work-volcengine-deepseek.local
-    127.0.0.1 cc-proxy-self-zhipu-glm.local
-    172.16.6.101 docker.pve.com
+      127.0.0.1 cc-proxy-work-volcengine-kimi.local
+      127.0.0.1 cc-proxy-work-volcengine-deepseek.local
+      127.0.0.1 cc-proxy-self-zhipu-glm.local
+      172.16.6.101 docker.pve.com
     '';
 
     # Enable the OpenSSH daemon.
@@ -48,24 +48,29 @@ in
       '';
     };
 
-    # services.dnsmasq = {
-    #   enable = false;
+    services.dnsmasq = {
+      enable = true;
 
-    #   settings = {
+      settings = {
 
-    #     address = [
-    #       "/john-server.ts.net/100.64.0.2"
-    #     ];
-    #     server = [
-    #       "100.100.100.100" # for headscale
-    #       "1.1.1.1"
-    #       "1.0.0.1"
-    #       "2606:4700:4700::1111"
-    #       "2606:4700:4700::1001"
-    #     ];
-    #   };
+        # 忽略系统 resolv.conf，避免循环
+        resolv-file = "/etc/resolv.dnsmasq.conf"; # 创建空文件：systemd 会处理
+        resolveLocalQueries = false;
 
-    # };
+        server = [
+          "127.0.0.1#1053"
+
+          "/.et.net/100.100.100.101"
+          "/.lan/127.0.0.1#1053"
+
+          # "1.1.1.1"
+          # "1.0.0.1"
+          # "2606:4700:4700::1111"
+          # "2606:4700:4700::1001"
+        ];
+      };
+
+    };
 
     networking = {
       #firewall.enable = true;
@@ -73,10 +78,10 @@ in
       nameservers = [
         #"100.100.100.100" # for headscale
         "127.0.0.1"
-        "1.1.1.1"
-        "1.0.0.1"
-        "2606:4700:4700::1111"
-        "2606:4700:4700::1001"
+        # "1.1.1.1"
+        # "1.0.0.1"
+        # "2606:4700:4700::1111"
+        # "2606:4700:4700::1001"
       ];
 
       useDHCP = lib.mkDefault cfg.wifi.enable;

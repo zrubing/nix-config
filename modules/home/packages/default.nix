@@ -27,6 +27,8 @@ in
       socat
       bubblewrap
 
+      lsof
+
       grim
       satty
 
@@ -54,6 +56,7 @@ in
       #pkgs-unstable.aider-chat
       #pkgs-unstable.claude-code
       pkgs.claude-code
+      pkgs.${namespace}.openspec
       pkgs.${namespace}.emacs-lsp-proxy
       pkgs-unstable.mise
       pkgs.${namespace}.wl-ocr

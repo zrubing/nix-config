@@ -6,7 +6,10 @@
   ...
 }:
 let
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
+  pkgs-unstable = import inputs.nixpkgs-unstable {
+    system = system;
+    config.allowUnfree = true;
+  };
 in
 {
   config = {
@@ -24,6 +27,7 @@ in
 
           pkgs.${namespace}.sunloginclient
           firefox
+          pkgs-unstable.google-chrome
           uv
           # for emacs dirvish
           vips

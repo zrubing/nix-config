@@ -5,7 +5,6 @@
   nodejs_20,
 }:
 
-
 buildNpmPackage rec {
   pname = "claude-code";
   version = "2.0.14";
