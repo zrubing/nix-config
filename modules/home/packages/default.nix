@@ -60,6 +60,7 @@ in
       pkgs.claude-code
       #pkgs-nix-ai.gemini-cli
       pkgs.${namespace}.openspec
+      pkgs.${namespace}.trojan-go
       pkgs.${namespace}.emacs-lsp-proxy
       pkgs-unstable.mise
       pkgs.${namespace}.wl-ocr
@@ -72,6 +73,7 @@ in
       zed-editor
       sioyek
       libreoffice
+
     ];
 
     programs = {
