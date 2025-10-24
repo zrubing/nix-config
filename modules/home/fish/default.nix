@@ -36,6 +36,10 @@ in
           if test -f ${config.sops.secrets."anthropic/api_key".path}
             set -gx ANTHROPIC_API_KEY (cat ${config.sops.secrets."anthropic/api_key".path} | string trim)
           end
+
+          set -gx API_TIMEOUT_MS 3000000
+          set -gx CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 1
+
         '';
         plugins = [
           {
