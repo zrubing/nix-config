@@ -6,12 +6,12 @@
 }:
 self: super: {
   jdt-language-server = super.jdt-language-server.overrideAttrs (old: rec {
-    version = "1.49.0";
-    timestamp = "202507311558";
+    version = "1.51.0";
+    timestamp = "202510022025";
 
     src = super.fetchurl {
       url = "https://download.eclipse.org/jdtls/milestones/${version}/jdt-language-server-${version}-${timestamp}.tar.gz";
-      sha256 = "sha256-o/n7WSH1Jz0Pj+Q2WzY/utG9wuhpkdsxSbLXbxJlvNc="; # 需要替换为实际hash
+      sha256 = "sha256-ilk3IReIG/W9wCIPIlRHKEa4gTfAWPNEsAp9QUJ3RaE="; # 需要替换为实际hash
     };
 
     postPatch = ''
