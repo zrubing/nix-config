@@ -37,7 +37,7 @@ stdenvNoCC.mkDerivation rec {
     cp $src $out/lib/eca.jar
 
     # Create a wrapper script
-    cat > $out/bin/eca << 'EOF'
+    cat > $out/bin/eca << EOF
     #!/bin/sh
     exec java -jar "$out/lib/eca.jar" "$@"
     EOF
