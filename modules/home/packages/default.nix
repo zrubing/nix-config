@@ -59,6 +59,7 @@ in
       #pkgs-unstable.claude-code
       pkgs.claude-code
       #pkgs-nix-ai.gemini-cli
+      pkgs-nix-ai.claude-code-acp
       pkgs.${namespace}.openspec
       pkgs.${namespace}.trojan-go
       pkgs.${namespace}.emacs-lsp-proxy
