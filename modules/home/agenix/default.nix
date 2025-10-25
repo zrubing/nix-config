@@ -15,6 +15,7 @@ let
   };
   mystuff = pkgs.writeShellScriptBin "echo-secret" ''
     ${pkgs.coreutils}/bin/cat ${config.age.secrets.authinfo.path} > /home/${username}/.authinfo
+    ${pkgs.coreutils}/bin/chmod 0600 /home/${username}/.authinfo
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.config/rclone
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."rclone.conf".path} > /home/${username}/.config/rclone/rclone.conf
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.config/topsap

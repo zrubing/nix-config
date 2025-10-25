@@ -38,16 +38,13 @@ stdenvNoCC.mkDerivation rec {
 
     # Create a wrapper script
     cat > $out/bin/eca << EOF
-    #!/bin/sh
-    exec java -jar "$out/lib/eca.jar" "$@"
+    #!${stdenvNoCC.shell}
+    export JAVA_HOME="${jre}"
+    export PATH="${jre}/bin:\$PATH"
+    exec "${jre}/bin/java" -jar "$out/lib/eca.jar" "\$@"
     EOF
 
     chmod +x $out/bin/eca
-
-    # Wrap the script to ensure JAVA_HOME is set
-    wrapProgram $out/bin/eca \
-      --set-default JAVA_HOME "${jre}" \
-      --prefix PATH : "${jre}/bin"
 
     runHook postInstall
   '';
