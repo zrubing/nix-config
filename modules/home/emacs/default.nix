@@ -27,13 +27,23 @@ let
   envExtra = lib.mkAfter ''
     ${envConfig}
   '';
+  bashrcExtra = lib.mkAfter ''
+    ${envConfig}
+    
+    if command -v direnv >/dev/null 2>&1; then
+      if [ -n "$CLAUDECODE" ]; then
+        eval "$(direnv hook bash)"
+        eval "$(DIRENV_LOG_FORMAT= direnv export bash)"
+      fi
+    fi
+  '';
   shellAliases = {
     e = "emacsclient --create-frame"; # gui
     et = "emacsclient --create-frame --tty"; # terminal
   };
 
   commonConfig = {
-    programs.bash.bashrcExtra = envExtra;
+    programs.bash.bashrcExtra = bashrcExtra;
     programs.zsh.envExtra = lib.mkAfter ''
       ${envConfig}
     '';

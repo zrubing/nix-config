@@ -25,6 +25,7 @@
     modules = {
       fcitx5.enable = true;
       packages.enable = true;
+      # eca.enable = true;
     };
 
     vcs = {

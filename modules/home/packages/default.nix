@@ -65,7 +65,7 @@ in
       pkgs.${namespace}.emacs-lsp-proxy
       pkgs-unstable.mise
       pkgs.${namespace}.wl-ocr
-      pkgs.${namespace}.eca
+      pkgs-nix-ai.eca
       tesseract
       pkgs-unstable.tailscale
       pkgs-unstable.dbeaver-bin
