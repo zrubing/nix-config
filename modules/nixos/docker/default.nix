@@ -32,6 +32,7 @@
     pkgs.distrobox
     pkgs.docker-compose
     pkgs.podman-tui
+    pkgs.slirp4netns
     pkgs.dive
   ];
 
