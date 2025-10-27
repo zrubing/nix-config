@@ -381,11 +381,11 @@
         "treefmt-nix": "treefmt-nix"
       },
       "locked": {
-        "lastModified": 1761403314,
-        "narHash": "sha256-otIQO4p2TAuGvOBYo2m01LCrB5Q8aBNZRw/xs7vvLVI=",
+        "lastModified": 1761534121,
+        "narHash": "sha256-huntZfFXEHMz2eUGFOhkJZBoCd9KF9RkBTe+dzhxjeI=",
         "owner": "zrubing",
         "repo": "nix-ai-tools",
-        "rev": "91aeb360cb7c84907fd39e94154099afededbb8e",
+        "rev": "ae1b73a7f7852761f1f4998722b856be35ca4dee",
         "type": "github"
       },
       "original": {
