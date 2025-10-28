@@ -2,9 +2,15 @@
 
   lib,
   pkgs,
+  inputs,
+  system,
   ...
 
 }:
+let
+
+  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
+in
 {
   # environment.systemPackages = [ pkgs.docker-compose ];
 
@@ -30,14 +36,34 @@
 
   environment.systemPackages = [
     pkgs.distrobox
-    pkgs.docker-compose
+    pkgs.podman-compose
     pkgs.podman-tui
     pkgs.slirp4netns
     pkgs.dive
+    pkgs.netavark
+    pkgs.podman-tui
+    pkgs.passt
   ];
 
+  users.groups.podman = {
+    name = "podman";
+  };
+
+  # 给所有用户生效
+  # https://github.com/containers/common/blob/main/docs/containers.conf.5.md
   virtualisation = {
     containers.enable = true;
+    containers.containersConf.settings = {
+      containers = {
+        # netns = "bridge";
+        default_capabilities = [
+          "NET_RAW"
+          "NET_BIND_SERVICE"
+        ];
+
+      };
+    };
+
     podman = {
       dockerSocket.enable = true;
       enable = true;
@@ -45,6 +71,7 @@
       dockerCompat = true;
       # Required for containers under podman-compose to be able to talk to each other.
       defaultNetwork.settings.dns_enabled = true;
+
       # Periodically prune Podman resources
       autoPrune = {
         enable = true;

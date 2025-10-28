@@ -72,9 +72,9 @@ in
       devenv
       devpod
       devbox
-      zed-editor
       sioyek
       libreoffice
+      pkgs-unstable.zed-editor
 
     ];
 

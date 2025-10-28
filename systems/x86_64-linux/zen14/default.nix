@@ -31,6 +31,21 @@
         "podman"
       ];
       initialPassword = "test";
+
+      # NOTICE THIS PART
+      subUidRanges = [
+        {
+          startUid = 100000;
+          count = 200000;
+        }
+      ];
+      subGidRanges = [
+        {
+          startGid = 100000;
+          count = 200000;
+        }
+      ];
+
     };
 
     hiar = {
