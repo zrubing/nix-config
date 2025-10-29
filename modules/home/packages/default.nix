@@ -57,7 +57,7 @@ in
       pkgs.aider-chat-with-playwright
       #pkgs-unstable.aider-chat
       #pkgs-unstable.claude-code
-      pkgs.claude-code
+      pkgs-nix-ai.claude-code
       #pkgs-nix-ai.gemini-cli
       pkgs-nix-ai.claude-code-acp
       pkgs.${namespace}.openspec
