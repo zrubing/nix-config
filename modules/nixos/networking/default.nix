@@ -34,20 +34,6 @@ in
       openFirewall = true;
     };
 
-    # networking.nameservers = [
-    #   "1.1.1.1"
-    #   "1.0.0.1"
-    # ];
-    services.resolved = {
-      enable = true;
-      extraConfig = ''
-        [Resolve]
-        DNS=127.0.0.1:1053
-        DNSOverTLS=no
-        DNSSEC=no
-      '';
-    };
-
     services.dnsmasq = {
       enable = false;
 
@@ -84,31 +70,36 @@ in
       };
     };
 
-    networking = {
-      #firewall.enable = true;
+    # 1. NM 只管连接，不管 DNS
+    networking.networkmanager.enable = true;
+    networking.networkmanager.dns = lib.mkForce "none";
+    networking.dhcpcd.enable = false;
 
-      nameservers = [
-        #"100.100.100.100" # for headscale
-        "127.0.0.1"
-        # "1.1.1.1"
-        # "1.0.0.1"
-        # "2606:4700:4700::1111"
-        # "2606:4700:4700::1001"
-      ];
-
-      useDHCP = lib.mkDefault cfg.wifi.enable;
-      # TODO maybe we should add a "main interface" thingy in config.host
-      # interfaces.ens3.useDHCP = true;
-
-      wireless.enable = !config.networking.networkmanager.enable;
-
-      networkmanager = {
-        enable = lib.mkDefault cfg.wifi.enable;
-        insertNameservers = config.networking.nameservers;
-
-        # TODO: try to enable someday
-        # wifi.backend = "iwd";
-      };
+    # 2. systemd-resolved 只监听 127.0.0.1:1053
+    services.resolved = {
+      enable = true;
+      extraConfig = ''
+        MulticastDNS=no
+        LLMNR=no
+        DNSSECNegativeTrustAnchors=
+        Cache=no
+        # 指定唯一上游
+        DNS=127.0.0.1:1053
+        Domains=~.
+      '';
     };
+
+    # 3. 强制 resolv.conf 只有 127.0.0.1
+    networking.nameservers = [ "127.0.0.1" ];
+
+    # 4. 防火墙放行本机 1053（如启用）
+    networking.firewall = {
+      allowedTCPPorts = [ 1053 ];
+      allowedUDPPorts = [ 1053 ];
+    };
+
+    # 5. wlp1s0 继续 DHCP 拿地址，但 DNS 不走 DHCP
+    networking.useDHCP = false;
+    networking.interfaces.wlp1s0.useDHCP = true;
   };
 }

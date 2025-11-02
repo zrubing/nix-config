@@ -84,7 +84,7 @@ in
 
     age.secrets.netrc.file = "${mysecrets}/netrc.age";
     age.secrets."work/k8s/milvzn.kube".file = "${mysecrets}/work/k8s/milvzn.kube.age";
-    age.secrets."work/k8s/sinopec.milv.kube".file = "${mysecrets}/work/k8s/sinopec.milv.kube.age";
+    age.secrets."work/k8s/sinopec.milv.kube".file = "${mysecrets}/work/k8s/milvzn.sinopec.kube.age";
 
     age.secrets."claude.settings.json".file = "${mysecrets}/claude.settings.json.age";
 

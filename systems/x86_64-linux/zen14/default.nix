@@ -34,15 +34,25 @@
 
       # NOTICE THIS PART
       subUidRanges = [
+
         {
           startUid = 100000;
           count = 200000;
         }
+        {
+          startUid = 300000;
+          count = 400000;
+        }
       ];
       subGidRanges = [
+
         {
           startGid = 100000;
           count = 200000;
+        }
+        {
+          startGid = 300000;
+          count = 400000;
         }
       ];
 
