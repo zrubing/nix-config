@@ -81,7 +81,6 @@ in
       extraConfig = ''
         MulticastDNS=no
         LLMNR=no
-        DNSSECNegativeTrustAnchors=
         Cache=no
         # 指定唯一上游
         DNS=127.0.0.1:1053
