@@ -22,5 +22,14 @@ self: super: {
         --replace-fail "jdtls_base_path = Path(__file__).parent.parent" "jdtls_base_path = Path(\"$out/share/java/jdtls/\")"
     '';
 
+    # 使用 zulu24 JDK 环境包装
+    nativeBuildInputs = [ super.makeWrapper ];
+
+    postInstall = ''
+      wrapProgram $out/bin/jdtls \
+        --prefix PATH : ${lib.makeBinPath [ super.jdk24 ]} \
+        --set JAVA_HOME ${super.jdk24.home}
+    '';
+
   });
 }
