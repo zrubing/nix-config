@@ -1,0 +1,63 @@
+#!/bin/bash
+
+PORT=9222
+DEBUG_URL="http://localhost:$PORT/json"
+
+# 检查调试端口是否可用
+if ! curl -s "$DEBUG_URL" > /dev/null 2>&1; then
+    echo "Brave 远程调试未启用"
+    echo "请使用以下命令启动 Brave："
+    echo "brave --remote-debugging-port=9222"
+    exit 1
+fi
+
+# 获取所有标签页
+tab_ids=()
+tab_titles=()
+
+# 直接解析每个标签页，避免处理复杂转义
+while IFS= read -r line; do
+    if [ -n "$line" ]; then
+        id=$(echo "$line" | jq -r '.id // empty')
+        title=$(echo "$line" | jq -r '.title // empty')
+        url=$(echo "$line" | jq -r '.url // empty')
+        
+        if [ -n "$id" ] && [ -n "$title" ] && [ "$id" != "null" ] && [ "$title" != "null" ]; then
+            tab_ids+=("$id")
+            # 简化标题和URL显示
+            domain=$(echo "$url" | sed -e 's|^https\?://||' -e 's|^www\.||' -e 's|/.*||' | sed 's/[^a-zA-Z0-9.-]//g')
+            full_title="$title - $domain"
+            if [ ${#full_title} -gt 80 ]; then
+                display_title="${full_title:0:77}..."
+            else
+                display_title="$full_title"
+            fi
+            tab_titles+=("$display_title")
+        fi
+    fi
+done < <(curl -s "$DEBUG_URL" | jq -c '.[] | select(.type=="page")')
+
+if [ ${#tab_ids[@]} -eq 0 ]; then
+    echo "没有找到打开的标签页"
+    exit 1
+fi
+
+# 显示菜单让用户选择
+result=$(printf "%s\n" "${tab_titles[@]}" | fuzzel --dmenu --index --width=80 --lines=15 --match-mode=fuzzy)
+
+# 检查用户是否选择了标签页
+if [ -n "$result" ] && [ "$result" != "-1" ]; then
+    selected_id="${tab_ids[$result]}"
+    
+    # 激活选中的标签页
+    activate_url="http://localhost:$PORT/json/activate/$selected_id"
+    curl -s "$activate_url" > /dev/null
+    
+    # 获取 Brave 窗口 ID 并激活
+    browser_info=$(niri msg --json windows)
+    browser_window_id=$(echo "$browser_info" | jq -r '.[] | select(.app_id=="brave-browser") | .id' | head -1)
+    
+    if [ -n "$browser_window_id" ] && [ "$browser_window_id" != "null" ] && [ "$browser_window_id" != "" ]; then
+        niri msg action focus-window --id "$browser_window_id"
+    fi
+fi

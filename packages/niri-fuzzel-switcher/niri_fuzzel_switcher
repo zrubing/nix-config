@@ -1,0 +1,41 @@
+#!/bin/bash
+
+window_ids=()
+window_titles=()
+
+# 获取窗口列表，并按行处理
+while read -r line; do
+    id=$(echo "$line" | jq -r '.id')
+    app_id=$(echo "$line" | jq -r '.app_id')
+    title=$(echo "$line" | jq -r '.title')
+    
+    if [ -n "$id" ] && [ -n "$app_id" ]; then
+        window_ids+=("$id")
+        if [ -n "$title" ] && [ "$title" != "null" ] && [ "$title" != "" ]; then
+            # 限制标题长度，避免显示过长
+            full_title="$app_id - $title"
+            if [ ${#full_title} -gt 80 ]; then
+                display_title="${full_title:0:77}..."
+            else
+                display_title="$full_title"
+            fi
+            window_titles+=("$display_title")
+        else
+            window_titles+=("$app_id")
+        fi
+    fi
+done < <(niri msg --json windows | jq -c '.[]')
+
+# 如果没有找到窗口，退出
+if [ ${#window_ids[@]} -eq 0 ]; then
+    echo "No windows found"
+    exit 1
+fi
+
+# 显示菜单让用户选择
+result=$(printf "%s\n" "${window_titles[@]}" | fuzzel --dmenu --index --width=80 --lines=12 --match-mode=fuzzy)
+
+# 检查用户是否选择了窗口
+if [ -n "$result" ] && [ "$result" != "-1" ]; then
+    niri msg action focus-window --id "${window_ids[$result]}"
+fi

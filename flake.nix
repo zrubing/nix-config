@@ -73,6 +73,16 @@
       flake = false;
     };
 
+    quickshell = {
+      url = "github:outfoxxed/quickshell";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    noctalia = {
+      url = "github:noctalia-dev/noctalia-shell";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.quickshell.follows = "quickshell"; # Use same quickshell version
+    };
+
     codex-nix.url = "github:sadjow/codex-nix";
 
     ########################  My own repositories  #########################################
@@ -110,6 +120,7 @@
       systems.modules.darwin = with inputs; [ ];
 
       homes.modules = with inputs; [
+        noctalia.homeModules.default
         agenix.homeManagerModules.default
         sops-nix.homeManagerModules.sops
       ];

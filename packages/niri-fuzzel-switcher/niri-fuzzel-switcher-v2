@@ -1,0 +1,106 @@
+#!/bin/bash
+
+window_ids=()
+window_titles=()
+window_types=()
+
+PORT=9222
+DEBUG_URL="http://localhost:$PORT/json"
+
+# 检查浏览器远程调试是否可用
+browser_tabs_available=false
+if curl -s "$DEBUG_URL" > /dev/null 2>&1; then
+    browser_tabs_available=true
+fi
+
+# 获取普通窗口
+while read -r line; do
+    id=$(echo "$line" | jq -r '.id')
+    app_id=$(echo "$line" | jq -r '.app_id')
+    title=$(echo "$line" | jq -r '.title')
+    
+    if [ -n "$id" ] && [ -n "$app_id" ]; then
+        if [ "$app_id" == "brave-browser" ] && [ "$browser_tabs_available" = true ]; then
+            # 如果是浏览器且有调试端口，添加一个浏览器总览选项
+            window_ids+=("browser:$id")
+            window_titles+=("📱 Brave - 所有标签页...")
+            window_types+=("browser")
+        else
+            window_ids+=("window:$id")
+            if [ -n "$title" ] && [ "$title" != "null" ] && [ "$title" != "" ]; then
+                full_title="$app_id - $title"
+                if [ ${#full_title} -gt 80 ]; then
+                    display_title="${full_title:0:77}..."
+                else
+                    display_title="$full_title"
+                fi
+                window_titles+=("$display_title")
+            else
+                window_titles+=("$app_id")
+            fi
+            window_types+=("window")
+        fi
+    fi
+done < <(niri msg --json windows | jq -c '.[]')
+
+# 添加浏览器标签页选项
+if [ "$browser_tabs_available" = true ]; then
+    while IFS= read -r line; do
+        if [ -n "$line" ]; then
+            id=$(echo "$line" | jq -r '.id // empty')
+            title=$(echo "$line" | jq -r '.title // empty')
+            url=$(echo "$line" | jq -r '.url // empty')
+            
+            if [ -n "$id" ] && [ -n "$title" ] && [ "$id" != "null" ] && [ "$title" != "null" ]; then
+                window_ids+=("tab:$id")
+                # 简化标题和URL显示
+                domain=$(echo "$url" | sed -e 's|^https\?://||' -e 's|^www\.||' -e 's|/.*||' | sed 's/[^a-zA-Z0-9.-]//g')
+                full_title="🌐 $title - $domain"
+                if [ ${#full_title} -gt 80 ]; then
+                    display_title="${full_title:0:77}..."
+                else
+                    display_title="$full_title"
+                fi
+                window_titles+=("$display_title")
+                window_types+=("tab")
+            fi
+        fi
+    done < <(curl -s "$DEBUG_URL" | jq -c '.[] | select(.type=="page")')
+fi
+
+# 如果没有找到窗口，退出
+if [ ${#window_ids[@]} -eq 0 ]; then
+    echo "No windows found"
+    exit 1
+fi
+
+# 显示菜单让用户选择
+result=$(printf "%s\n" "${window_titles[@]}" | fuzzel --dmenu --index --width=80 --lines=12 --match-mode=fuzzy)
+
+# 检查用户是否选择了选项
+if [ -n "$result" ] && [ "$result" != "-1" ]; then
+    selected="${window_ids[$result]}"
+    IFS=':' read -r type id <<< "$selected"
+    
+    case "$type" in
+        "window")
+            niri msg action focus-window --id "$id"
+            ;;
+        "browser")
+            # 聚焦浏览器窗口
+            niri msg action focus-window --id "$id"
+            ;;
+        "tab")
+            # 激活选中的标签页
+            activate_url="http://localhost:$PORT/json/activate/$id"
+            curl -s "$activate_url" > /dev/null
+            
+            # 聚焦浏览器窗口（获取第一个浏览器窗口）
+            browser_info=$(niri msg --json windows)
+            browser_window_id=$(echo "$browser_info" | jq -r '.[] | select(.app_id=="brave-browser") | .id' | head -1)
+            if [ -n "$browser_window_id" ] && [ "$browser_window_id" != "null" ] && [ "$browser_window_id" != "" ]; then
+                niri msg action focus-window --id "$browser_window_id"
+            fi
+            ;;
+    esac
+fi

@@ -18,16 +18,16 @@ in
   };
 
   config = mkIf cfg.enable {
-    services.xwayland-satellite.enable = true;
-
-    services.dunst.enable = true;
-    services.swayidle.enable = true;
+    # services.xwayland-satellite.enable = true;
+    # services.dunst.enable = true;
+    # services.swayidle.enable = true;
 
     ${namespace} = {
-      copyq.enable = true;
-      yazi.enable = true;
-      rgbar.enable = true;
-      xdg-portal.enable = true;
+      #rgbar.enable = true;
+      noctalia.enable = true;
+      #copyq.enable = true;
+      #yazi.enable = true;
+      #xdg-portal.enable = true;
       linux.desktop = {
         enable = true;
         type = "niri";
@@ -38,6 +38,9 @@ in
 
     };
     home.packages = with pkgs; [
+      swappy
+      slurp
+
       mako
       xorg.xrdb
       papirus-icon-theme
@@ -54,45 +57,17 @@ in
 
     ];
 
-    # set in xdg-config
-    # home.file."${config.xdg.configHome}/xdg-desktop-portal/niri-portals.conf".source =
-    #   ./niri-portals.conf;
+    # 使用 home.file 管理 Brave 配置文件
+    home.file.".config/brave-flags.conf".text = ''
+      # Brave 浏览器启动参数配置
+      # 用于启用远程调试，支持 niri-fuzzel-switcher 的标签页切换功能
 
-    home.file."${config.xdg.dataHome}/custom-icons" = {
-      source = ./icons;
-      recursive = true;
-    };
+      --remote-debugging-port=9222
 
-    home.file.".config/niri/config.kdl".source = ./config.kdl;
-    home.file.".config/rgui/rgbar.toml".text = ''
-      icon_path = "icon-config.toml"
-      [icon]
-      paths = [
-          "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/devices",
-          "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps",
-          "${config.xdg.dataHome}/papirus-icon-theme"
-      ]
-
-    '';
-    home.file.".config/rgui/icon-config.toml".text = ''
-      paths = [
-          "${config.xdg.dataHome}/papirus-icon-theme",
-          "${config.xdg.dataHome}/custom-icons",
-          "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/devices",
-          "${pkgs.papirus-icon-theme}/share/icons/Papirus-Dark/64x64/apps"
-      ]
-
-      [alias]
-      app-launcher = [
-            "org.codeberg.wangzh.rglauncher"
-      ]
-      emacs = [ "Emacs" ]
-      brave = [ "Brave-browser" ]
-      feishu = [ "Bytedance-feishu" ]
-      dbeaver = [ "DBeaver" ]
-      cherry-studio = [ "CherryStudio" ]
-
-
+      # 其他可选参数
+      # --enable-features=UseOzonePlatform
+      # --ozone-platform-hint=auto
+      # --disable-features=VizDisplayCompositor
     '';
 
   };

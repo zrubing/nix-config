@@ -25,7 +25,7 @@ in
         [
           inputs.codex-nix.packages.${pkgs.system}.default
 
-          pkgs.${namespace}.sunloginclient
+          #pkgs.${namespace}.sunloginclient
           firefox
           pkgs-unstable.google-chrome
           uv

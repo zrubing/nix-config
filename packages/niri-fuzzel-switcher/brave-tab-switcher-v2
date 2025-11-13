@@ -1,0 +1,101 @@
+#!/bin/bash
+
+set -euo pipefail
+
+PORT=9222
+DEBUG_URL="http://localhost:$PORT/json"
+
+# 检查调试端口是否可用
+if ! curl -s --connect-timeout 2 "$DEBUG_URL" > /dev/null 2>&1; then
+    echo "❌ Brave 远程调试未启用"
+    echo "请重新启动 Brave："
+    echo "1. 完全关闭 Brave (pkill -f brave)"
+    echo "2. 重新启动 (brave)"
+    exit 1
+fi
+
+echo "正在获取 Brave 标签页..."
+
+# 获取所有标签页
+tab_ids=()
+tab_titles=()
+
+# 使用更稳定的方式获取标签页
+if ! temp_data=$(curl -s --connect-timeout 3 --max-time 5 "$DEBUG_URL"); then
+    echo "❌ 无法连接到 Brave 远程调试端口"
+    exit 1
+fi
+
+# 检查返回的数据是否有效
+if ! echo "$temp_data" | jq empty 2>/dev/null; then
+    echo "❌ Brave 返回的数据格式无效"
+    exit 1
+fi
+
+# 解析每个标签页
+while IFS= read -r line; do
+    if [ -n "$line" ]; then
+        # 使用更安全的 jq 解析方式
+        id=$(echo "$line" 2>/dev/null | jq -r '.id // empty' 2>/dev/null || echo "")
+        title=$(echo "$line" 2>/dev/null | jq -r '.title // empty' 2>/dev/null || echo "")
+        url=$(echo "$line" 2>/dev/null | jq -r '.url // empty' 2>/dev/null || echo "")
+        
+        if [ -n "$id" ] && [ -n "$title" ] && [ "$id" != "null" ] && [ "$title" != "null" ]; then
+            tab_ids+=("$id")
+            # 简化域名显示
+            domain=$(echo "$url" | sed -e 's|^https\?://||' -e 's|^www\.||' -e 's|/.*||' | tr -cd 'a-zA-Z0-9.-' || echo "unknown")
+            full_title="$title - $domain"
+            if [ ${#full_title} -gt 80 ]; then
+                display_title="${full_title:0:77}..."
+            else
+                display_title="$full_title"
+            fi
+            tab_titles+=("$display_title")
+        fi
+    fi
+done < <(echo "$temp_data" | jq -c '.[] | select(.type=="page")' 2>/dev/null || echo "")
+
+if [ ${#tab_ids[@]} -eq 0 ]; then
+    echo "❌ 没有找到打开的标签页"
+    exit 1
+fi
+
+echo "找到 ${#tab_ids[@]} 个标签页"
+
+# 显示菜单让用户选择
+if ! result=$(printf "%s\n" "${tab_titles[@]}" | fuzzel --dmenu --index --width=80 --lines=15 --match-mode=fuzzy); then
+    echo "用户取消了选择"
+    exit 0
+fi
+
+# 检查用户是否选择了标签页
+if [ -n "$result" ] && [ "$result" != "-1" ]; then
+    selected_id="${tab_ids[$result]}"
+    
+    echo "正在切换到标签页: ${tab_titles[$result]}"
+    
+    # 激活选中的标签页
+    activate_url="http://localhost:$PORT/json/activate/$selected_id"
+    if ! curl -s --connect-timeout 2 "$activate_url" > /dev/null; then
+        echo "❌ 无法激活标签页"
+        exit 1
+    fi
+    
+    # 获取 Brave 窗口 ID 并激活
+    if browser_info=$(niri msg --json windows 2>/dev/null); then
+        if browser_window_id=$(echo "$browser_info" | jq -r '.[] | select(.app_id=="brave-browser") | .id' | head -1 2>/dev/null); then
+            if [ -n "$browser_window_id" ] && [ "$browser_window_id" != "null" ] && [ "$browser_window_id" != "" ]; then
+                niri msg action focus-window --id "$browser_window_id"
+                echo "✅ 标签页切换成功"
+            else
+                echo "⚠️ 标签页已激活，但无法聚焦浏览器窗口"
+            fi
+        else
+            echo "⚠️ 标签页已激活，但无法找到浏览器窗口"
+        fi
+    else
+        echo "⚠️ 标签页已激活，但无法获取窗口信息"
+    fi
+else
+    echo "未选择标签页"
+fi
