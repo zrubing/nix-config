@@ -7,6 +7,16 @@
 }:
 let
   cfg = config.${namespace}.linux.desktop;
+  brave-wrapper = pkgs.writeScriptBin "brave" ''
+    #!/bin/sh
+    BRAVE_USER_FLAGS_FILE="$XDG_CONFIG_HOME/brave-flags.conf"
+    if [[ -f $BRAVE_USER_FLAGS_FILE ]]; then
+        USER_FLAGS="$(cat $BRAVE_USER_FLAGS_FILE | sed 's/#.*//')"
+    else
+        echo "not found conf file"
+    fi
+    ${pkgs.brave}/bin/brave $@ $USER_FLAGS
+  '';
 in
 {
   options.${namespace}.linux.desktop = with lib; {
@@ -24,6 +34,24 @@ in
   config = lib.mkIf (cfg.enable && cfg.type == "niri") {
     services.dunst.enable = true;
     programs.mpv.enable = true;
+
+    home.packages = [
+      brave-wrapper
+    ];
+
+    # 使用 home.file 管理 Brave 配置文件
+    home.file.".config/brave-flags.conf".text = ''
+      # Brave 浏览器启动参数配置
+      # 用于启用远程调试，支持 niri-fuzzel-switcher 的标签页切换功能
+
+      --remote-debugging-port=9222
+
+      # 其他可选参数
+      # --enable-features=UseOzonePlatform
+      # --ozone-platform-hint=auto
+      # --disable-features=VizDisplayCompositor
+    '';
+
     xdg = {
       enable = true;
 
@@ -83,7 +111,7 @@ in
 
         brave = {
           name = "brave";
-          exec = ''${pkgs.brave}/bin/brave'';
+          exec = "${brave-wrapper}/bin/brave %U";
           icon = "brave-browser";
           terminal = false;
           type = "Application";
