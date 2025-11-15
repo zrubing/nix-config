@@ -316,9 +316,7 @@ in
       settings = {
         # configure noctalia here; defaults will
         # be deep merged with these attributes.
-        dock = {
-          enable = false;
-        };
+
         bar = {
           density = "compact";
           position = "right";
@@ -363,6 +361,9 @@ in
         general = {
           avatarImage = "/home/jojo/.face";
           radiusRatio = 0.2;
+        };
+        dock = {
+          enabled = false;
         };
         location = {
           monthBeforeDay = true;
