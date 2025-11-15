@@ -31,6 +31,7 @@ in
   config = mkIf cfg.enable {
 
     home.packages = with pkgs; [
+      cliphist
       xwayland-satellite
       pkgs.${namespace}.niri-fuzzel-switcher
     ];
