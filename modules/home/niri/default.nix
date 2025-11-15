@@ -21,6 +21,7 @@ in
     # services.xwayland-satellite.enable = true;
     # services.dunst.enable = true;
     # services.swayidle.enable = true;
+    
 
     ${namespace} = {
       #rgbar.enable = true;
@@ -32,6 +33,9 @@ in
         enable = true;
         type = "niri";
       };
+
+      swayidle.enable = true;
+
 
       # 使用niri-flake自带的xwayland-satellite
       niri-flake.enable = true;
