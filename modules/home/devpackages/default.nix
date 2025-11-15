@@ -172,7 +172,7 @@ in
             lemminx
             pkgs.${namespace}.java-debug
             pkgs.${namespace}.claude-code-proxy
-            jdt-language-server
+            pkgs-unstable.jdt-language-server
             # php
             intelephense
 

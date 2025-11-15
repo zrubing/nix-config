@@ -20,6 +20,10 @@ in
     xwayland-conf
     {
 
+      services.power-profiles-daemon.enable = true;
+      services.upower.enable = true;
+      hardware.bluetooth.enable = true;
+
       services.flatpak.enable = true;
       environment.systemPackages = with pkgs; [
         dunst

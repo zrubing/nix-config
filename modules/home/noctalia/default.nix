@@ -315,6 +315,9 @@ in
       settings = {
         # configure noctalia here; defaults will
         # be deep merged with these attributes.
+        dock = {
+          enable = false;
+        };
         bar = {
           density = "compact";
           position = "right";
@@ -355,7 +358,7 @@ in
             ];
           };
         };
-        colorSchemes.predefinedScheme = "Monochrome";
+        colorSchemes.predefinedScheme = "Nord";
         general = {
           avatarImage = "/home/jojo/.face";
           radiusRatio = 0.2;
