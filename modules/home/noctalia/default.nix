@@ -32,14 +32,17 @@ in
 
     home.packages = with pkgs; [
       cliphist
-      xwayland-satellite
       pkgs.${namespace}.niri-fuzzel-switcher
     ];
 
     programs.niri = {
 
       settings = {
-        xwayland-satellite.enable = true;
+        xwayland-satellite = {
+
+          enable = true;
+          path = lib.getExe pkgs.xwayland-satellite-unstable;
+        };
         input = {
           keyboard = {
             xkb = {
