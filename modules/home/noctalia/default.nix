@@ -37,7 +37,6 @@ in
       pkgs.${namespace}.niri-fuzzel-switcher
     ];
 
-
     programs.niri = {
 
       settings = {
@@ -54,6 +53,12 @@ in
           };
 
         };
+
+        environment = {
+          DISPLAY = ":0";
+          # 其他环境变量...
+        };
+
         input = {
           keyboard = {
             xkb = {
