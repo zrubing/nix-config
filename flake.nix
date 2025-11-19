@@ -83,6 +83,11 @@
       inputs.quickshell.follows = "quickshell"; # Use same quickshell version
     };
 
+    antigravity-nix = {
+      url = "github:jacopone/antigravity-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     codex-nix.url = "github:sadjow/codex-nix";
 
     ########################  My own repositories  #########################################

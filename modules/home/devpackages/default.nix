@@ -173,6 +173,9 @@ in
             pkgs.${namespace}.java-debug
             pkgs.${namespace}.claude-code-proxy
             pkgs-unstable.jdt-language-server
+
+            google-antigravity
+
             # php
             intelephense
 
