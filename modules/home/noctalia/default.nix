@@ -30,18 +30,29 @@ in
 
   config = mkIf cfg.enable {
 
+    services.xwayland-satellite.enable = true;
+
     home.packages = with pkgs; [
       cliphist
       pkgs.${namespace}.niri-fuzzel-switcher
     ];
 
+
     programs.niri = {
 
       settings = {
-        xwayland-satellite = {
+        # xwayland-satellite = {
 
-          enable = true;
-          path = lib.getExe pkgs.xwayland-satellite-unstable;
+        #   enable = true;
+        #   path = lib.getExe pkgs.xwayland-satellite-unstable;
+        # };
+        layout = {
+          always-center-single-column = true;
+          default-column-display = "tabbed";
+          tab-indicator = {
+            hide-when-single-tab = true;
+          };
+
         };
         input = {
           keyboard = {
