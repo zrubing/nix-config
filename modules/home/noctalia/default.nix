@@ -98,6 +98,9 @@ in
           "Mod+D".action = {
             spawn = [ "fuzzel" ];
           };
+          "Mod+O".action = {
+            spawn = [ "fuzzel-file-chooser" ];
+          };
           "Mod+X".action = {
             spawn = [ "emacs" ];
           };
