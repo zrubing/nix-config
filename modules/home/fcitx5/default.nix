@@ -41,7 +41,7 @@ in
 
     home.sessionVariables =
       {
-        GLFW_IM_MODULE = lib.mkForce "fcitx"; # IME support in kitty and fuzzel
+        GLFW_IM_MODULE = lib.mkForce "ibus"; # IME support in kitty and fuzzel
         XMODIFIERS = "@im=fcitx";
         GTK_IM_MODULE = lib.mkForce "";
         QT_IM_MODULE = lib.mkForce "";

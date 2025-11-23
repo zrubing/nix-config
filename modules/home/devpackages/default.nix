@@ -23,6 +23,8 @@ in
       (
         # -*- Data & Configuration Languages -*-#
         [
+          xfce.catfish
+
           inputs.codex-nix.packages.${pkgs.system}.default
 
           #pkgs.${namespace}.sunloginclient
