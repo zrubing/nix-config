@@ -121,6 +121,13 @@ in
             ];
           };
 
+          "Mod+Shift+B".action = {
+            spawn = [
+              "wl-ocr"
+            ];
+          };
+
+
           "XF86AudioMicMute".action = {
             spawn = [
               "wpctl"
