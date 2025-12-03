@@ -15,7 +15,22 @@ pkgs.stdenv.mkDerivation rec {
 
   unpackPhase = ''
     dpkg-deb -x $src .
+
+    mv opt $out/
+    mv etc $out/
+    mv usr/local $out/
+    mv usr/share $out/
+
+    substituteInPlace $out/share/applications/com.volcengine.feilian.desktop \
+      --replace-warn /opt/apps/com.volcengine.feilian/files/corplink $out/apps/com.volcengine.feilian/files/corplink
+
+    substituteInPlace $out/share/applications/corplink.desktop \
+      --replace-warn /opt/apps/com.volcengine.feilian/files/corplink $out/apps/com.volcengine.feilian/files/corplink
+
+
+
   '';
+
 
   installPhase = ''
     # 复制所有文件到输出目录

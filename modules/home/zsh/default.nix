@@ -52,7 +52,7 @@ in
       vids = "$HOME/Videos";
       nixpkgs = "$HOME/Documents/code/git/nixpkgs";
     };
-    dotDir = ".config/zsh";
+    dotDir = "${config.xdg.configHome}";
     history = {
       expireDuplicatesFirst = true;
       path = "${config.xdg.dataHome}/zsh_history";
@@ -140,7 +140,8 @@ in
 
       us = "systemctl --user"; # mnemonic for user systemctl
       rs = "sudo systemctl"; # mnemonic for root systemctl
-    } // lib.optionalAttrs config.programs.bat.enable { cat = "bat"; };
+    }
+    // lib.optionalAttrs config.programs.bat.enable { cat = "bat"; };
     shellGlobalAliases = {
       eza = "eza --icons --git";
     };

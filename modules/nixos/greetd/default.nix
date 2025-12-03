@@ -18,12 +18,11 @@ in {
 
     services.greetd = {
       enable = true;
-      vt = 1; # TODO maybe change to another VT
       settings = {
         default_session = {
           user = "${config.${namespace}.user.name}";
           command =
-            "${pkgs.greetd.tuigreet}/bin/tuigreet --time --sessions ${desktopSessions}";
+            "${pkgs.tuigreet}/bin/tuigreet --time --sessions ${desktopSessions}";
         };
       };
     };

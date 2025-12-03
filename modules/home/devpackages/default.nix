@@ -62,7 +62,7 @@ in
 
           #-- dockerfile
           hadolint # Dockerfile linter
-          nodePackages.dockerfile-language-server-nodejs
+          dockerfile-language-server
 
           #-- markdown
           marksman # language server for markdown
@@ -165,14 +165,16 @@ in
 
             # -- java
             # jdk24
-            temurin-bin-24
+            javaPackages.compiler.temurin-bin.jdk-25
             leiningen
+
+            google-java-format
 
             gradle
             maven
             spring-boot-cli
             lemminx
-            pkgs.${namespace}.java-debug
+            # pkgs.${namespace}.java-debug #依赖总是不固定，先注释
             pkgs.${namespace}.claude-code-proxy
             pkgs-unstable.jdt-language-server
 
@@ -222,6 +224,8 @@ in
 
           #-- Optional Requirements:
           nodePackages.prettier # common code formatter
+          pkgs.${namespace}.prettier-plugin-nginx
+
           fzf
           gdu # disk usage analyzer, required by AstroNvim
           (ripgrep.override {

@@ -25,6 +25,9 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
+      # view image
+      imv
+
       # claude sandbox
       socat
       bubblewrap

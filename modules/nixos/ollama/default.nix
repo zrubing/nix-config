@@ -21,9 +21,9 @@ in
   config = lib.mkIf cfg.enable {
 
     services.ollama = {
-      enable = false;
-      package = pkgs.ollama-rocm;
-      acceleration = "rocm";
+      enable = true;
+      package = pkgs-unstable.ollama-vulkan;
+      acceleration = "vulkan";
     };
   };
 
