@@ -11,7 +11,7 @@ let
   hm = config.lib;
   cfg = config.${namespace}.cc-proxy;
   mysecrets = inputs.mysecrets;
-  subagents = inputs.subagents;
+  # subagents = inputs.subagents;
   uid = toString 1000;
   username = config.snowfallorg.user.name;
 in
@@ -36,10 +36,10 @@ in
       export ANTHROPIC_API_KEY=$(cat ${config.sops.secrets."anthropic/api_key".path})
     '';
 
-    home.file.".claude/agents" = {
-      source = "${subagents}/agents";
-      force = true;
-    };
+    # home.file.".claude/agents" = {
+    #   source = "${subagents}/agents";
+    #   force = true;
+    # };
 
     home.packages = with pkgs; [
       libnotify

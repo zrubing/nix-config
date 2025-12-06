@@ -63,15 +63,15 @@
       flake = false;
     };
 
-    subagents = {
-      url = "git+ssh://git@github.com/wshobson/agents?ref=main";
-      flake = false;
-    };
+    # subagents = {
+    #   url = "git+ssh://git@github.com/wshobson/agents?ref=main";
+    #   flake = false;
+    # };
 
-    subagents2 = {
-      url = "git+ssh://git@github.com/VoltAgent/awesome-claude-code-subagents";
-      flake = false;
-    };
+    # subagents2 = {
+    #   url = "git+ssh://git@github.com/VoltAgent/awesome-claude-code-subagents";
+    #   flake = false;
+    # };
 
     quickshell = {
       url = "github:outfoxxed/quickshell";

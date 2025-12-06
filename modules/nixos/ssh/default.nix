@@ -1,7 +1,9 @@
 { lib, ... }:
 {
   # ssh-agent is used to pull my private secrets repo from github when deploying my nixos config.
-  # programs.ssh.startAgent = true;
+  # 这个和下面的冲突了，先关了，不知道是哪个地方的服务
+  services.gnome.gcr-ssh-agent.enable = false;
+  programs.ssh.startAgent = true;
   programs.ssh = {
     extraConfig = ''
       Host github.com
