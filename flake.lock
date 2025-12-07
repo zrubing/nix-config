@@ -612,44 +612,20 @@
     "noctalia": {
       "inputs": {
         "nixpkgs": [
-          "nixpkgs"
-        ],
-        "quickshell": [
-          "quickshell"
-        ],
-        "systems": "systems_7"
-      },
-      "locked": {
-        "lastModified": 1763049290,
-        "narHash": "sha256-zLMEkSOCjJl3qGPq2SOgI1ZjV3Sh1KdTleFQ2VnSLlY=",
-        "owner": "noctalia-dev",
-        "repo": "noctalia-shell",
-        "rev": "80493adaed8c3a6aee02ea589f59211e6f92726e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "noctalia-dev",
-        "repo": "noctalia-shell",
-        "type": "github"
-      }
-    },
-    "quickshell": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
+          "nixpkgs-unstable"
         ]
       },
       "locked": {
-        "lastModified": 1761897390,
-        "narHash": "sha256-er4gYrIoThYLjlsOMTysoRfn67d1Gci+ZpqDrtQxrA0=",
-        "owner": "outfoxxed",
-        "repo": "quickshell",
-        "rev": "fc704e6b5d445899a1565955268c91942a4f263f",
+        "lastModified": 1765028374,
+        "narHash": "sha256-WhS0HlRrQSuf4pWOnqKZizN8N8EpFDe53sbYwFy2J2E=",
+        "owner": "noctalia-dev",
+        "repo": "noctalia-shell",
+        "rev": "75ecc5ca97f154b6d4ac47e14b800d18d7a90ddb",
         "type": "github"
       },
       "original": {
-        "owner": "outfoxxed",
-        "repo": "quickshell",
+        "owner": "noctalia-dev",
+        "repo": "noctalia-shell",
         "type": "github"
       }
     },
@@ -684,7 +660,6 @@
         "nixpkgs": "nixpkgs_7",
         "nixpkgs-unstable": "nixpkgs-unstable",
         "noctalia": "noctalia",
-        "quickshell": "quickshell",
         "rime-3gram": "rime-3gram",
         "snowfall-lib": "snowfall-lib",
         "sops-nix": "sops-nix",
@@ -813,21 +788,6 @@
       }
     },
     "systems_6": {
-      "locked": {
-        "lastModified": 1681028828,
-        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
-        "owner": "nix-systems",
-        "repo": "default",
-        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-systems",
-        "repo": "default",
-        "type": "github"
-      }
-    },
-    "systems_7": {
       "locked": {
         "lastModified": 1681028828,
         "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
