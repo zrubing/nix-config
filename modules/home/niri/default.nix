@@ -27,7 +27,7 @@ in
       #rgbar.enable = true;
       noctalia.enable = true;
       #copyq.enable = true;
-      #yazi.enable = true;
+      yazi.enable = true;
       #xdg-portal.enable = true;
       linux.desktop = {
         enable = true;
