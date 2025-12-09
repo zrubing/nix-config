@@ -13,7 +13,7 @@ let
     config.allowUnfree = true;
   };
 
-  pkgs-nix-ai = inputs.nix-ai-tools.packages.${pkgs.system};
+  pkgs-nix-ai = inputs.llm-agents.packages.${pkgs.system};
 
   cfg = config.${namespace}.modules.packages;
 in
