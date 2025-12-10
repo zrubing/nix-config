@@ -23,6 +23,9 @@ in
         "fcitx5/rime/amz-v2n3m1-zh-hans.gram" = {
           source = inputs.rime-3gram;
         };
+
+        # https://wiki.archlinuxcn.org/wiki/Rime
+
         "fcitx5/rime/default.custom.yaml" = {
           text = ''
             patch:
