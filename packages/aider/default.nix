@@ -1,6 +1,5 @@
 {
   lib,
-  pkgs,
   stdenv,
   python312,
   fetchFromGitHub,
@@ -8,12 +7,11 @@
   portaudio,
   playwright-driver,
   fetchPypi,
-  system,
   inputs,
 }:
 
 let
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
+  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${stdenv.hostPlatform.system};
   python312Packages = pkgs-unstable.python312Packages;
   tree-sitter-language-pack = python312Packages.buildPythonPackage rec {
     pname = "tree-sitter-language-pack";

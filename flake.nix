@@ -43,12 +43,9 @@
     # flake's inputs.
     snowfall-lib = {
       url = "github:snowfallorg/lib";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        flake-utils-plus.follows = "flake-utils-plus";
-        flake-compat.follows = "flake-compat";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
     };
+
     niri.url = "github:sodiboo/niri-flake";
 
     tree-sitter-grammars.url = "github:marsam/tree-sitter-grammars";
@@ -72,7 +69,6 @@
     #   url = "git+ssh://git@github.com/VoltAgent/awesome-claude-code-subagents";
     #   flake = false;
     # };
-
 
     noctalia = {
       url = "github:noctalia-dev/noctalia-shell";
