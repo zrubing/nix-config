@@ -3,15 +3,18 @@
   stdenvNoCC,
   fetchFromGitHub,
 }:
-stdenvNoCC.mkDerivation (_: {
+stdenvNoCC.mkDerivation (_: rec {
   pname = "rime-ice";
-  version = "nightly";
+  version = "2025.12.08";
 
   src = fetchFromGitHub {
     owner = "iDvel";
     repo = "rime-ice";
-    rev = "2a2bb24367ba9948c840fec599710006dcb1e9ca";
-    hash = "sha256-vB1dXAiFNMAGywq42Waiyhf7ctAM3Vp+/e5y1ntm++c=";
+    rev = version;
+    # 获取正确的哈希值：
+    # nix-prefetch-url https://github.com/iDvel/rime-ice/archive/refs/tags/2025.12.08.tar.gz
+    # 然后将输出替换下面的 hash
+    hash = "sha256-GyiOlTr1Nw2ANTE7/fdyrPQkvRFWOyal3oAcDvsqF5A=";
   };
 
   installPhase = ''
