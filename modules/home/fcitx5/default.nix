@@ -23,6 +23,14 @@ in
         "fcitx5/rime/amz-v2n3m1-zh-hans.gram" = {
           source = inputs.rime-3gram;
         };
+        "fcitx5/rime/default.custom.yaml" = {
+          text = ''
+            patch:
+              schema_list:
+                - schema: rime_ice
+
+          '';
+        };
         "fcitx5/rime/rime_ice.custom.yaml" = {
           text = ''
             patch:
