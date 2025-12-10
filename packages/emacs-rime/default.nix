@@ -1,14 +1,22 @@
-{ stdenv, pkgs }:
+{
+  stdenv,
+  pkgs,
+  lib,
+}:
 stdenv.mkDerivation {
 
   name = "emacs-rime";
   pname = "emacs-rime";
-  buildInputs = [ pkgs.gcc pkgs.librime pkgs.emacs ];
+  buildInputs = [
+    pkgs.gcc
+    pkgs.librime
+    pkgs.emacs
+  ];
   src = pkgs.fetchFromGitHub {
     owner = "DogLooksGood";
     repo = "emacs-rime";
-    rev = "80f09ed36d9f0ca7ce4e1a3ca1020dc4c80ba335";
-    sha256 = "0cgmj0j1kwjxx6077sb3b7hzj1xg6ppynyizs8v0h1x8jbngdrq0";
+    rev = "f927d26e471e7d63de65ffa92897944242f2fd92";
+    sha256 = "sha256-/gLue5lCjpC6h3cbYHY92aKE6hdqB2yuSAXnR2VDwLs=";
 
   };
   # preConfigure = ''

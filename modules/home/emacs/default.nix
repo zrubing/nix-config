@@ -56,7 +56,7 @@ let
       mkdir -p ${librime-dir}
       ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs.librime}/ ${librime-dir}/
       mkdir -p ${rime-data-dir}
-      ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs.rime-data}/ ${rime-data-dir}/
+      ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs.rime-ice}/ ${rime-data-dir}/
       mkdir -p ${tdlib-dir}
       ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs-unstable.tdlib}/ ${tdlib-dir}/
     '';
