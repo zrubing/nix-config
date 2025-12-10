@@ -25,7 +25,7 @@ in
         [
           xfce.catfish
 
-          inputs.codex-nix.packages.${pkgs.system}.default
+          inputs.codex-nix.packages.${pkgs.stdenv.hostPlatform.system}.default
 
           #pkgs.${namespace}.sunloginclient
           firefox

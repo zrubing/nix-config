@@ -1,8 +1,17 @@
-{ config, lib, pkgs, namespace, inputs, system, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  namespace,
+  inputs,
+  system,
+  ...
+}:
 with lib;
 let
   emacsPkg = inputs.emacs-overlay.packages.${system}.emacs-igc;
-in {
+in
+{
   config = mkIf pkgs.stdenv.isLinux {
     home.packages = [ emacsPkg ];
     services.emacs = {
