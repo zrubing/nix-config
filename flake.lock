@@ -685,13 +685,13 @@
     "rime-3gram": {
       "flake": false,
       "locked": {
-        "narHash": "sha256-fXAOYcE2Ekj/hKHiQjSK5tdYT4IaME7KC0NKodFxwR4=",
+        "narHash": "sha256-Z2RhCSBjbZxfzcTM3W3NzJbbEg9B46HHOxPfxXxyl14=",
         "type": "file",
-        "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/v2n3/amz-v2n3m1-zh-hans.gram"
+        "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
       },
       "original": {
         "type": "file",
-        "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/v2n3/amz-v2n3m1-zh-hans.gram"
+        "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
       }
     },
     "root": {

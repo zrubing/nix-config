@@ -56,7 +56,7 @@
     };
 
     rime-3gram = {
-      url = "https://github.com/amzxyz/RIME-LMDG/releases/download/v2n3/amz-v2n3m1-zh-hans.gram";
+      url = "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram";
       flake = false;
     };
 
