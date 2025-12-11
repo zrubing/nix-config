@@ -28,6 +28,7 @@
       fcitx5.enable = true;
       fuzzel.enable = true;
       packages.enable = true;
+      prettier.enable = true;
       # eca.enable = true;
     };
 

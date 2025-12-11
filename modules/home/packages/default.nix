@@ -80,6 +80,9 @@ in
       libreoffice
       pkgs-unstable.zed-editor
       pkgs-unstable.wpsoffice
+      
+      # prettier with nginx plugin
+      pkgs.prettier-with-plugins
 
     ];
 
