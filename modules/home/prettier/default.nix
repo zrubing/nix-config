@@ -7,10 +7,10 @@
 }:
 
 let
-  cfg = config.${namespace}.prettier;
+  cfg = config.${namespace}.modules.prettier;
 in
 {
-  options.${namespace}.prettier = {
+  options.${namespace}.modules.prettier = {
     enable = lib.mkEnableOption "prettier with nginx plugin";
   };
 
