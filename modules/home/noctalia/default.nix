@@ -79,11 +79,20 @@ in
 
         spawn-at-startup = [
           {
-            command = [
+            argv = [
               "noctalia-shell"
             ];
           }
+          # https://github.com/Supreeeme/xwayland-satellite/issues/301
+          {
+            argv = [
+              "${pkgs.xorg.xrdb}/bin/xrdb"
+              "-merge"
+              (toString config.xwayland.x-resources.source)
+            ];
+          }
         ];
+
         binds = {
           # 从 rgbar/config.kdl 迁移的 keybinding 配置
           "Mod+Shift+Slash".action = actions.show-hotkey-overlay;
@@ -126,7 +135,6 @@ in
               "wl-ocr"
             ];
           };
-
 
           "XF86AudioMicMute".action = {
             spawn = [
