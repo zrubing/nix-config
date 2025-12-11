@@ -80,6 +80,8 @@ in
       libreoffice
       pkgs-unstable.zed-editor
       pkgs-unstable.wpsoffice
+      
+
 
     ];
 

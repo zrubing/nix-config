@@ -28,7 +28,10 @@
       fcitx5.enable = true;
       fuzzel.enable = true;
       packages.enable = true;
-      # prettier.enable = true;
+      prettier = {
+        enable = true;
+        nginxPlugin = true;
+      };
       # eca.enable = true;
     };
 

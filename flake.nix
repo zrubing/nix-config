@@ -105,12 +105,11 @@
     #     config.allowUnfree = true;
     #   };
     # };
-    lib.mkFlake {
+     lib.mkFlake {
 
       # Add modules to all NixOS systems.
       systems.modules.nixos = with inputs; [
         agenix.nixosModules.default
-        niri.nixosModules.niri
         sops-nix.nixosModules.sops
       ];
 
@@ -118,6 +117,8 @@
 
       homes.modules = with inputs; [
         noctalia.homeModules.default
+        niri.homeModules.niri
+        #niri.nixosModules.niri
         agenix.homeManagerModules.default
         sops-nix.homeManagerModules.sops
       ];

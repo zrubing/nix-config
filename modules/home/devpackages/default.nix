@@ -223,8 +223,7 @@ in
           verible
 
           #-- Optional Requirements:
-          nodePackages.prettier # common code formatter
-          pkgs.${namespace}.prettier-plugin-nginx
+          # nodePackages.prettier # common code formatter - now provided by prettier module
 
           fzf
           gdu # disk usage analyzer, required by AstroNvim

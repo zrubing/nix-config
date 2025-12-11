@@ -19,19 +19,8 @@ buildNpmPackage rec {
     hash = "sha256-fRnmq4qILuf9lfcbPb3U3pkW5y1zIRKSDIEkaOScOuo=";
   };
 
-  installPhase = ''
-    runHook preInstall
-
-    mkdir -p $out
-    mv package.json package-lock.json node_modules dist $out/
-
-    # 创建可执行文件包装器
-    makeWrapper ${lib.getExe nodejs} $out/bin/prettier-plugin-nginx --add-flags $out/dist/index.js
-
-
-    runHook postInstall
-
-  '';
+  # 使用标准的 npm 包安装，不需要自定义 installPhase
+  # dontNpmBuild = true;
 
   npmDepsHash = "sha256-tE9czVsJEfQxLUPiifZll8sV2aGmfCO/uCAgOCKGU+Y=";
 
