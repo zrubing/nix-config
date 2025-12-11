@@ -62,7 +62,7 @@ in
       };
       Service = {
         Type="notify";
-        ExecStart = "${lib.getExe pkgs.xwayland-satellite} :0";
+        ExecStart = "${lib.getExe pkgs.xwayland-satellite-unstable} :0";
         Restart = "on-failure";
       };
     };
