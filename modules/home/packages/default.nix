@@ -61,6 +61,7 @@ in
       #pkgs-unstable.aider-chat
       #pkgs-unstable.claude-code
       pkgs-nix-ai.claude-code
+      pkgs-nix-ai.opencode
       #pkgs-nix-ai.gemini-cli
       pkgs-nix-ai.claude-code-acp
       pkgs.${namespace}.openspec
