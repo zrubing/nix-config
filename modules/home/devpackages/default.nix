@@ -23,6 +23,8 @@ in
       (
         # -*- Data & Configuration Languages -*-#
         [
+          unzip
+
           xfce.catfish
 
           inputs.codex-nix.packages.${pkgs.stdenv.hostPlatform.system}.default
