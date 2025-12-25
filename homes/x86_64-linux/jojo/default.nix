@@ -22,7 +22,8 @@
     password-store.enable = true;
     fish.enable = true;
 
-    cc-proxy.enable = true;
+    cc-proxy.enable = false;
+    sops.enable = true;
 
     modules = {
       fcitx5.enable = true;

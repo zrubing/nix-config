@@ -61,6 +61,8 @@ in
       #pkgs-unstable.aider-chat
       #pkgs-unstable.claude-code
       pkgs-nix-ai.claude-code
+      pkgs-nix-ai.claude-code-router
+      pkgs-nix-ai.beads
       pkgs-nix-ai.opencode
       #pkgs-nix-ai.gemini-cli
       pkgs-nix-ai.claude-code-acp
@@ -80,8 +82,8 @@ in
       libreoffice
       pkgs-unstable.zed-editor
       pkgs-unstable.wpsoffice
-      
 
+      libnotify
 
     ];
 

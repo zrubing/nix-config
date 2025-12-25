@@ -23,6 +23,8 @@ in
       (
         # -*- Data & Configuration Languages -*-#
         [
+
+          pkg-config
           unzip
 
           xfce.catfish
@@ -72,6 +74,8 @@ in
           pandoc # document converter
           pkgs-unstable.hugo # static site generator
 
+          universal-ctags
+
           #-- sql
           sqlfluff
 
@@ -98,12 +102,16 @@ in
 
             #-- python
             basedpyright
-            pkgs-unstable.ty
+            pkgs.ty
 
             pyright # python language server
             (python312.withPackages (
               ps: with ps; [
+                paddleocr
+                pipdeptree
+
                 ruff
+
                 black # python formatter
                 # debugpy
 
@@ -177,7 +185,7 @@ in
             spring-boot-cli
             lemminx
             # pkgs.${namespace}.java-debug #依赖总是不固定，先注释
-            pkgs.${namespace}.claude-code-proxy
+            # pkgs.${namespace}.claude-code-proxy
             pkgs-unstable.jdt-language-server
 
             google-antigravity

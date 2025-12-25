@@ -2,6 +2,8 @@
   config,
   lib,
   pkgs,
+  inputs,
+  system,
   ...
 }:
 let
@@ -61,9 +63,10 @@ in
         ];
       };
       Service = {
-        Type="notify";
+        Type = "notify";
         ExecStart = "${lib.getExe pkgs.xwayland-satellite-unstable} :0";
         Restart = "on-failure";
+        Environment = "RUST_BACKTRACE=1 RUST_LOG=debug";
       };
     };
 
