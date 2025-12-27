@@ -104,6 +104,9 @@ in
             basedpyright
             pkgs-unstable.ty
 
+            # for cliphist image
+            xdg-utils
+
             pyright # python language server
             (python312.withPackages (
               ps: with ps; [

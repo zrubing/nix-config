@@ -63,6 +63,7 @@ in
       pkgs-nix-ai.claude-code
       pkgs-nix-ai.claude-code-router
       pkgs-nix-ai.beads
+      pkgs-nix-ai.catnip
       pkgs-nix-ai.opencode
       #pkgs-nix-ai.gemini-cli
       pkgs-nix-ai.claude-code-acp

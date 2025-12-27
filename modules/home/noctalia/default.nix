@@ -80,17 +80,27 @@ in
         spawn-at-startup = [
           {
             argv = [
+              "wl-paste"
+              "--type"
+              "text"
+              "--watch"
+              "cliphist"
+              "store"
+            ];
+          }
+          {
+            argv = [
               "noctalia-shell"
             ];
           }
           # https://github.com/Supreeeme/xwayland-satellite/issues/301
-          {
-            argv = [
-              "${pkgs.xorg.xrdb}/bin/xrdb"
-              "-merge"
-              (toString config.xwayland.x-resources.source)
-            ];
-          }
+          # {
+          #   argv = [
+          #     "${pkgs.xorg.xrdb}/bin/xrdb"
+          #     "-merge"
+          #     (toString config.xwayland.x-resources.source)
+          #   ];
+          # }
         ];
 
         binds = {
@@ -102,6 +112,13 @@ in
               "alacritty"
               "-e"
               "fish"
+            ];
+          };
+          "Mod+V".action = {
+            spawn = [
+              "bash"
+              "-c"
+              "cliphist list | fuzzel --dmenu | cliphist decode | wl-copy"
             ];
           };
           "Mod+D".action = {

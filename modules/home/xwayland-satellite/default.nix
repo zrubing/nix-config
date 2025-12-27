@@ -28,27 +28,27 @@ in
       ${pkgs.xorg.xrdb}/bin/xrdb -merge ~/.Xresources
     '';
 
-    # systemd.user.services.xrdb = {
-    #   Unit = {
-    #     Description = "xrdb";
-    #     PartOf = [ "graphical-session.target" ];
-    #     After = [
-    #       "graphical-session.target"
-    #       "xwayland-satellite.service"
-    #     ];
-    #     Requisite = [ "xwayland-satellite.service" ];
-    #   };
+    systemd.user.services.xrdb = {
+      Unit = {
+        Description = "xrdb";
+        PartOf = [ "graphical-session.target" ];
+        After = [
+          "graphical-session.target"
+          "xwayland-satellite.service"
+        ];
+        Requisite = [ "xwayland-satellite.service" ];
+      };
 
-    #   Install = {
-    #     WantedBy = [ "graphical-session.target" ];
-    #   };
+      Install = {
+        WantedBy = [ "graphical-session.target" ];
+      };
 
-    #   Service = {
-    #     Type = "oneshot";
-    #     ExecStart = "/usr/bin/env 'DISPLAY=:0' ${pkgs.xorg.xrdb}/bin/xrdb ${cfg-xwayland.x-resources.source}";
-    #     Environment = "DISPLAY=:0";
-    #   };
-    # };
+      Service = {
+        Type = "oneshot";
+        ExecStart = "/usr/bin/env 'DISPLAY=:0' ${pkgs.xorg.xrdb}/bin/xrdb ${cfg-xwayland.x-resources.source}";
+        Environment = "DISPLAY=:0";
+      };
+    };
 
     systemd.user.services."xwayland-satellite" = {
       Install = {
