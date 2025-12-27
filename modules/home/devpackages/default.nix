@@ -102,7 +102,7 @@ in
 
             #-- python
             basedpyright
-            pkgs.ty
+            pkgs-unstable.ty
 
             pyright # python language server
             (python312.withPackages (
