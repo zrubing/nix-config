@@ -162,11 +162,11 @@
         "nixpkgs-stable": "nixpkgs-stable"
       },
       "locked": {
-        "lastModified": 1766852739,
-        "narHash": "sha256-dn567MknFMkSLhlLbOoMMRsx0ics/Njk/03kcizcaM4=",
+        "lastModified": 1766913191,
+        "narHash": "sha256-b49Rc4sXKRQuOOXhHe9vKGtDq838JLK6TWg32sfe9l0=",
         "owner": "nix-community",
         "repo": "emacs-overlay",
-        "rev": "f1c6b8d381d7305423074e6fe41e6491213c860e",
+        "rev": "06aff49e740b92bcd7dd73dd67d811997452f69b",
         "type": "github"
       },
       "original": {
@@ -400,11 +400,11 @@
         "treefmt-nix": "treefmt-nix"
       },
       "locked": {
-        "lastModified": 1766803766,
-        "narHash": "sha256-7f517vDMQ7+UHfSvx/nF8tCuPfnEva2R9g2LueNlDB4=",
+        "lastModified": 1767018837,
+        "narHash": "sha256-sMa8NaM/nfElqiezqVdrg20BqRlfz/olk48hU0Mc5OU=",
         "owner": "numtide",
         "repo": "llm-agents.nix",
-        "rev": "697d674f5353a6171a9cc3f55adfd277d5212d11",
+        "rev": "edcea569dfdadb140d6e6960bdf91ecda19b3696",
         "type": "github"
       },
       "original": {
@@ -536,11 +536,11 @@
     },
     "nixpkgs-unstable": {
       "locked": {
-        "lastModified": 1766651565,
-        "narHash": "sha256-QEhk0eXgyIqTpJ/ehZKg9IKS7EtlWxF3N7DXy42zPfU=",
+        "lastModified": 1766902085,
+        "narHash": "sha256-coBu0ONtFzlwwVBzmjacUQwj3G+lybcZ1oeNSQkgC0M=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "3e2499d5539c16d0d173ba53552a4ff8547f4539",
+        "rev": "c0b0e0fddf73fd517c3471e546c0df87a42d53f4",
         "type": "github"
       },
       "original": {
@@ -600,11 +600,11 @@
     },
     "nixpkgs_5": {
       "locked": {
-        "lastModified": 1766747458,
-        "narHash": "sha256-m63jjuo/ygo8ztkCziYh5OOIbTSXUDkKbqw3Vuqu4a4=",
+        "lastModified": 1766870016,
+        "narHash": "sha256-fHmxAesa6XNqnIkcS6+nIHuEmgd/iZSP/VXxweiEuQw=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "c633f572eded8c4f3c75b8010129854ed404a6ce",
+        "rev": "5c2bc52fb9f8c264ed6c93bd20afa2ff5e763dce",
         "type": "github"
       },
       "original": {
@@ -872,11 +872,11 @@
         "nixpkgs": "nixpkgs_8"
       },
       "locked": {
-        "lastModified": 1765081920,
-        "narHash": "sha256-ip7VQXyHSPyqr7FIoNHJriKIQPf5zaZ6Ad+VcUas3B8=",
+        "lastModified": 1766809939,
+        "narHash": "sha256-Z4+UROaJ5iOSpFZ5g5/kyT1Oae5nVF9DEOtOxAiI4yk=",
         "owner": "marsam",
         "repo": "tree-sitter-grammars",
-        "rev": "bf8935ea422f482c499586d6a5acb2e289053854",
+        "rev": "c106f1d057c25ad1602d603f284748f8e320992b",
         "type": "github"
       },
       "original": {
