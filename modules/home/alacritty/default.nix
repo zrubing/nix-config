@@ -19,6 +19,7 @@
         };
         dynamic_padding = true;
         decorations = "None";
+        dynamic_title = true;
       };
 
       terminal.shell.program = "zsh";
