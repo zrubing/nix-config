@@ -60,7 +60,7 @@ in
       pkgs.aider-chat-with-playwright
       #pkgs-unstable.aider-chat
       #pkgs-unstable.claude-code
-      pkgs-nix-ai.claude-code
+      pkgs.${namespace}.claude-code
       pkgs-nix-ai.claude-code-router
       pkgs-nix-ai.beads
       pkgs-nix-ai.catnip
