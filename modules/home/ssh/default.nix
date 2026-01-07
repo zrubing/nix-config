@@ -4,6 +4,9 @@
   namespace,
   ...
 }:
+let
+  hm = config.lib;
+in
 {
 
   programs.ssh = {
@@ -46,5 +49,11 @@
       )
     ];
   };
+
+  # 确保 ControlMaster 的 socket 目录存在
+  home.activation.createSshSocketsDir = hm.dag.entryAfter ["writeBoundary"] ''
+    mkdir -p ~/.ssh/sockets
+    chmod 700 ~/.ssh/sockets
+  '';
 
 }
