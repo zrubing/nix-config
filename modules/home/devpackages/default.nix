@@ -24,6 +24,10 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          pkgs.${namespace}.pexpect-cli
+          pkgs.${namespace}.claude-md
+          pueue
+
           pkg-config
           unzip
 
