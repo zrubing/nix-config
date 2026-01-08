@@ -1,0 +1,23 @@
+{
+    "includeCoAuthoredBy": false,
+    "hooks": {
+        "Notification": [
+            {
+                "matcher": "",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "notify-send \"cc\" \"finish\""
+                    }
+                ]
+            }
+        ]
+    },
+    "statusLine": {
+        "type": "command",
+        "command": "ccstatusline",
+        "padding": 0
+    },
+
+    "alwaysThinkingEnabled": true
+}

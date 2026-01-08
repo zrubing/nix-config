@@ -27,6 +27,12 @@ in
           pkgs.${namespace}.pexpect-cli
           pkgs.${namespace}.claude-md
           pueue
+          dnsutils
+          binutils
+          graphicsmagick
+          sysdig
+          bcc
+          ast-grep
 
           pkg-config
           unzip

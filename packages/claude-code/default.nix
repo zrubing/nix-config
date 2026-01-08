@@ -13,6 +13,7 @@ writeShellApplication {
   runtimeInputs = [
     claude-code
     pkgs.bashInteractive
+    pkgs.pueue
   ];
   text = ''
     set -euo pipefail
@@ -23,7 +24,14 @@ writeShellApplication {
     # Add ~/.local/bin to PATH for user scripts to shut-up claude warnings
     export PATH="$HOME/.local/bin:$PATH"
 
+    # Start pueued daemon if not already running
+    if ! pueue status &>/dev/null; then
+      echo "Starting pueue daemon..."
+      pueued -d
+    fi
+
     # Run the actual claude command
     exec claude "$@"
   '';
+
 }

@@ -28,46 +28,6 @@ let
     # ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/milvzn.kube".path} > /home/${username}/.kube/config
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/sinopec.milv.kube".path} > /home/${username}/.kube/config
 
-    ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.claude
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets."claude.settings.json".path} > /home/${username}/.claude/settings.json
-
-
-    conf=$HOME/.claude.json
-
-    # 1. 如果主配置不存在，先写一个空对象进去
-    [[ -f $conf ]] || echo '{}' > "$conf"
-
-    # 使用jq将claude.settings.json中的mcpServers合并到~/.claude.json
-
-    ${pkgs.jq}/bin/jq \
-      --arg chrome "${pkgs-unstable.google-chrome}/bin/google-chrome-stable" \
-      '.mcpServers["chrome-devtools"].args[2] = $chrome' \
-      /home/${username}/.claude/settings.json > /tmp/settings.json && \
-    ${pkgs.jq}/bin/jq --slurpfile mcp /tmp/settings.json \
-      '.mcpServers = ((.mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
-      /home/${username}/.claude.json > /tmp/.claude.json.tmp && \
-    ${pkgs.coreutils}/bin/mv /tmp/.claude.json.tmp /home/${username}/.claude.json
-
-    # 将 MCP 配置也替换到 ECA 配置中
-    eca_config="$HOME/.config/eca/config.json"
-    claude_config="$HOME/.claude.json"
-    
-    # 如果 ECA 配置不存在，创建一个基础配置
-    if [[ ! -f "$eca_config" ]]; then
-      ${pkgs.coreutils}/bin/mkdir -p "$HOME/.config/eca"
-      echo '{}' > "$eca_config"
-    fi
-    
-    # 如果 Claude 配置存在且包含 MCP 服务器配置，则完全替换到 ECA 配置
-    if [[ -f "$claude_config" ]]; then
-      ${pkgs.jq}/bin/jq --slurpfile claude "$claude_config" \
-        '.mcpServers = ($claude[0].mcpServers // {})' \
-        "$eca_config" > "$eca_config.tmp" && \
-      ${pkgs.coreutils}/bin/mv "$eca_config.tmp" "$eca_config"
-    fi
-    
-    echo "ECA configuration updated with MCP servers from Claude configuration (full replacement)"
-
   '';
 in
 {
