@@ -46,8 +46,16 @@ in
       fi
 
       # 合并 MCP 配置到 ~/.claude.json
+      # 先合并 secret 中的配置，再合并 chrome-devtools（需要 nix store 路径）
       if [[ -f ${config.age.secrets."claude.settings.json".path} ]]; then
-        ${pkgs.jq}/bin/jq --slurpfile mcp ${config.age.secrets."claude.settings.json".path} \
+        ${pkgs.jq}/bin/jq \
+          --slurpfile secret ${config.age.secrets."claude.settings.json".path} \
+          --slurpfile mcp ${mergedSettings} \
+          '.mcpServers = ((.mcpServers // {}) * ($secret[0].mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
+          "$conf" > /tmp/.claude.json.tmp && \
+        ${pkgs.coreutils}/bin/mv /tmp/.claude.json.tmp "$conf"
+      else
+        ${pkgs.jq}/bin/jq --slurpfile mcp ${mergedSettings} \
           '.mcpServers = ((.mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
           "$conf" > /tmp/.claude.json.tmp && \
         ${pkgs.coreutils}/bin/mv /tmp/.claude.json.tmp "$conf"
