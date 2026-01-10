@@ -13,6 +13,6 @@
       magic-wormhole-rs
     ];
 
-    variables.EDITOR = "emacsclient -c -a \'emacs\'";
+    variables.EDITOR = "${pkgs.emacs}/bin/emacsclient -c -a \'emacs\'";
   };
 }
