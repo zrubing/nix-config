@@ -55,16 +55,18 @@ in
         WantedBy = [ "graphical-session.target" ];
       };
       Unit = {
+        Description = "Xwayland outside your Wayland";
+        BindsTo = [ "graphical-session.target" ];
         PartOf = [ "graphical-session.target" ];
         After = [ "graphical-session.target" ];
-        Before = [
-          "xrdb.service"
-          "fcitx5.service"
-        ];
+        Requisite = [ "graphical-session.target" ];
+        Before = [ "xrdb.service" ];
       };
       Service = {
         Type = "notify";
+        NotifyAccess = "all";
         ExecStart = "${lib.getExe pkgs.xwayland-satellite-unstable} :0";
+        StandardOutput = "journal";
         Restart = "on-failure";
         Environment = "RUST_BACKTRACE=1 RUST_LOG=debug";
       };

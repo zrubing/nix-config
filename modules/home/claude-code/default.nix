@@ -38,6 +38,9 @@ in
 
   home.activation = {
     mergeClaudeMcpConfig = config.lib.dag.entryAfter ["writeBoundary"] ''
+      # 设置 XDG_RUNTIME_DIR 默认值，避免在 systemd 服务中报错
+      export XDG_RUNTIME_DIR=''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+
       conf=$HOME/.claude.json
 
       # 如果主配置不存在，先写一个空对象进去

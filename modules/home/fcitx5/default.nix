@@ -105,7 +105,7 @@ in
     };
 
     systemd.user.services = {
-      "fcitx5" = {
+      "fcitx5-daemon" = {
         Install = {
           WantedBy = [ "graphical-session.target" ];
         };
@@ -115,9 +115,9 @@ in
             "graphical-session.target"
             "xwayland-satellite.service"
           ];
+          BindsTo = [ "xwayland-satellite.service" ];
         };
         Service = {
-          ExecStart = "${lib.getExe' config.i18n.inputMethod.package "fcitx5"} --replace";
           Restart = "on-failure";
         };
       };
