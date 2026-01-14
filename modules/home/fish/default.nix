@@ -30,11 +30,12 @@ in
 
 
           # 设置 Anthropic 环境变量（读取 SOPS 秘密文件）
-          if test -f ${config.sops.secrets."anthropic/base_url".path}
-            set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."anthropic/base_url".path} | string trim)
+          if test -f ${config.sops.secrets."volc-coding/base_url".path}
+            set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."volc-coding/base_url".path} | string trim)
+            set -gx ANTHROPIC_MODEL ark-code-latest
           end
-          if test -f ${config.sops.secrets."anthropic/api_key".path}
-            set -gx ANTHROPIC_API_KEY (cat ${config.sops.secrets."anthropic/api_key".path} | string trim)
+          if test -f ${config.sops.secrets."volc-coding/api_key".path}
+            set -gx ANTHROPIC_API_KEY (cat ${config.sops.secrets."volc-coding/api_key".path} | string trim)
           end
 
           set -gx API_TIMEOUT_MS 3000000

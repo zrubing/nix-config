@@ -27,5 +27,12 @@ in
     sops.secrets."anthropic/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
+
+    sops.secrets."volc-coding/base_url" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+    sops.secrets."volc-coding/api_key" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
   };
 }
