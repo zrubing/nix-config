@@ -115,7 +115,6 @@ in
             "graphical-session.target"
             "xwayland-satellite.service"
           ];
-          BindsTo = [ "xwayland-satellite.service" ];
         };
         Service = {
           Restart = "on-failure";
