@@ -14,6 +14,11 @@ in
 
   options.${namespace}.fish = {
     enable = lib.mkEnableOption "Enable fish";
+    provider = lib.mkOption {
+      type = lib.types.enum [ "GLM" "MiniMax" ];
+      default = "glm";
+      description = "AI provider to use (anthropic or minimax)";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -28,14 +33,29 @@ in
           fish_add_path $HOME/bin
           fish_add_path $HOME/.local/bin/
 
+          ${lib.optionalString (cfg.provider == "GLM") ''
+            # 设置 Anthropic 环境变量（读取 SOPS 秘密文件）
+            if test -f ${config.sops.secrets."anthropic/base_url".path}
+              set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."anthropic/base_url".path} | string trim)
+            end
+            if test -f ${config.sops.secrets."anthropic/api_key".path}
+              set -gx ANTHROPIC_API_KEY (cat ${config.sops.secrets."anthropic/api_key".path} | string trim)
+            end
 
-          # 设置 Anthropic 环境变量（读取 SOPS 秘密文件）
-          if test -f ${config.sops.secrets."anthropic/base_url".path}
-            set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."anthropic/base_url".path} | string trim)
-          end
-          if test -f ${config.sops.secrets."anthropic/api_key".path}
-            set -gx ANTHROPIC_API_KEY (cat ${config.sops.secrets."anthropic/api_key".path} | string trim)
-          end
+            set -gx ANTHROPIC_MODEL GLM-4.7
+          ''}
+
+          ${lib.optionalString (cfg.provider == "MiniMax") ''
+            # 设置 Minimax 环境变量（读取 SOPS 秘密文件）
+            if test -f ${config.sops.secrets."minimax-coding/base_url".path}
+              set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."minimax-coding/base_url".path} | string trim)
+            end
+            if test -f ${config.sops.secrets."minimax-coding/api_key".path}
+              set -gx ANTHROPIC_API_KEY (cat ${config.sops.secrets."minimax-coding/api_key".path} | string trim)
+            end
+
+            set -gx ANTHROPIC_MODEL MiniMax-M2.1
+          ''}
 
           set -gx API_TIMEOUT_MS 3000000
           set -gx CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 1

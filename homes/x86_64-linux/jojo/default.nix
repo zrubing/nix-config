@@ -24,6 +24,7 @@
 
     cc-proxy.enable = false;
     sops.enable = true;
+    fish.provider = "MiniMax";
 
     modules = {
       fcitx5.enable = true;
