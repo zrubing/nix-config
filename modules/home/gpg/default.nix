@@ -37,7 +37,12 @@ in
         {
           source = "${mysecrets}/public/zrubing-gpg-keys.pub";
           trust = 5;
-        } # ultimate trust, my own keys.
+        }
+        {
+          source = "{mysecrets}/public/iZj6ceb1vr0baqid5dctyyZ.pub";
+          trust = 5;
+        }
+
       ];
 
       # This configuration is based on the tutorial below, it allows for a robust setup
