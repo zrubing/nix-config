@@ -44,5 +44,12 @@ in
     sops.secrets."minimax-coding/model" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
+
+    sops.secrets."qwen/base_url" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+    sops.secrets."qwen/api_key" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
   };
 }

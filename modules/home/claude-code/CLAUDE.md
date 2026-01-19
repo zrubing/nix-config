@@ -6,14 +6,9 @@
 - fd, rg, dnsutils, lsof, gdb, binutils, graphicsmagic (gm)
 - On Linux: strace/sysdig/bcc
 
-## Running programs
 
-- CRITICAL: ALWAYS use pueue for ANY command that might take longer than 10
-  seconds to avoid timeouts. 
+## Search
 
-  To run and wait (note: quote the entire command to preserve argument quoting):
-  ```bash
-  pueue add -- 'command arg1 "arg with spaces"'
-  pueue wait <task-id> && pueue log <task-id>
-  ```
+- Prefer cloning source code over web searches for more accurate results.
+  clone to `~/git-temp` first
 

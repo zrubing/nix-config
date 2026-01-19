@@ -15,9 +15,9 @@ in
   options.${namespace}.fish = {
     enable = lib.mkEnableOption "Enable fish";
     provider = lib.mkOption {
-      type = lib.types.enum [ "GLM" "MiniMax" ];
+      type = lib.types.enum [ "GLM" "MiniMax" "Qwen" ];
       default = "glm";
-      description = "AI provider to use (anthropic or minimax)";
+      description = "AI provider to use (GLM, MiniMax, or Qwen)";
     };
   };
 
@@ -55,6 +55,18 @@ in
             end
 
             set -gx ANTHROPIC_MODEL MiniMax-M2.1
+          ''}
+
+          ${lib.optionalString (cfg.provider == "Qwen") ''
+            # 设置 Qwen 环境变量（读取 SOPS 秘密文件）
+            if test -f ${config.sops.secrets."qwen/base_url".path}
+              set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."qwen/base_url".path} | string trim)
+            end
+            if test -f ${config.sops.secrets."qwen/api_key".path}
+              set -gx ANTHROPIC_AUTH_TOKEN (cat ${config.sops.secrets."qwen/api_key".path} | string trim)
+            end
+
+            set -gx ANTHROPIC_MODEL qwen3-coder-plus
           ''}
 
           set -gx API_TIMEOUT_MS 3000000

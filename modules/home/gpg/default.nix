@@ -39,7 +39,7 @@ in
           trust = 5;
         }
         {
-          source = "{mysecrets}/public/iZj6ceb1vr0baqid5dctyyZ.pub";
+          source = "${mysecrets}/public/iZj6ceb1vr0baqid5dctyyZ.pub";
           trust = 5;
         }
 
