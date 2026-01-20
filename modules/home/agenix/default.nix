@@ -28,6 +28,11 @@ let
     # ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/milvzn.kube".path} > /home/${username}/.kube/config
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/sinopec.milv.kube".path} > /home/${username}/.kube/config
 
+
+    ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.codex
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets."codex/config.toml".path} > /home/${username}/.codex/config.toml
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets."codex/auth.json".path} > /home/${username}/.codex/auth.json
+
   '';
 in
 {
@@ -47,6 +52,9 @@ in
     age.secrets."work/k8s/sinopec.milv.kube".file = "${mysecrets}/work/k8s/milvzn.sinopec.kube.age";
 
     age.secrets."claude.settings.json".file = "${mysecrets}/claude.settings.json.age";
+
+    age.secrets."codex/config.toml".file = "${mysecrets}/codex/config.toml.age";
+    age.secrets."codex/auth.json".file = "${mysecrets}/codex/auth.json.age";
 
     home.packages = [
       #inputs.agenix.packages.${system}.agenix

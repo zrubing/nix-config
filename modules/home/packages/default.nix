@@ -62,10 +62,12 @@ in
       #pkgs-unstable.claude-code
       pkgs.${namespace}.claude-code
       pkgs-nix-ai.claude-code-router
+      pkgs-nix-ai.codex
       pkgs-nix-ai.openskills
       pkgs-nix-ai.beads
       pkgs-nix-ai.catnip
       pkgs-nix-ai.opencode
+      pkgs-nix-ai.coding-agent-search
       #pkgs-nix-ai.gemini-cli
       pkgs-nix-ai.claude-code-acp
       pkgs.${namespace}.openspec
