@@ -24,6 +24,8 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          pkgs.${namespace}.tramp-rpc-server
+
           pkgs.${namespace}.pexpect-cli
           pkgs.${namespace}.claude-md
           pueue
