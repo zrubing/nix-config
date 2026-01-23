@@ -45,6 +45,10 @@ in
 
   config = lib.mkIf cfg.enable {
 
+    # Disable user systemd services create by home-manager
+    systemd.user.services.fcitx5-daemon.Install.WantedBy = lib.mkForce [ ];
+
+
 
     xdg = {
       # for emacs rime
@@ -55,6 +59,23 @@ in
         "rime/rime_ice.custom.yaml" = {
           text = rime_ice_custom;
         };
+
+        # Create a disabled autostart desktop file which takes precedence of
+        # /etc/profiles/per-user/meowking/etc/xdg/autostart/org.fcitx.Fcitx5.desktop
+        # which is created by fcitx5 package:
+        # https://github.com/NixOS/nixpkgs/blob/nixos-unstable/pkgs/tools/inputmethods/fcitx5/with-addons.nix
+        "autostart/org.fcitx.Fcitx5.desktop".text = ''
+          [Desktop Entry]
+          Name=Fcitx 5
+          Hidden=true
+        '';
+
+        # Make Fcitx5 work on XWayland (e.g. wechat)
+        # Niri used xwayland-satellite doesn't support IME yet.
+        # https://github.com/Supreeeme/xwayland-satellite/issues/92#issuecomment-2881949607
+        "fcitx5/conf/xim.conf".text = ''
+          UseOnTheSpot=True
+        '';
 
       };
 
@@ -102,24 +123,6 @@ in
         fcitx5-gtk # gtk im module
         qt6Packages.fcitx5-skk-qt
       ];
-    };
-
-    systemd.user.services = {
-      "fcitx5-daemon" = {
-        Install = {
-          WantedBy = [ "graphical-session.target" ];
-        };
-        Unit = {
-          PartOf = [ "graphical-session.target" ];
-          After = [
-            "graphical-session.target"
-            "xwayland-satellite.service"
-          ];
-        };
-        Service = {
-          Restart = "on-failure";
-        };
-      };
     };
 
   };
