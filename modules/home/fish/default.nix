@@ -72,6 +72,16 @@ in
           set -gx API_TIMEOUT_MS 3000000
           set -gx CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 1
 
+          # kubectl with auto SSH tunnel
+          function k
+            if not nc -z localhost 6443 2>/dev/null
+              echo "Creating SSH tunnel to k0s via jump-box..."
+              ssh -fN k0s-server
+              sleep 1
+            end
+            ${pkgs.kubectl}/bin/kubectl --kubeconfig ~/.kube/k0s.config $argv
+          end
+
         '';
         plugins = [
           {

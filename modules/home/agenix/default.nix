@@ -27,6 +27,7 @@ let
 
     # ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/milvzn.kube".path} > /home/${username}/.kube/config
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/sinopec.milv.kube".path} > /home/${username}/.kube/config
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/k0s.kube".path} > /home/${username}/.kube/k0s.config
 
 
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.codex
@@ -50,6 +51,7 @@ in
     age.secrets.netrc.file = "${mysecrets}/netrc.age";
     age.secrets."work/k8s/milvzn.kube".file = "${mysecrets}/work/k8s/milvzn.kube.age";
     age.secrets."work/k8s/sinopec.milv.kube".file = "${mysecrets}/work/k8s/milvzn.sinopec.kube.age";
+    age.secrets."work/k8s/k0s.kube".file = "${mysecrets}/work/k8s/k0s.kube.age";
 
     age.secrets."claude.settings.json".file = "${mysecrets}/claude.settings.json.age";
 
