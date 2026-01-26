@@ -24,6 +24,8 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          telepresence2
+
           pkgs.${namespace}.tramp-rpc-server
 
           pkgs.${namespace}.pexpect-cli
