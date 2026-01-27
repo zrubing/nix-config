@@ -26,6 +26,7 @@
     sops.enable = true;
     #fish.provider = "MiniMax";
     fish.provider = "GLM";
+    #fish.provider = "Qwen";
 
     modules = {
       fcitx5.enable = true;

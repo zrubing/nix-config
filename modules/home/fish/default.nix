@@ -66,7 +66,7 @@ in
               set -gx ANTHROPIC_AUTH_TOKEN (cat ${config.sops.secrets."qwen/api_key".path} | string trim)
             end
 
-            set -gx ANTHROPIC_MODEL qwen3-coder-plus
+            set -gx ANTHROPIC_MODEL qwen3-max-2026-01-23
           ''}
 
           set -gx API_TIMEOUT_MS 3000000

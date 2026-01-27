@@ -1,3 +1,4 @@
+{ pkgs, ... }:
 {
   imports = [ ../../../hardware/zen14.nix ];
 
@@ -5,6 +6,8 @@
   boot.loader.efi.canTouchEfiVariables = true;
 
   boot.loader.systemd-boot.enable = false;
+
+  boot.kernelPackages = pkgs.linuxPackages_latest;
 
   boot.loader = {
     grub = {
