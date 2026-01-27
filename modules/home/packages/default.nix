@@ -70,7 +70,7 @@ in
       pkgs-nix-ai.coding-agent-search
       #pkgs-nix-ai.gemini-cli
       pkgs-nix-ai.claude-code-acp
-      pkgs.${namespace}.openspec
+      pkgs-nix-ai.openspec
       #pkgs.${namespace}.trojan-go
       pkgs.${namespace}.emacs-lsp-proxy
       pkgs-unstable.mise
