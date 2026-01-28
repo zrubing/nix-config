@@ -265,6 +265,7 @@ window-rule {
     match app-id=r#"^Brave-browser$"#
     match app-id=r#"^org\.mozilla\.firefox$"#
     match app-id=r#"^firefox$"#
+    match app-id=r#"^CherryStudio$"#
     open-on-workspace "web"
 }
 

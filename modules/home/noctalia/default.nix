@@ -117,6 +117,7 @@ in
               { app-id = "^Brave-browser$"; }
               { app-id = "^org\\.mozilla\\.firefox$"; }
               { app-id = "^firefox$"; }
+              { app-id = "^CherryStudio$"; }
             ];
             open-on-workspace = "web";
           }
