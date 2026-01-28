@@ -2,6 +2,13 @@
 // "/-" comments out the following node.
 // Check the wiki for a full description of the configuration:
 // https://github.com/YaLTeR/niri/wiki/Configuration:-Overview
+
+// 命名工作区（按声明顺序排列，1-4 数字键对应）
+workspace "web"
+workspace "code"
+workspace "db"
+workspace "chat"
+
 debug {
     // By default, niri will disable the internal laptop monitor when the laptop lid is closed. This flag turns off this behavior and will leave the internal laptop monitor on.
 
@@ -251,6 +258,37 @@ window-rule {
 window-rule {
   match app-id="wechat"
   open-focused false
+}
+
+// 工作区规则：自动打开到特定工作区
+window-rule {
+    match app-id=r#"^Brave-browser$"#
+    match app-id=r#"^org\.mozilla\.firefox$"#
+    match app-id=r#"^firefox$"#
+    open-on-workspace "web"
+}
+
+window-rule {
+    match app-id="^Emacs$"
+    match app-id=r#"^org\.gnome\.Builder$"#
+    match app-id=r#"^code\.oss$"#
+    match app-id=r#"^com\.vscode$"#
+    match app-id=r#"^com\.mitchellh\.ghostty$"#
+    open-on-workspace "code"
+}
+
+window-rule {
+    match app-id=r#"^DBeaver$"#
+    match app-id=r#"^org\.eclipse\.platform$"#
+    open-on-workspace "db"
+}
+
+window-rule {
+    match app-id=r#"^Bytedance-feishu$"#
+    match app-id=r#"^org\.telegram\.desktop$"#
+    match app-id="wechat"
+    match app-id=r#"^Slack$"#
+    open-on-workspace "chat"
 }
 
 // Example: block out two password managers from screen capture.

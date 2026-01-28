@@ -51,7 +51,14 @@ in
           tab-indicator = {
             hide-when-single-tab = true;
           };
+        };
 
+        # 命名工作区（按 key 排序，用 name 属性指定实际名称）
+        workspaces = {
+          "01-web" = { name = "web"; };
+          "02-code" = { name = "code"; };
+          "03-db" = { name = "db"; };
+          "04-chat" = { name = "chat"; };
         };
 
         environment = {
@@ -101,6 +108,44 @@ in
           #     (toString config.xwayland.x-resources.source)
           #   ];
           # }
+        ];
+
+        # 窗口规则：自动打开到特定工作区
+        window-rules = [
+          {
+            matches = [
+              { app-id = "^Brave-browser$"; }
+              { app-id = "^org\\.mozilla\\.firefox$"; }
+              { app-id = "^firefox$"; }
+            ];
+            open-on-workspace = "web";
+          }
+          {
+            matches = [
+              { app-id = "^Emacs$"; }
+              { app-id = "^org\\.gnome\\.Builder$"; }
+              { app-id = "^code\\.oss$"; }
+              { app-id = "^com\\.vscode$"; }
+              { app-id = "^com\\.mitchellh\\.ghostty$"; }
+            ];
+            open-on-workspace = "code";
+          }
+          {
+            matches = [
+              { app-id = "^DBeaver$"; }
+              { app-id = "^org\\.eclipse\\.platform$"; }
+            ];
+            open-on-workspace = "db";
+          }
+          {
+            matches = [
+              { app-id = "^Bytedance-feishu$"; }
+              { app-id = "^org\\.telegram\\.desktop$"; }
+              { app-id = "^wechat$"; }
+              { app-id = "^Slack$"; }
+            ];
+            open-on-workspace = "chat";
+          }
         ];
 
         binds = {
