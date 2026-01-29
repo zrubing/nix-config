@@ -34,6 +34,9 @@ in
     sops.secrets."volc-coding/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
+    sops.secrets."volc-coding/model" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
 
     sops.secrets."minimax-coding/base_url" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";

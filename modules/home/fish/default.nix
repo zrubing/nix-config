@@ -15,9 +15,9 @@ in
   options.${namespace}.fish = {
     enable = lib.mkEnableOption "Enable fish";
     provider = lib.mkOption {
-      type = lib.types.enum [ "GLM" "MiniMax" "Qwen" ];
+      type = lib.types.enum [ "GLM" "MiniMax" "Qwen" "Volc" ];
       default = "glm";
-      description = "AI provider to use (GLM, MiniMax, or Qwen)";
+      description = "AI provider to use (GLM, MiniMax, Qwen, or Volc)";
     };
   };
 
@@ -67,6 +67,19 @@ in
             end
 
             set -gx ANTHROPIC_MODEL qwen3-max-2026-01-23
+          ''}
+
+          ${lib.optionalString (cfg.provider == "Volc") ''
+            # 设置 Volc 环境变量（读取 SOPS 秘密文件）
+            if test -f ${config.sops.secrets."volc-coding/base_url".path}
+              set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."volc-coding/base_url".path} | string trim)
+            end
+            if test -f ${config.sops.secrets."volc-coding/api_key".path}
+              set -gx ANTHROPIC_API_KEY (cat ${config.sops.secrets."volc-coding/api_key".path} | string trim)
+            end
+            if test -f ${config.sops.secrets."volc-coding/model".path}
+              set -gx ANTHROPIC_MODEL (cat ${config.sops.secrets."volc-coding/model".path} | string trim)
+            end
           ''}
 
           set -gx API_TIMEOUT_MS 3000000
