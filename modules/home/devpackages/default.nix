@@ -24,6 +24,7 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          btop
           telepresence2
 
           pkgs.${namespace}.tramp-rpc-server

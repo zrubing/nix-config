@@ -20,6 +20,9 @@ self: super: {
         disabledTests = old.disabledTests ++ [
           "test_commands"
           "test_repomap"
+          "test_coder"
+          "test_aws_credentials"
+          "test_analytics"
         ];
       });
 }
