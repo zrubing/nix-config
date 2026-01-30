@@ -108,8 +108,18 @@ in
     # Install bash useful packages
     home.packages = with pkgs; [
       bash-completion
-      fzf  # fuzzy finder
     ];
+
+    # Enable fzf with bash integration
+    programs.fzf = {
+      enable = true;
+      enableBashIntegration = true;
+      defaultOptions = [
+        "--height=40%"
+        "--layout=reverse"
+        "--inline-info"
+      ];
+    };
 
   };
 

@@ -17,7 +17,7 @@
       enable = true;
       type = "doom";
     };
-    terminal = "alacritty";
+    terminal = "ghostty";
     ghostty.enable = true;
     gpg.enable = true;
     password-store.enable = true;

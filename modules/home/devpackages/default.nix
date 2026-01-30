@@ -24,6 +24,7 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          aichat
           btop
           telepresence2
 

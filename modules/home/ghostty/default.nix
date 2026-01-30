@@ -71,12 +71,13 @@ in
 
         # --- Shell ---
         command = shellCmd;
+        term = "xterm-ghostty";
 
         # --- 行为 ---
         confirm-close-surface = false;
         copy-on-select = true;
         shell-integration = shellIntegration;
-        shell-integration-features = "sudo,title";
+        shell-integration-features = "sudo,title,ssh-terminfo,ssh-env";
 
         # --- Quick Terminal (Quake Mode) ---
         quick-terminal-position = "top";
