@@ -93,6 +93,9 @@ in
             . /etc/bash_completion
           fi
         fi
+
+        # Alt+T 打开默认编辑器编辑当前命令
+        bind -x '"\et": edit-and-execute-command'
       '';
 
       # Add useful bash aliases
