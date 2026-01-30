@@ -124,6 +124,24 @@ in
       ];
     };
 
+    # zoxide - smarter cd command (z replacement)
+    programs.zoxide = {
+      enable = true;
+      enableBashIntegration = true;
+    };
+
+    # atuin - enhanced shell history
+    programs.atuin = {
+      enable = true;
+      enableBashIntegration = true;
+      settings = {
+        auto_sync = false;
+        sync_frequency = "5m";
+        search_mode = "fuzzy";
+        keymap_mode = "auto";
+      };
+    };
+
   };
 
 }
