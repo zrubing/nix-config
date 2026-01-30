@@ -154,10 +154,12 @@ in
           "Mod+Shift+Slash".action = actions.show-hotkey-overlay;
           "Mod+W".action = actions.toggle-column-tabbed-display;
           "Mod+Return".action = {
-            spawn = [
-              "alacritty"
+            spawn = if config.${namespace}.terminal == "ghostty" then [
+              "ghostty"
+            ] else [
+              config.${namespace}.terminal
               "-e"
-              "fish"
+              config.${namespace}.shell.enable
             ];
           };
           "Mod+V".action = {

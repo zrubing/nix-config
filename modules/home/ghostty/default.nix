@@ -8,6 +8,21 @@
 
 let
   cfg = config.${namespace}.ghostty;
+
+  # 根据启用的shell选择shell程序和integration
+  shellCmd = if config.${namespace}.fish.enable then
+    "${pkgs.fish}/bin/fish"
+  else if config.${namespace}.bash.enable then
+    "${pkgs.bash}/bin/bash"
+  else
+    "${pkgs.fish}/bin/fish";  # 默认fallback
+
+  shellIntegration = if config.${namespace}.fish.enable then
+    "fish"
+  else if config.${namespace}.bash.enable then
+    "bash"
+  else
+    "fish";  # 默认fallback
 in
 {
   options.${namespace}.ghostty = {
@@ -55,12 +70,12 @@ in
         font-feature = [ "calt" "liga" ];
 
         # --- Shell ---
-        command = "${pkgs.fish}/bin/fish";
+        command = shellCmd;
 
         # --- 行为 ---
         confirm-close-surface = false;
         copy-on-select = true;
-        shell-integration = "fish";
+        shell-integration = shellIntegration;
         shell-integration-features = "sudo,title";
 
         # --- Quick Terminal (Quake Mode) ---

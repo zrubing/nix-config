@@ -8,20 +8,13 @@
 }:
 
 let
-  cfg = config.${namespace}.fish;
+  shellCfg = config.${namespace}.shell;
 in
 {
 
-  options.${namespace}.fish = {
-    enable = lib.mkEnableOption "Enable fish";
-    provider = lib.mkOption {
-      type = lib.types.enum [ "GLM" "MiniMax" "Qwen" "Volc" ];
-      default = "glm";
-      description = "AI provider to use (GLM, MiniMax, Qwen, or Volc)";
-    };
-  };
+  options.${namespace}.fish.enable = lib.mkEnableOption "Enable fish";
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkIf (shellCfg.enable == "fish") {
 
     programs = {
       fish = {
@@ -33,7 +26,7 @@ in
           fish_add_path $HOME/bin
           fish_add_path $HOME/.local/bin/
 
-          ${lib.optionalString (cfg.provider == "GLM") ''
+          ${lib.optionalString (shellCfg.provider == "GLM") ''
             # 设置 Anthropic 环境变量（读取 SOPS 秘密文件）
             if test -f ${config.sops.secrets."anthropic/base_url".path}
               set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."anthropic/base_url".path} | string trim)
@@ -45,7 +38,7 @@ in
             set -gx ANTHROPIC_MODEL GLM-4.7
           ''}
 
-          ${lib.optionalString (cfg.provider == "MiniMax") ''
+          ${lib.optionalString (shellCfg.provider == "MiniMax") ''
             # 设置 Minimax 环境变量（读取 SOPS 秘密文件）
             if test -f ${config.sops.secrets."minimax-coding/base_url".path}
               set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."minimax-coding/base_url".path} | string trim)
@@ -57,7 +50,7 @@ in
             set -gx ANTHROPIC_MODEL MiniMax-M2.1
           ''}
 
-          ${lib.optionalString (cfg.provider == "Qwen") ''
+          ${lib.optionalString (shellCfg.provider == "Qwen") ''
             # 设置 Qwen 环境变量（读取 SOPS 秘密文件）
             if test -f ${config.sops.secrets."qwen/base_url".path}
               set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."qwen/base_url".path} | string trim)
@@ -69,7 +62,7 @@ in
             set -gx ANTHROPIC_MODEL qwen3-max-2026-01-23
           ''}
 
-          ${lib.optionalString (cfg.provider == "Volc") ''
+          ${lib.optionalString (shellCfg.provider == "Volc") ''
             # 设置 Volc 环境变量（读取 SOPS 秘密文件）
             if test -f ${config.sops.secrets."volc-coding/base_url".path}
               set -gx ANTHROPIC_BASE_URL (cat ${config.sops.secrets."volc-coding/base_url".path} | string trim)

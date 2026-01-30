@@ -1,4 +1,21 @@
 {
+  lib,
+  config,
+  pkgs,
+  namespace,
+  ...
+}:
+
+let
+  # 根据启用的shell选择shell程序
+  shellProgram = if config.${namespace}.fish.enable then
+    "${pkgs.fish}/bin/fish"
+  else if config.${namespace}.bash.enable then
+    "${pkgs.bash}/bin/bash"
+  else
+    "${pkgs.fish}/bin/fish";  # 默认fallback
+in
+{
   programs.alacritty = {
     enable = true;
     settings = {
@@ -22,7 +39,7 @@
         dynamic_title = true;
       };
 
-      terminal.shell.program = "zsh";
+      terminal.shell.program = shellProgram;
     };
   };
 }

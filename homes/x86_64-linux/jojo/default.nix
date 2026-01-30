@@ -21,12 +21,15 @@
     ghostty.enable = true;
     gpg.enable = true;
     password-store.enable = true;
-    fish.enable = true;
+    shell = {
+      enable = "bash";
+      provider = "GLM";
+    };
 
     cc-proxy.enable = false;
     sops.enable = true;
     #fish.provider = "MiniMax";
-    fish.provider = "GLM";
+    #fish.provider = "GLM";
     #fish.provider = "Qwen";
 
     modules = {
