@@ -100,6 +100,9 @@ in
 
         # PREFIX Ctrl+c 新建窗口（保持在当前路径）
         bind c new-window -c "#{pane_current_path}"
+
+        # 客户端连接时重置状态栏颜色（防止异常断开后颜色不恢复）
+        set-hook -g client-attached 'set -g status-style "bg=colour240,fg=white"'
       '';
     };
 
