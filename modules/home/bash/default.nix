@@ -99,9 +99,9 @@ in
 
         # SSH 连接时修复 Ghostty TERM 类型 + tmux 状态栏变色
         ssh() {
-          # 保存当前 tmux 状态栏颜色（如果在 tmux 中）
           if [ -n "$TMUX" ]; then
-            _TMUX_STATUS_ORIG="$(tmux show-option -g status-style 2>/dev/null)"
+            # 保存当前 tmux 状态栏颜色
+            _TMUX_BG_ORIG="$(tmux show-option -g status-style 2>/dev/null | grep -o 'bg=colour[0-9]*')"
             # SSH 时设置红色状态栏
             tmux set-option -g status-style "bg=colour196,fg=white"
           fi
@@ -112,14 +112,14 @@ in
             command ssh "$@"
           fi
 
-          # 恢复 tmux 状态栏颜色（如果在 tmux 中）
           if [ -n "$TMUX" ]; then
-            if [ -n "$_TMUX_STATUS_ORIG" ]; then
-              tmux set-option -g status-style "$_TMUX_STATUS_ORIG"
+            # 恢复 tmux 状态栏颜色
+            if [ -n "$_TMUX_BG_ORIG" ]; then
+              tmux set-option -g status-style "$_TMUX_BG_ORIG,fg=white"
             else
               tmux set-option -g status-style "bg=colour240,fg=white"
             fi
-            unset _TMUX_STATUS_ORIG
+            unset _TMUX_BG_ORIG
           fi
         }
       '';
