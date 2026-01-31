@@ -101,8 +101,12 @@ in
         # PREFIX Ctrl+c 新建窗口（保持在当前路径）
         bind c new-window -c "#{pane_current_path}"
 
-        # 客户端连接时重置状态栏颜色（防止异常断开后颜色不恢复）
-        set-hook -g client-attached 'set -g status-style "bg=colour240,fg=white"'
+        # 根据窗口名自动设置状态栏颜色（ssh: 开头的窗口显示红色）
+        # 使用 set (session级) 而非 set -g (全局)，避免被覆盖
+        set-hook -g pane-focus-in 'if-shell -F "#{m:ssh:*,#{window_name}}" "set status-style bg=colour196,fg=white; refresh-client -S" "set status-style bg=colour240,fg=white; refresh-client -S"'
+        set-hook -g window-renamed 'if-shell -F "#{m:ssh:*,#{window_name}}" "set status-style bg=colour196,fg=white; refresh-client -S" "set status-style bg=colour240,fg=white; refresh-client -S"'
+        set-hook -g client-attached 'if-shell -F "#{m:ssh:*,#{window_name}}" "set status-style bg=colour196,fg=white; refresh-client -S" "set status-style bg=colour240,fg=white; refresh-client -S"'
+        set-hook -g client-session-changed 'if-shell -F "#{m:ssh:*,#{window_name}}" "set status-style bg=colour196,fg=white; refresh-client -S" "set status-style bg=colour240,fg=white; refresh-client -S"'
       '';
     };
 

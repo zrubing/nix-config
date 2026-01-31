@@ -75,11 +75,6 @@ in
         export API_TIMEOUT_MS=3000000
         export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
-        # 在 tmux 内启动时重置状态栏颜色（防止异常断开后颜色不恢复）
-        if [ -n "$TMUX" ]; then
-          tmux set-option -g status-style "bg=colour240,fg=white" 2>/dev/null
-        fi
-
         # kubectl with auto SSH tunnel
         k() {
           if ! nc -z localhost 6443 2>/dev/null; then
@@ -102,20 +97,15 @@ in
         # Alt+T 打开默认编辑器编辑当前命令
         bind -x '"\et": edit-and-execute-command'
 
-        # SSH 连接时修复 Ghostty TERM 类型 + tmux 状态栏变色
+        # SSH 连接时修复 Ghostty TERM 类型 + 自动重命名 tmux 窗口
         ssh() (
           if [ -n "$TMUX" ]; then
-            # 保存当前 tmux 状态栏颜色
-            _TMUX_BG_ORIG="$(tmux show-option -g status-style 2>/dev/null | grep -o 'bg=colour[0-9]*')"
-            # SSH 时设置红色状态栏
-            tmux set-option -g status-style "bg=colour196,fg=white"
-
-            # 无论如何退出都恢复颜色
-            trap 'if [ -n "$_TMUX_BG_ORIG" ]; then
-                    tmux set-option -g status-style "$_TMUX_BG_ORIG,fg=white"
-                  else
-                    tmux set-option -g status-style "bg=colour240,fg=white"
-                  fi' EXIT
+            # 提取主机名用于窗口命名
+            local hostname=$(echo "$@" | sed 's/.*@\([^ ]*\).*/\1/')
+            # 退出时恢复窗口名
+            trap 'tmux rename-window "bash" 2>/dev/null' EXIT
+            # 重命名窗口为 ssh:hostname
+            tmux rename-window "ssh:$hostname" 2>/dev/null
           fi
 
           if [ "$TERM" = "xterm-ghostty" ]; then
