@@ -40,6 +40,7 @@
         enable = true;
         nginxPlugin = true;
       };
+      tmux.enable = true;
       # eca.enable = true;
     };
 

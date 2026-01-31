@@ -96,6 +96,32 @@ in
 
         # Alt+T 打开默认编辑器编辑当前命令
         bind -x '"\et": edit-and-execute-command'
+
+        # SSH 连接时修复 Ghostty TERM 类型 + tmux 状态栏变色
+        ssh() {
+          # 保存当前 tmux 状态栏颜色（如果在 tmux 中）
+          if [ -n "$TMUX" ]; then
+            _TMUX_STATUS_ORIG="$(tmux show-option -g status-style 2>/dev/null)"
+            # SSH 时设置红色状态栏
+            tmux set-option -g status-style "bg=colour196,fg=white"
+          fi
+
+          if [ "$TERM" = "xterm-ghostty" ]; then
+            TERM=xterm-256color command ssh "$@"
+          else
+            command ssh "$@"
+          fi
+
+          # 恢复 tmux 状态栏颜色（如果在 tmux 中）
+          if [ -n "$TMUX" ]; then
+            if [ -n "$_TMUX_STATUS_ORIG" ]; then
+              tmux set-option -g status-style "$_TMUX_STATUS_ORIG"
+            else
+              tmux set-option -g status-style "bg=colour240,fg=white"
+            fi
+            unset _TMUX_STATUS_ORIG
+          fi
+        }
       '';
 
       # Add useful bash aliases
@@ -139,6 +165,20 @@ in
         sync_frequency = "5m";
         search_mode = "fuzzy";
         keymap_mode = "auto";
+      };
+    };
+
+    # starship - modern prompt
+    programs.starship = {
+      enable = true;
+      enableBashIntegration = true;
+      settings = {
+        format = "$username@$hostname:$directory$git_branch$character ";
+        character = {
+          success_symbol = "[➜](bold green)";
+          error_symbol = "[➜](bold red)";
+        };
+        directory.style = "bold blue";
       };
     };
 
