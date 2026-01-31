@@ -62,38 +62,85 @@ in
         set -g message-command-style 'fg=white bg=colour236'
         set -g message-style 'fg=white bg=colour236 bold'
 
-        # --- 快捷键 ---
+        # --- 快捷键 (Emacs 风格) ---
+        # 参考: https://github.com/dakrone/eos
 
-        # 使用 PREFIX | 和 PREFIX - 进行垂直/水平分割
+        # === 窗口分割 (Emacs C-x 风格) ===
+        # C-x 2: 水平分割 (上下), C-x 3: 垂直分割 (左右)
+        bind 2 split-window -v -c "#{pane_current_path}"
+        bind 3 split-window -h -c "#{pane_current_path}"
+        bind 0 kill-pane           # C-x 0: 关闭当前面板
+        bind 1 break-pane          # C-x 1: 当前面板独占窗口
+
+        # 同时保留直观的分割键
         bind | split-window -h -c "#{pane_current_path}"
         bind - split-window -v -c "#{pane_current_path}"
 
-        # 使用 PREFIX h/j/k/l 切换面板（Vim 风格）
-        bind h select-pane -L
-        bind j select-pane -D
-        bind k select-pane -U
-        bind l select-pane -R
+        # === 面板导航 (Emacs C-x o 风格) ===
+        # 使用 o 轮换面板 (类似 Emacs C-x o)
+        bind o select-pane -t :.+
+        bind O select-pane -t :.-
 
-        # 使用 PREFIX H/J/K/L 调整面板大小
+        # 使用方向键导航 (配合 prefix)
+        bind -r C-h select-pane -L
+        bind -r C-j select-pane -D
+        bind -r C-k select-pane -U
+        bind -r C-l select-pane -R
+
+        # === 面板大小调整 ===
+        # 类似 Emacs 的 window-resizer
         bind -r H resize-pane -L 5
         bind -r J resize-pane -D 5
         bind -r K resize-pane -U 5
         bind -r L resize-pane -R 5
 
-        # 使用 PREFIX Ctrl+h/l 切换窗口
-        bind -r C-h select-window -t :-
-        bind -r C-l select-window -t :+
+        # === 窗口切换 ===
+        # C-f/C-b 前后切换 (Emacs 风格)
+        bind -r C-f next-window
+        bind -r C-b previous-window
+        # C-a 切换到上一个窗口 (类似 Emacs C-x b)
+        bind a last-window
 
-        # 使用 PREFIX q 可视化选择面板
+        # === 面板管理 ===
+        # @ 合并面板: 将其他窗口的面板拉到当前窗口
+        bind @ command-prompt -p "join pane from:" "join-pane -s '%%'"
+        # B 拆分面板: 将当前面板拆成新窗口
+        bind B break-pane
+
+        # === 同步模式 ===
+        # e/E 切换所有面板同步输入 (类似 echo)
+        bind e setw synchronize-panes on \; display "Sync: ON"
+        bind E setw synchronize-panes off \; display "Sync: OFF"
+
+        # === 可视化选择 ===
         bind q display-panes -d 0
 
-        # 复制模式使用 Vi 键位
-        setw -g mode-keys vi
+        # === 复制模式 ===
+        # 进入复制模式 (C-[ 或 Escape, 类似 Emacs)
+        bind C-[ copy-mode
+        bind Escape copy-mode
 
-        # 复制模式下的快捷键
-        bind -T copy-mode-vi v send-keys -X begin-selection
-        bind -T copy-mode-vi y send-keys -X copy-selection-and-cancel
-        bind -T copy-mode-vi r send-keys -X rectangle-toggle
+        # Emacs 键位
+        setw -g mode-keys emacs
+
+        # 复制操作 (Emacs 风格)
+        bind -T copy-mode C-Space send-keys -X begin-selection    # C-SPC 开始选择
+        bind -T copy-mode C-g send-keys -X cancel                 # C-g 取消
+        bind -T copy-mode M-w send-keys -X copy-selection-and-cancel  # M-w 复制
+        bind -T copy-mode C-w send-keys -X copy-selection-and-cancel  # C-w 也行
+
+        # 粘贴 (Emacs C-y 风格)
+        bind C-y paste-buffer
+
+        # 选择缓冲区粘贴
+        bind ] choose-buffer
+
+        # === 其他 ===
+        # r 重新加载配置
+        bind r source-file ~/.config/tmux/tmux.conf \; display-message "Config reloaded"
+
+        # c 新建窗口 (保持在当前路径)
+        bind c new-window -c "#{pane_current_path}"
 
         # PREFIX r 重新加载配置
         bind r source-file ~/.config/tmux/tmux.conf \; display-message "Config reloaded"
