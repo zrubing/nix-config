@@ -10,6 +10,13 @@ in
 
 {
 
+  # easytier peer SSH config template
+  sops.templates."ssh-easytier".content = ''
+    Host easytier-peer
+      HostName 10.144.144.1
+      User root
+  '';
+
   programs.ssh = {
     enable = true;
 
@@ -48,6 +55,8 @@ in
       (lib.replaceStrings [ "$\{XDG_RUNTIME_DIR}" ] [ "/run/user/1000" ]
         config.age.secrets."ssh/default-config".path
       )
+      # easytier peer
+      config.sops.templates."ssh-easytier".path
     ];
   };
 
