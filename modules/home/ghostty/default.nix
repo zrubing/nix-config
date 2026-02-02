@@ -10,19 +10,21 @@ let
   cfg = config.${namespace}.ghostty;
 
   # 根据启用的shell选择shell程序和integration
-  shellCmd = if config.${namespace}.fish.enable then
-    "${pkgs.fish}/bin/fish"
-  else if config.${namespace}.bash.enable then
-    "${pkgs.bash}/bin/bash"
-  else
-    "${pkgs.fish}/bin/fish";  # 默认fallback
+  shellCmd =
+    if config.${namespace}.fish.enable then
+      "${pkgs.fish}/bin/fish"
+    else if config.${namespace}.bash.enable then
+      "${pkgs.bash}/bin/bash"
+    else
+      "${pkgs.fish}/bin/fish"; # 默认fallback
 
-  shellIntegration = if config.${namespace}.fish.enable then
-    "fish"
-  else if config.${namespace}.bash.enable then
-    "bash"
-  else
-    "fish";  # 默认fallback
+  shellIntegration =
+    if config.${namespace}.fish.enable then
+      "fish"
+    else if config.${namespace}.bash.enable then
+      "bash"
+    else
+      "fish"; # 默认fallback
 in
 {
   options.${namespace}.ghostty = {
@@ -32,6 +34,8 @@ in
   config = lib.mkIf cfg.enable {
     programs.ghostty = {
       enable = true;
+
+      enableBashIntegration = true;
 
       settings = {
         # --- Catppuccin Mocha 主题颜色 ---
@@ -67,7 +71,10 @@ in
         font-family = "JetBrains Mono Nerd Font";
         font-size = 9;
         font-thicken = true;
-        font-feature = [ "calt" "liga" ];
+        font-feature = [
+          "calt"
+          "liga"
+        ];
 
         # --- Shell ---
         command = shellCmd;

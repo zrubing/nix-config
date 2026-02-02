@@ -28,6 +28,9 @@
 
     cc-proxy.enable = false;
     sops.enable = true;
+
+    bash.enable = true;
+
     #fish.provider = "MiniMax";
     #fish.provider = "GLM";
     #fish.provider = "Qwen";
