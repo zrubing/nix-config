@@ -63,6 +63,7 @@ in
       pkgs.${namespace}.claude-code
       pkgs-nix-ai.claude-code-router
       pkgs-nix-ai.codex
+      pkgs-nix-ai.workmux
       pkgs-nix-ai.openskills
       pkgs-nix-ai.beads
       pkgs-nix-ai.catnip
