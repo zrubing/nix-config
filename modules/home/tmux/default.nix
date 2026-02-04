@@ -19,8 +19,7 @@ in
     programs.tmux = {
       enable = true;
 
-      # Ctrl+a 作为前缀键（更符合习惯，不与 Ctrl+b 冲突）
-      shortcut = "a";
+      shortcut = "x";
 
       # 256 色支持
       baseIndex = 1;
