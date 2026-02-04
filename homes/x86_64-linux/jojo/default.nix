@@ -23,6 +23,7 @@
     password-store.enable = true;
     shell = {
       enable = "bash";
+      #provider = "MiniMax";
       provider = "GLM";
     };
 
