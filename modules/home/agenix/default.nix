@@ -25,9 +25,9 @@ let
 
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.kube
 
-    # ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/milvzn.kube".path} > /home/${username}/.kube/config
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/sinopec.milv.kube".path} > /home/${username}/.kube/config
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/k0s.kube".path} > /home/${username}/.kube/k0s.config
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/milvzn.kube".path} > /home/${username}/.kube/config-milv-default.yml
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/sinopec.milv.kube".path} > /home/${username}/.kube/config-milv-sinopec.yml
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/k0s.kube".path} > /home/${username}/.kube/config-k0s.yml
 
 
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.codex

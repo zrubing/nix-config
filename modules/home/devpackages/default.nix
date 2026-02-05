@@ -24,6 +24,10 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          kubectl
+          kubie
+
+
           aichat
           btop
           telepresence2

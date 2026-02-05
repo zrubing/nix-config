@@ -92,13 +92,16 @@ in
         quick-terminal-animation-duration = 0.2;
 
         # --- 快捷键 ---
+        # 禁用 ctrl+x> 分屏快捷键，避免与 tmux prefix (Ctrl+x) 冲突
+        # 当在 tmux 中时，这些键位会被 Ghostty 捕获，导致 tmux 快捷键失效
         keybind = [
           # "super+grave=toggle_quick_terminal"  # 暂时禁用，可能导致配置验证错误
-          "ctrl+x>2=new_split:down"
-          "ctrl+x>3=new_split:right"
-          "ctrl+x>o=goto_split:next"
-          "ctrl+x>1=toggle_split_zoom"
-          "ctrl+x>0=close_surface"
+          # Ghostty 分屏功能 (已禁用，使用 tmux 代替)
+          # "ctrl+x>2=new_split:down"
+          # "ctrl+x>3=new_split:right"
+          # "ctrl+x>o=goto_split:next"
+          # "ctrl+x>1=toggle_split_zoom"
+          # "ctrl+x>0=close_surface"
         ];
 
         # --- 鼠标 ---

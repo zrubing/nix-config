@@ -75,15 +75,21 @@ in
         export API_TIMEOUT_MS=3000000
         export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
-        # kubectl with auto SSH tunnel
-        k() {
-          if ! nc -z localhost 6443 2>/dev/null; then
-            echo "Creating SSH tunnel to k0s via jump-box..."
-            ssh -fN k0s-server
-            sleep 1
-          fi
-          ${pkgs.kubectl}/bin/kubectl --kubeconfig ~/.kube/k0s.config "$@"
+
+        kubectl() {
+            local ctx=$(command kubectl config current-context 2>/dev/null)
+            if [[ "$ctx" =~ "k0s" ]]; then
+                if ! (echo > /dev/tcp/localhost/6443) >/dev/null 2>&1; then
+                    echo "🚀 Detected k0s context, creating SSH tunnel..."
+                    ssh -fN k0s-server
+                    # 给隧道建立留一点响应时间
+                    sleep 0.5
+                fi
+            fi
+            # 4. 调用真实的 kubectl
+            command kubectl "$@"
         }
+
 
         # Enable bash completion if available
         if ! shopt -oq posix; then
