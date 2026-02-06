@@ -34,6 +34,7 @@ let
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."codex/config.toml".path} > /home/${username}/.codex/config.toml
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."codex/auth.json".path} > /home/${username}/.codex/auth.json
 
+    ${pkgs.coreutils}/bin/cat ${config.age.secrets."ccr.config.json".path} > /home/${username}/.claude-code-router/config.json
   '';
 in
 {
@@ -57,6 +58,8 @@ in
 
     age.secrets."codex/config.toml".file = "${mysecrets}/codex/config.toml.age";
     age.secrets."codex/auth.json".file = "${mysecrets}/codex/auth.json.age";
+
+    age.secrets."ccr.config.json".file = "${mysecrets}/ccr.config.age";
 
     home.packages = [
       #inputs.agenix.packages.${system}.agenix

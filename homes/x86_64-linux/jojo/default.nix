@@ -11,6 +11,8 @@
 
   internal = {
 
+    ccr-router.enable = true;
+
     #desktop.kde.enable = true;
     desktop.niri.enable = true;
     emacs = {
