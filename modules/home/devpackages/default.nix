@@ -24,6 +24,8 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          llm
+
           kubectl
           kubie
 
