@@ -114,7 +114,7 @@ in
         window-rules = [
           {
             matches = [
-              { app-id = "^Brave-browser$"; }
+              { app-id = "^[Bb]rave-browser$"; }
               { app-id = "^org\\.mozilla\\.firefox$"; }
               { app-id = "^firefox$"; }
               { app-id = "^CherryStudio$"; }
