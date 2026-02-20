@@ -32,7 +32,7 @@ in
             export ANTHROPIC_API_KEY="$(cat ${config.sops.secrets."anthropic/api_key".path} | xargs)"
           fi
 
-          export ANTHROPIC_MODEL="GLM-4.7"
+          export ANTHROPIC_MODEL="GLM-5"
         ''}
 
         ${lib.optionalString (shellCfg.provider == "MiniMax") ''

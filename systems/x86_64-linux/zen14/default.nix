@@ -84,7 +84,7 @@
     #dae.enable = true;
     miho.enable = true;
     ollama.enable = false;
-    desktop-programs.enable = true;
+    desktop-programs.enable = false;
 
     restic.enable = true;
   };
