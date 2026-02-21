@@ -34,7 +34,8 @@ in
         type = "niri";
       };
 
-      swayidle.enable = true;
+      swayidle.enable = false;
+      hypridle.enable = true;
 
 
       # 使用niri-flake自带的xwayland-satellite

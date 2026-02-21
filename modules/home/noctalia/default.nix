@@ -185,7 +185,7 @@ in
             spawn = [ "brave-tab-switcher-v2" ];
           };
           "Super+Alt+L".action = {
-            spawn = [ "swaylock" ];
+            spawn = noctalia "lockScreen lock";
           };
           "Mod+Shift+A".action = {
             spawn = [
@@ -463,6 +463,12 @@ in
         general = {
           avatarImage = "/home/jojo/.face";
           radiusRatio = 0.2;
+          # 锁屏设置
+          lockOnSuspend = true;
+          compactLockScreen = false;
+          lockScreenAnimations = false;
+          enableLockScreenCountdown = true;
+          lockScreenCountdownDuration = 10000;
         };
         dock = {
           enabled = false;
