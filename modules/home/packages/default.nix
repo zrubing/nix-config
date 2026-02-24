@@ -13,7 +13,7 @@ let
     config.allowUnfree = true;
   };
 
-  pkgs-nix-ai = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system};
+  pkgs-nix-ai = inputs.nix-ai-tools.packages.${pkgs.stdenv.hostPlatform.system};
 
   cfg = config.${namespace}.modules.packages;
 in
@@ -72,6 +72,7 @@ in
       #pkgs-nix-ai.gemini-cli
       pkgs-nix-ai.claude-code-acp
       pkgs-nix-ai.openspec
+      pkgs-nix-ai.cc-switch-cli
       #pkgs.${namespace}.trojan-go
       pkgs.${namespace}.emacs-lsp-proxy
       pkgs-unstable.mise

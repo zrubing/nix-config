@@ -12,7 +12,7 @@
 
     claude-code.url = "github:sadjow/claude-code-nix";
 
-    llm-agents.url = "github:numtide/llm-agents.nix";
+    nix-ai-tools.url = "git+file:///home/jojo/codeWorkspace/nix-ai-tools";
 
     catppuccin-bat = {
       url = "github:catppuccin/bat";
