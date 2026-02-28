@@ -91,4 +91,17 @@
 
   networking.networkmanager.enable = true;
 
+  # sudo 免密码
+  security.sudo.extraRules = [
+    {
+      users = [ "jojo" ];
+      commands = [
+        {
+          command = "ALL";
+          options = [ "NOPASSWD" ];
+        }
+      ];
+    }
+  ];
+
 }

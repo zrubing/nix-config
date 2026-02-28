@@ -78,7 +78,7 @@ in
             tap = true;
             natural-scroll = true;
             scroll-method = "two-finger";
-            disabled-on-external-mouse = true;
+            disabled-on-external-mouse = false;
           };
           warp-mouse-to-focus.enable = true;
           focus-follows-mouse.max-scroll-amount = "0%";

@@ -13,7 +13,7 @@ in
   # easytier peer SSH config template
   sops.templates."ssh-easytier".content = ''
     Host easytier-peer
-      HostName 10.144.144.1
+      HostName 10.144.200.1
       User root
   '';
 
