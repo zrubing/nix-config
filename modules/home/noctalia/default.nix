@@ -45,6 +45,16 @@ in
         #   enable = true;
         #   path = lib.getExe pkgs.xwayland-satellite-unstable;
         # };
+
+        outputs = {
+          "HDMI-A-1" = {
+            position = {
+              x = -1920;
+              y = 0;
+            };
+          };
+        };
+
         layout = {
           always-center-single-column = true;
           default-column-display = "tabbed";
