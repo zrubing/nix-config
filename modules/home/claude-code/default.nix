@@ -34,7 +34,6 @@ in
   home.file = {
     ".claude/CLAUDE.md".source = ./CLAUDE.md;
     ".claude/settings.json".source = mergedSettings;
-    ".claude/skills/design-doc-mermaid".source = inputs.design-doc-mermaid;
   };
 
   home.activation = {
