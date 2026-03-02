@@ -45,7 +45,7 @@
     "blueprint": {
       "inputs": {
         "nixpkgs": [
-          "nix-ai-tools",
+          "llm-agents",
           "nixpkgs"
         ],
         "systems": "systems_6"
@@ -137,6 +137,23 @@
         "owner": "lnl7",
         "ref": "master",
         "repo": "nix-darwin",
+        "type": "github"
+      }
+    },
+    "design-doc-mermaid": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1767025393,
+        "narHash": "sha256-ZhCP5EcP3xKjTH3CScuVqZRvlvwJy5n4bNWc7XbIs/M=",
+        "owner": "SpillwaveSolutions",
+        "repo": "design-doc-mermaid",
+        "rev": "e13f987306d5cd7a34f541927a3228343dd90e45",
+        "type": "github"
+      },
+      "original": {
+        "owner": "SpillwaveSolutions",
+        "repo": "design-doc-mermaid",
+        "rev": "e13f987306d5cd7a34f541927a3228343dd90e45",
         "type": "github"
       }
     },
@@ -393,6 +410,26 @@
         "type": "github"
       }
     },
+    "llm-agents": {
+      "inputs": {
+        "blueprint": "blueprint",
+        "nixpkgs": "nixpkgs_5",
+        "treefmt-nix": "treefmt-nix"
+      },
+      "locked": {
+        "lastModified": 1772335625,
+        "narHash": "sha256-9/vBHUzJ/PWbPKP9+ew6BJ2wvW2FMUAChjLXe/E2IOw=",
+        "owner": "numtide",
+        "repo": "llm-agents.nix",
+        "rev": "dd89128aac0b67d2290acac934f0e2ec6dbec53d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "llm-agents.nix",
+        "type": "github"
+      }
+    },
     "mysecrets": {
       "flake": false,
       "locked": {
@@ -414,7 +451,7 @@
       "inputs": {
         "niri-stable": "niri-stable",
         "niri-unstable": "niri-unstable",
-        "nixpkgs": "nixpkgs_5",
+        "nixpkgs": "nixpkgs_6",
         "nixpkgs-stable": "nixpkgs-stable_2",
         "xwayland-satellite-stable": "xwayland-satellite-stable",
         "xwayland-satellite-unstable": "xwayland-satellite-unstable"
@@ -464,26 +501,6 @@
         "owner": "YaLTeR",
         "repo": "niri",
         "type": "github"
-      }
-    },
-    "nix-ai-tools": {
-      "inputs": {
-        "blueprint": "blueprint",
-        "nixpkgs": "nixpkgs_6",
-        "treefmt-nix": "treefmt-nix"
-      },
-      "locked": {
-        "lastModified": 1771926040,
-        "narHash": "sha256-KO5w8vOZbd9X7dCk7y9CEXkG16Hev2IABVq2tcOzwNY=",
-        "ref": "refs/heads/main",
-        "rev": "716f528492001212a33dc3eb8e7c17772048a36e",
-        "revCount": 4813,
-        "type": "git",
-        "url": "file:///home/jojo/codeWorkspace/nix-ai-tools"
-      },
-      "original": {
-        "type": "git",
-        "url": "file:///home/jojo/codeWorkspace/nix-ai-tools"
       }
     },
     "nixpkgs": {
@@ -600,22 +617,6 @@
     },
     "nixpkgs_5": {
       "locked": {
-        "lastModified": 1771848320,
-        "narHash": "sha256-0MAd+0mun3K/Ns8JATeHT1sX28faLII5hVLq0L3BdZU=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixos-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_6": {
-      "locked": {
         "lastModified": 1771423170,
         "narHash": "sha256-K7Dg9TQ0mOcAtWTO/FX/FaprtWQ8BmEXTpLIaNRhEwU=",
         "owner": "NixOS",
@@ -626,6 +627,22 @@
       "original": {
         "owner": "NixOS",
         "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_6": {
+      "locked": {
+        "lastModified": 1771848320,
+        "narHash": "sha256-0MAd+0mun3K/Ns8JATeHT1sX28faLII5hVLq0L3BdZU=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "2fc6539b481e1d2569f25f8799236694180c0993",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
         "repo": "nixpkgs",
         "type": "github"
       }
@@ -701,15 +718,16 @@
         "catppuccin-bat": "catppuccin-bat",
         "claude-code": "claude-code",
         "codex-nix": "codex-nix",
+        "design-doc-mermaid": "design-doc-mermaid",
         "doomemacs": "doomemacs",
         "emacs-overlay": "emacs-overlay",
         "flake-compat": "flake-compat",
         "flake-utils": "flake-utils_4",
         "flake-utils-plus": "flake-utils-plus",
         "home-manager": "home-manager_2",
+        "llm-agents": "llm-agents",
         "mysecrets": "mysecrets",
         "niri": "niri",
-        "nix-ai-tools": "nix-ai-tools",
         "nixpkgs": "nixpkgs_7",
         "nixpkgs-unstable": "nixpkgs-unstable",
         "noctalia": "noctalia",
@@ -888,7 +906,7 @@
     "treefmt-nix": {
       "inputs": {
         "nixpkgs": [
-          "nix-ai-tools",
+          "llm-agents",
           "nixpkgs"
         ]
       },

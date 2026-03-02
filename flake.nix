@@ -12,7 +12,7 @@
 
     claude-code.url = "github:sadjow/claude-code-nix";
 
-    nix-ai-tools.url = "git+file:///home/jojo/codeWorkspace/nix-ai-tools";
+    llm-agents.url = "github:numtide/llm-agents.nix";
 
     catppuccin-bat = {
       url = "github:catppuccin/bat";
@@ -81,6 +81,10 @@
     };
 
     codex-nix.url = "github:sadjow/codex-nix";
+    design-doc-mermaid = {
+      url = "github:SpillwaveSolutions/design-doc-mermaid?rev=e13f987306d5cd7a34f541927a3228343dd90e45";
+      flake = false;
+    };
 
     ########################  My own repositories  #########################################
     # my private secrets, it's a private repository, you need to replace it with your own.
