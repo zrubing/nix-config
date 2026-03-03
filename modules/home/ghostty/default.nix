@@ -14,7 +14,7 @@ let
     if config.${namespace}.fish.enable then
       "${pkgs.fish}/bin/fish"
     else if config.${namespace}.bash.enable then
-      "${pkgs.bash}/bin/bash"
+      "${pkgs.bashInteractive}/bin/bash"
     else
       "${pkgs.fish}/bin/fish"; # 默认fallback
 

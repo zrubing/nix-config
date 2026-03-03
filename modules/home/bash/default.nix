@@ -20,6 +20,13 @@ in
       enable = true;
       initExtra = ''
         # Add to PATH
+
+        # 检查是否处于 POSIX 模式并关闭它
+        # 这里可以添加条件判断，避免重复执行
+        if [[ "$-" == *i* ]]; then
+          set +o posix 2>/dev/null || true
+        fi
+
         export PATH="$HOME/bin:$PATH"
         export PATH="$HOME/.local/bin:$PATH"
 
@@ -101,7 +108,9 @@ in
         fi
 
         # Alt+T 打开默认编辑器编辑当前命令
-        bind -x '"\et": edit-and-execute-command'
+        if [[ "$-" == *i* ]] && type bind >/dev/null 2>&1; then
+          bind -x '"\et": edit-and-execute-command'
+        fi
 
         # SSH 连接时修复 Ghostty TERM 类型 + 自动重命名 tmux 窗口
         ssh() (

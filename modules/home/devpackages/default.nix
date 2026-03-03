@@ -24,6 +24,7 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          kubeseal
           k9s
 
           llm
