@@ -65,6 +65,7 @@
         ghostty.enable = lib.mkForce false;
         modules.fuzzel.enable = lib.mkForce false;
         modules.fcitx5.enable = lib.mkForce false;
+        programs.wechat-uos.enable = lib.mkForce false;
       };
     };
 

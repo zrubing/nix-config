@@ -1,11 +1,15 @@
 {
+  config,
+  lib,
   pkgs,
   inputs,
   system,
+  namespace,
   ...
 }:
 
 let
+  cfg = config.${namespace}.programs.wechat-uos;
   pkgs-unstable = import inputs.nixpkgs-unstable {
     system = system;
     config.allowUnfree = true;
@@ -24,22 +28,30 @@ let
   '';
 in
 {
-  home.packages = [
-    wechat-uos-wrapper
-    #pkgs-unstable.wechat-uos
-  ];
+  options.${namespace}.programs.wechat-uos.enable = lib.mkOption {
+    type = lib.types.bool;
+    default = true;
+    description = "Enable wechat-uos wrapper and desktop entry.";
+  };
 
-  xdg.desktopEntries.wechat-uos = {
-    name = "微信";
-    genericName = "WeChat";
-    startupNotify = true;
-    exec = "${wechat-uos-wrapper}/bin/wechat-uos-wrapper %U";
-    icon = "com.tencent.wechat";
-    type = "Application";
-    terminal = false;
-    categories = [
-      "Network"
-      "InstantMessaging"
+  config = lib.mkIf cfg.enable {
+    home.packages = [
+      wechat-uos-wrapper
+      #pkgs-unstable.wechat-uos
     ];
+
+    xdg.desktopEntries.wechat-uos = {
+      name = "微信";
+      genericName = "WeChat";
+      startupNotify = true;
+      exec = "${wechat-uos-wrapper}/bin/wechat-uos-wrapper %U";
+      icon = "com.tencent.wechat";
+      type = "Application";
+      terminal = false;
+      categories = [
+        "Network"
+        "InstantMessaging"
+      ];
+    };
   };
 }
