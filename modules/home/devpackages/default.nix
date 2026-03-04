@@ -1,7 +1,9 @@
 {
+  config,
   pkgs,
   inputs,
   system,
+  lib,
   namespace,
   ...
 }:
@@ -10,9 +12,36 @@ let
     system = system;
     config.allowUnfree = true;
   };
+  cfg = config.${namespace}.devpackages;
 in
 {
-  config = {
+  options.${namespace}.devpackages = {
+    enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable development package set.";
+    };
+
+    gui.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable GUI applications in development package set.";
+    };
+
+    treeSitter.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable tree-sitter related dependencies in development package set.";
+    };
+
+    vscodeTools.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable VSCode-derived development tools.";
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
     xdg.configFile."lsp-bridge-lib/typescript-lib" = {
       source = "${pkgs.nodePackages.typescript}/lib/node_modules/typescript/lib";
       recursive = true;
@@ -52,13 +81,9 @@ in
           pkg-config
           unzip
 
-          xfce.catfish
-
           # inputs.codex-nix.packages.${pkgs.stdenv.hostPlatform.system}.default
 
           #pkgs.${namespace}.sunloginclient
-          firefox
-          pkgs-unstable.google-chrome
           uv
           # for emacs dirvish
           vips
@@ -123,7 +148,6 @@ in
             # llvmPackages.clang-unwrapped
             clang-tools
             lldb
-            vscode-extensions.vadimcn.vscode-lldb.adapter # codelldb - debugger
 
             #-- python
             basedpyright
@@ -164,12 +188,6 @@ in
                 packaging
 
                 ## emacs emigo dependencies
-                pkgs.${namespace}.grep-ast
-                pkgs.${namespace}.tree-sitter-language-pack
-                pkgs.${namespace}.tree-sitter-c-sharp
-                pkgs.${namespace}.tree-sitter-embedded-template
-                pkgs.${namespace}.tree-sitter-yaml
-                tree-sitter
                 networkx
                 pygments
                 #grep-ast
@@ -180,6 +198,13 @@ in
                 scipy
                 litellm
 
+              ] ++ lib.optionals cfg.treeSitter.enable [
+                pkgs.${namespace}.grep-ast
+                pkgs.${namespace}.tree-sitter-language-pack
+                pkgs.${namespace}.tree-sitter-c-sharp
+                pkgs.${namespace}.tree-sitter-embedded-template
+                pkgs.${namespace}.tree-sitter-yaml
+                tree-sitter
               ]
             ))
 
@@ -242,8 +267,6 @@ in
           nodePackages.nodejs
           nodePackages.typescript
           pkgs-unstable.typescript-language-server
-          # HTML/CSS/JSON/ESLint language servers extracted from vscode
-          nodePackages.vscode-langservers-extracted
           nodePackages."@tailwindcss/language-server"
           emmet-ls
         ]
@@ -268,6 +291,16 @@ in
           (ripgrep.override {
             withPCRE2 = true;
           }) # RECURSIVELY SEARCHES DIRECTORIES FOR A REGEX PATTERN
+        ]
+        ++ lib.optionals cfg.vscodeTools.enable [
+          vscode-extensions.vadimcn.vscode-lldb.adapter
+          # HTML/CSS/JSON/ESLint language servers extracted from vscode
+          nodePackages.vscode-langservers-extracted
+        ]
+        ++ lib.optionals cfg.gui.enable [
+          xfce.catfish
+          firefox
+          pkgs-unstable.google-chrome
         ]
       );
 

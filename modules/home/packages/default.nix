@@ -21,41 +21,39 @@ in
 
   options.${namespace}.modules.packages = {
     enable = lib.mkEnableOption "packages";
+    gui.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable GUI desktop applications in package set.";
+    };
+    emacsTools.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable Emacs helper tools in package set.";
+    };
+    ocr.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable OCR tools in package set.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs; [
-      # view image
-      imv
-
       # claude sandbox
       socat
       bubblewrap
 
       lsof
 
-      grim
-      satty
-
       jujutsu
 
-      nautilus
-      pkgs-unstable.cherry-studio
-      redisinsight
-
-      mongodb-compass
-
-      feishu
       conda
-      vscode
       ollama-rocm
       # for aider
       python312Packages.playwright
-      code-cursor
       mysql84
-      wireshark-qt
       pkgs-unstable.tdlib
-      pkgs-unstable.localsend
       #pkgs.${namespace}.aider
       pkgs.aider-chat
       #pkgs-unstable.aider-chat
@@ -76,24 +74,39 @@ in
       pkgs-nix-ai.openspec
       pkgs-nix-ai.cc-switch-cli
       #pkgs.${namespace}.trojan-go
-      pkgs.${namespace}.emacs-lsp-proxy
       pkgs-unstable.mise
-      pkgs.${namespace}.wl-ocr
       pkgs-nix-ai.eca
-      tesseract
       pkgs-unstable.tailscale
-      pkgs-unstable.dbeaver-bin
       devenv
       devpod
       devbox
+
+    ] ++ lib.optionals cfg.emacsTools.enable [
+      pkgs.${namespace}.emacs-lsp-proxy
+    ] ++ lib.optionals cfg.ocr.enable [
+      pkgs.${namespace}.wl-ocr
+      tesseract
+    ] ++ lib.optionals cfg.gui.enable (with pkgs; [
+      # view image
+      imv
+      grim
+      satty
+      nautilus
+      pkgs-unstable.cherry-studio
+      redisinsight
+      mongodb-compass
+      feishu
+      vscode
+      code-cursor
+      wireshark-qt
+      pkgs-unstable.localsend
+      pkgs-unstable.dbeaver-bin
       sioyek
       libreoffice
       pkgs-unstable.zed-editor
       pkgs-unstable.wpsoffice
-
       libnotify
-
-    ];
+    ]);
 
     programs = {
       direnv = {
@@ -104,17 +117,19 @@ in
       };
     };
 
-    # 创建自定义桌面项
-    xdg.desktopEntries.mongodb-compass = {
-      name = "MongoDB Compass";
-      exec = "env XDG_CURRENT_DESKTOP=GNOME mongodb-compass --password-store=gnome-libsecret --ignore-additional-command-line-flags %U";
-      icon = "mongodb-compass";
-      comment = "MongoDB GUI";
-      categories = [
-        "Development"
-        "Database"
-      ];
-      terminal = false;
+    xdg.desktopEntries = lib.mkIf cfg.gui.enable {
+      # 创建自定义桌面项
+      mongodb-compass = {
+        name = "MongoDB Compass";
+        exec = "env XDG_CURRENT_DESKTOP=GNOME mongodb-compass --password-store=gnome-libsecret --ignore-additional-command-line-flags %U";
+        icon = "mongodb-compass";
+        comment = "MongoDB GUI";
+        categories = [
+          "Development"
+          "Database"
+        ];
+        terminal = false;
+      };
     };
 
   };

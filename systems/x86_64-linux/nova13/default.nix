@@ -43,21 +43,32 @@
     };
   };
 
-  modules.secrets.desktop.enable = true;
-
   ${namespace} = {
     user.name = "jojo";
     networking.wifi.enable = true;
-    tailscale.headscaleAuthkeyFile  = "headscale-authkey-nova13.age";
+    tailscale.headscaleAuthkeyFile = "headscale-authkey-nova13.age";
     #builder.enable = true;
-    desktop = {
-      #kde.enable = true;
-      niri.enable = true;
+    desktop.niri.enable = false;
+
+    home.extraOptions = {
+      ${namespace} = {
+        desktop.niri.enable = lib.mkForce false;
+        emacs.enable = lib.mkForce false;
+        devpackages.treeSitter.enable = lib.mkForce false;
+        devpackages.vscodeTools.enable = lib.mkForce false;
+        devpackages.gui.enable = lib.mkForce false;
+        modules.packages.gui.enable = lib.mkForce false;
+        modules.packages.emacsTools.enable = lib.mkForce false;
+        modules.packages.ocr.enable = lib.mkForce false;
+        ghostty.enable = lib.mkForce false;
+        modules.fuzzel.enable = lib.mkForce false;
+        modules.fcitx5.enable = lib.mkForce false;
+      };
     };
 
     #dae.enable = true;
     miho.enable = true;
-    desktop-programs.enable = true;
+    desktop-programs.enable = false;
 
     restic.enable = true;
   };
