@@ -47,6 +47,7 @@
     user.name = "jojo";
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-nova13.age";
+    nix-ld.enable = false;
     #builder.enable = true;
     desktop.niri.enable = false;
 
@@ -56,6 +57,7 @@
         emacs.enable = lib.mkForce false;
         devpackages.treeSitter.enable = lib.mkForce false;
         devpackages.vscodeTools.enable = lib.mkForce false;
+        devpackages.languageServers.enable = lib.mkForce false;
         devpackages.gui.enable = lib.mkForce false;
         modules.packages.gui.enable = lib.mkForce false;
         modules.packages.emacsTools.enable = lib.mkForce false;

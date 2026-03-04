@@ -39,6 +39,12 @@ in
       default = true;
       description = "Enable VSCode-derived development tools.";
     };
+
+    languageServers.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable language server packages in development package set.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -88,13 +94,9 @@ in
           # for emacs dirvish
           vips
 
-          copilot-language-server
-
           nix-direnv
           direnv
           #-- nix
-          nixd
-          nil
           nixfmt-rfc-style
           # rnix-lsp
           # nixd
@@ -107,19 +109,13 @@ in
 
           #-- json like
           # terraform  # install via brew on macOS
-          terraform-ls
           jsonnet
-          jsonnet-language-server
-          taplo # TOML language server / formatter / validator
-          nodePackages.yaml-language-server
           actionlint # GitHub Actions linter
 
           #-- dockerfile
           hadolint # Dockerfile linter
-          dockerfile-language-server
 
           #-- markdown
-          marksman # language server for markdown
           glow # markdown previewer
           pandoc # document converter
           pkgs-unstable.hugo # static site generator
@@ -137,7 +133,6 @@ in
           [
             #-- c/c++
             cmake
-            cmake-language-server
             gnumake
             checkmake
             # c/c++ compiler, required by nvim-treesitter!
@@ -150,13 +145,11 @@ in
             lldb
 
             #-- python
-            basedpyright
             pkgs-unstable.ty
 
             # for cliphist image
             xdg-utils
 
-            pyright # python language server
             (python312.withPackages (
               ps: with ps; [
                 paddleocr
@@ -223,7 +216,6 @@ in
             iferr # generate error handling code for go
             impl # generate function implementation for go
             gotools # contains tools like: godoc, goimports, etc.
-            gopls # go language server
             delve # go debugger
 
             # -- java
@@ -236,46 +228,31 @@ in
             gradle
             maven
             spring-boot-cli
-            lemminx
             # pkgs.${namespace}.java-debug #依赖总是不固定，先注释
             # pkgs.${namespace}.claude-code-proxy
-            pkgs-unstable.jdt-language-server
 
             google-antigravity
 
             # php
-            intelephense
-
-            #-- zig
-            zls
 
             #-- lua
             stylua
-            lua-language-server
 
             #-- bash
-            nodePackages.bash-language-server
             shellcheck
             shfmt
             #bitcoin
           ]
         #-*- Web Development -*-#
         ++ [
-          # vue
-          pkgs.${namespace}.vue-language-server
-
           nodePackages.nodejs
           nodePackages.typescript
-          pkgs-unstable.typescript-language-server
-          nodePackages."@tailwindcss/language-server"
-          emmet-ls
         ]
         # -*- Lisp like Languages -*-#
         ++ [
           guile
           racket-minimal
           fnlfmt # fennel
-          (if pkgs.stdenv.isDarwin then pkgs.emptyDirectory else pkgs-unstable.akkuPackages.scheme-langserver)
         ]
         ++ [
           proselint # English prose linter
@@ -296,6 +273,32 @@ in
           vscode-extensions.vadimcn.vscode-lldb.adapter
           # HTML/CSS/JSON/ESLint language servers extracted from vscode
           nodePackages.vscode-langservers-extracted
+        ]
+        ++ lib.optionals cfg.languageServers.enable [
+          copilot-language-server
+          nixd
+          nil
+          terraform-ls
+          jsonnet-language-server
+          taplo
+          nodePackages.yaml-language-server
+          dockerfile-language-server
+          marksman
+          cmake-language-server
+          basedpyright
+          pyright
+          gopls
+          lemminx
+          pkgs-unstable.jdt-language-server
+          intelephense
+          zls
+          lua-language-server
+          nodePackages.bash-language-server
+          pkgs.${namespace}.vue-language-server
+          pkgs-unstable.typescript-language-server
+          nodePackages."@tailwindcss/language-server"
+          emmet-ls
+          (if pkgs.stdenv.isDarwin then pkgs.emptyDirectory else pkgs-unstable.akkuPackages.scheme-langserver)
         ]
         ++ lib.optionals cfg.gui.enable [
           xfce.catfish

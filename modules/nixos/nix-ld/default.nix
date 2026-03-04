@@ -1,9 +1,25 @@
-{ pkgs, namespace, ... }:
 {
-  environment.systemPackages = [ pkgs.${namespace}.feilian ];
+  config,
+  lib,
+  pkgs,
+  namespace,
+  ...
+}:
+let
+  cfg = config.${namespace}.nix-ld;
+in
+{
+  options.${namespace}.nix-ld.enable = lib.mkOption {
+    type = lib.types.bool;
+    default = true;
+    description = "Enable nix-ld runtime loader and compatibility libraries.";
+  };
 
-  programs.nix-ld.enable = true;
-  programs.nix-ld.libraries = with pkgs; [
+  config = lib.mkIf cfg.enable {
+    environment.systemPackages = [ pkgs.${namespace}.feilian ];
+
+    programs.nix-ld.enable = true;
+    programs.nix-ld.libraries = with pkgs; [
     stdenv.cc.cc
     openssl
     xorg.libXcomposite
@@ -99,6 +115,7 @@
     mesa
     libxkbcommon
 
-    libgbm
-  ];
+      libgbm
+    ];
+  };
 }
