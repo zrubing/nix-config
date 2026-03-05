@@ -91,6 +91,49 @@
 
   networking.networkmanager.enable = true;
 
+  # 通过 ali(10.144.200.1) 转发到集群控制面网段(10.144.100.0/24)
+  # 使用 oneshot 路由注入，避免不同网络后端下静态路由选项差异
+  systemd.services.k0s-route-via-ali = {
+    description = "Add route to k0s controller subnet via ali gateway";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" "easytier-net-zen14.service" ];
+    wants = [ "network-online.target" "easytier-net-zen14.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    path = with pkgs; [ iproute2 ];
+    script = ''
+      # 网关由 EasyTier 提供，接口就绪后写入路由
+      ip route replace 10.144.100.0/24 via 10.144.200.1
+    '';
+  };
+
+  # EasyTier 的 tun0 仅承载 10.144.200.0/24 链路，
+  # 对 10.144.144.1:6443 走本机 OUTPUT DNAT 到 ali 中转入口。
+  systemd.services.k0s-apiserver-via-ali-relay = {
+    description = "Redirect k0s apiserver traffic to ali relay endpoint";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" "easytier-net-zen14.service" ];
+    wants = [ "network-online.target" "easytier-net-zen14.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    path = with pkgs; [ nftables ];
+    script = ''
+      nft delete table ip zen14_k0s_relay 2>/dev/null || true
+      nft -f - <<'EOF'
+      table ip zen14_k0s_relay {
+        chain output {
+          type nat hook output priority dstnat; policy accept;
+          ip daddr 10.144.144.1 tcp dport 6443 dnat to 10.144.200.1:6443
+        }
+      }
+      EOF
+    '';
+  };
+
   networking.extraHosts = ''
     127.0.0.1 zot.zot.svc.cluster.local
   '';
@@ -124,7 +167,7 @@
   environment.etc."k0s/k0s.yaml".enable = lib.mkForce false;
 
   services.k0s = {
-    enable = false;
+    enable = true;
     package = inputs.k0s-nix.packages.${system}.k0s;
     role = "worker";
     # 首次 join 需要提前放置 token 文件到 /var/lib/k0s/k0stoken
