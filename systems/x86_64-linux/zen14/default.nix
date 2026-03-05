@@ -82,7 +82,10 @@
     };
 
     #dae.enable = true;
-    miho.enable = true;
+    miho = {
+      enable = true;
+      extraConfig = import ./miho-extra-config.nix;
+    };
     ollama.enable = false;
     desktop-programs.enable = false;
 
@@ -106,6 +109,8 @@
     script = ''
       # 网关由 EasyTier 提供，接口就绪后写入路由
       ip route replace 10.144.100.0/24 via 10.144.200.1
+      ip route replace 10.144.144.0/24 via 10.144.200.1
+      ip route replace 172.28.0.0/16 via 10.144.200.1
     '';
   };
 
@@ -134,9 +139,126 @@
     '';
   };
 
-  networking.extraHosts = ''
-    127.0.0.1 zot.zot.svc.cluster.local
-  '';
+  systemd.services.mihomo-mark-forward =
+    let
+      routeConfig = {
+        podCidr = "10.244.4.0/24";
+        metaInterface = "Meta";
+        metaAddress = "198.18.0.1/30";
+        metaGateway = "198.18.0.2";
+        table = "2010";
+        priorities = {
+          relay = 85;
+          bypass = 106;
+          egress = 110;
+        };
+        relayRule = {
+          from = "10.144.200.0/24";
+          to = "10.144.100.0/24";
+        };
+        bypassCidrs = [
+          "10.96.0.0/12"
+          "10.244.0.0/16"
+          "10.144.100.0/24"
+          "10.144.144.0/24"
+          "172.28.0.0/16"
+        ];
+      };
+
+      mkRuleExpr = {
+        from,
+        lookup,
+        priority,
+        to ? null,
+      }:
+        "from ${from}"
+        + lib.optionalString (to != null) " to ${to}"
+        + " lookup ${lookup} priority ${toString priority}";
+
+      mkDeleteRule = rule: ''
+        while ip rule del ${mkRuleExpr rule} 2>/dev/null; do :; done
+      '';
+
+      mkAddRule = rule: ''
+        ip rule add ${mkRuleExpr rule}
+      '';
+
+      relayRule = {
+        from = routeConfig.relayRule.from;
+        to = routeConfig.relayRule.to;
+        lookup = "main";
+        priority = routeConfig.priorities.relay;
+      };
+
+      bypassRules = map
+        (cidr: {
+          from = routeConfig.podCidr;
+          to = cidr;
+          lookup = "main";
+          priority = routeConfig.priorities.bypass;
+        })
+        routeConfig.bypassCidrs;
+
+      egressRule = {
+        from = routeConfig.podCidr;
+        lookup = routeConfig.table;
+        priority = routeConfig.priorities.egress;
+      };
+
+      deleteRules = [ egressRule ] ++ bypassRules ++ [ relayRule ];
+      preRouteAddRules = [ relayRule ] ++ bypassRules;
+    in
+    {
+      description = "Route zen14 build pod traffic to mihomo and keep cluster traffic on main route";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "mihomo.service" "network-online.target" "easytier-net-zen14.service" ];
+      wants = [ "network-online.target" "easytier-net-zen14.service" ];
+      requires = [ "mihomo.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        Restart = "on-failure";
+        RestartSec = "5s";
+      };
+      path = with pkgs; [
+        iproute2
+        nftables
+      ];
+      script = ''
+        set -euo pipefail
+
+        i=0
+        while [ "$i" -lt 60 ]; do
+          if ip -4 addr show dev ${routeConfig.metaInterface} 2>/dev/null | grep -q '${routeConfig.metaAddress}'; then
+            break
+          fi
+          i=$((i + 1))
+          sleep 1
+        done
+        if ! ip -4 addr show dev ${routeConfig.metaInterface} 2>/dev/null | grep -q '${routeConfig.metaAddress}'; then
+          echo "Meta interface/address is not ready after 60s" >&2
+          ip -4 addr show dev ${routeConfig.metaInterface} || true
+          exit 1
+        fi
+
+        ${lib.concatMapStringsSep "\n" mkDeleteRule deleteRules}
+
+        ${lib.concatMapStringsSep "\n" mkAddRule preRouteAddRules}
+
+        ip route replace default via ${routeConfig.metaGateway} dev ${routeConfig.metaInterface} table ${routeConfig.table}
+        ${mkAddRule egressRule}
+
+        nft delete table ip mihomo_nat 2>/dev/null || true
+        nft -f - <<'EOF'
+        table ip mihomo_nat {
+          chain postrouting {
+            type nat hook postrouting priority srcnat; policy accept;
+            ip saddr ${routeConfig.podCidr} oifname "${routeConfig.metaInterface}" snat to 198.18.0.1
+          }
+        }
+        EOF
+      '';
+    };
 
   # 本地通过 SSH 隧道推送到集群内 Zot（HTTP registry）
   virtualisation.containers.registries.insecure = [
