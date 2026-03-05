@@ -40,6 +40,7 @@ in
 
   config = lib.mkIf cfg.enable {
     home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skills/woodpecker-ci;
+    home.file.".pi/agent/skills/zli".source = ../../../.pi/skills/zli;
 
     home.packages = with pkgs; [
       # claude sandbox
@@ -65,6 +66,7 @@ in
       pkgs-nix-ai.pi
       pkgs-nix-ai.omp
       pkgs-nix-ai.codex
+      pkgs.${namespace}.zli
       pkgs-nix-ai.workmux
       pkgs-nix-ai.openskills
       pkgs-nix-ai.beads
