@@ -54,5 +54,20 @@ in
     sops.secrets."qwen/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
+
+
+    sops.secrets."woodpecker/token" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+    sops.secrets."woodpecker/server" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+
+    sops.secrets."zot/username" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+    sops.secrets."zot/password" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
   };
 }

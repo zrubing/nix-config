@@ -82,6 +82,16 @@ in
         export API_TIMEOUT_MS=3000000
         export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
+        if [ -f ${config.sops.secrets."woodpecker/server".path} ]; then
+          export WOODPECKER_SERVER="$(cat ${config.sops.secrets."woodpecker/server".path} | xargs)"
+          export WOODPECKER_TOKEN="$(cat ${config.sops.secrets."woodpecker/token".path} | xargs)"
+        fi
+
+        if [ -f ${config.sops.secrets."zot/username".path} ]; then
+          export ZOT_REGISTRY_USERNAME="$(cat ${config.sops.secrets."zot/username".path} | xargs)"
+          export ZOT_REGISTRY_PASSWORD="$(cat ${config.sops.secrets."zot/password".path} | xargs)"
+        fi
+
 
         kubectl() {
             local ctx=$(command kubectl config current-context 2>/dev/null)

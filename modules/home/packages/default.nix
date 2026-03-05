@@ -39,6 +39,8 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skills/woodpecker-ci;
+
     home.packages = with pkgs; [
       # claude sandbox
       socat
@@ -77,6 +79,7 @@ in
       pkgs-unstable.mise
       pkgs-nix-ai.eca
       pkgs-unstable.tailscale
+      sshuttle
       devenv
       devpod
       devbox

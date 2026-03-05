@@ -59,6 +59,8 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          woodpecker-cli
+
           kubeseal
           k9s
 

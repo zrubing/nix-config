@@ -64,6 +64,23 @@ in
         ${pkgs.coreutils}/bin/mv /tmp/.claude.json.tmp "$conf"
       fi
 
+      # 将 MCP 配置也替换到 Pi 配置中
+      pi_mcp_config="$HOME/.pi/agent/mcp.json"
+
+      # 如果 Pi MCP 配置不存在，创建一个基础配置
+      if [[ ! -f "$pi_mcp_config" ]]; then
+        ${pkgs.coreutils}/bin/mkdir -p "$HOME/.pi/agent"
+        echo '{}' > "$pi_mcp_config"
+      fi
+
+      # 如果 Claude 配置存在且包含 MCP 服务器配置，则完全替换到 Pi MCP 配置
+      if [[ -f "$conf" ]]; then
+        ${pkgs.jq}/bin/jq --slurpfile claude "$conf" \
+          '.mcpServers = ($claude[0].mcpServers // {})' \
+          "$pi_mcp_config" > "$pi_mcp_config.tmp" && \
+        ${pkgs.coreutils}/bin/mv "$pi_mcp_config.tmp" "$pi_mcp_config"
+      fi
+
       # 将 MCP 配置也替换到 ECA 配置中
       eca_config="$HOME/.config/eca/config.json"
 

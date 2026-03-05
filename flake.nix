@@ -54,6 +54,7 @@
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    k0s-nix.url = "github:zrubing/k0s-nix/main";
 
     rime-3gram = {
       url = "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram";
@@ -115,6 +116,7 @@
       systems.modules.nixos = with inputs; [
         agenix.nixosModules.default
         sops-nix.nixosModules.sops
+        k0s-nix.nixosModules.default
       ];
 
       systems.modules.darwin = with inputs; [ ];
@@ -132,6 +134,7 @@
       channels-config = {
         # Allow unfree packages.
         allowUnfree = true;
+        overlays = [ inputs.k0s-nix.overlays.default ];
 
       };
 
