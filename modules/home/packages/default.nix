@@ -72,7 +72,8 @@ in
       pkgs-nix-ai.beads
       pkgs-nix-ai.catnip
       pkgs-nix-ai.opencode
-      pkgs-nix-ai.coding-agent-search
+      (lib.hiPrio pkgs-nix-ai.agent-browser)
+      #pkgs-nix-ai.coding-agent-search
       pkgs-nix-ai.gemini-cli
       #pkgs-nix-ai.claude-code-acp
       pkgs-nix-ai.openspec
