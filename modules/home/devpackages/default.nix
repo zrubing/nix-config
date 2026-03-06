@@ -59,6 +59,8 @@ in
         # -*- Data & Configuration Languages -*-#
         [
 
+          trickle
+          pv
           woodpecker-cli
 
           kubeseal

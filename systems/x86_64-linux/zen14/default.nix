@@ -267,7 +267,7 @@
     "10.144.144.4:30000"
   ];
 
-  # 让 zen14 作为目标集群的 k0s worker（build/proxy 角色）
+  # 让 zen14 作为集群的 k0s worker（build/proxy 角色）
   system.activationScripts.k0sWritableEtc = {
     deps = [ "specialfs" ];
     text = ''
