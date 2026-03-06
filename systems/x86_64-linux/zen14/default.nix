@@ -8,7 +8,11 @@
   ...
 }:
 {
-  snowfallorg.users.jojo = { };
+  snowfallorg.users.jojo = {
+    home.config = {
+      home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
+    };
+  };
   snowfallorg.users.hiar = { };
 
   time.timeZone = "Asia/Shanghai";
@@ -295,7 +299,7 @@
     # 首次 join 需要提前放置 token 文件到 /var/lib/k0s/k0stoken
     tokenFile = "/var/lib/k0s/k0stoken";
     dataDir = "/var/lib/k0s";
-    extraArgs = ''--kubelet-extra-args="--node-ip=10.144.200.2 --node-labels=wants-role/build=,wants-role/proxy="'';
+    extraArgs = ''--kubelet-extra-args="--node-ip=10.144.200.2 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=zen14:NoSchedule"'';
     spec.api.address = "0.0.0.0";
     spec.workerProfiles = [{
       name = "default";
