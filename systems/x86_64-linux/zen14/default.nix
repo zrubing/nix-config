@@ -118,13 +118,12 @@
     '';
   };
 
-  # EasyTier 的 tun0 仅承载 10.144.200.0/24 链路，
-  # 对 10.144.144.1:6443 走本机 OUTPUT DNAT 到 ali 中转入口。
-  systemd.services.k0s-apiserver-via-ali-relay = {
-    description = "Redirect k0s apiserver traffic to ali relay endpoint";
+  # 清理历史遗留的 zen14 -> ali apiserver relay DNAT，避免 kubelet 连错 6443。
+  systemd.services.cleanup-k0s-apiserver-via-ali-relay = {
+    description = "Cleanup legacy zen14 k0s apiserver relay nft table";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" "easytier-net-zen14.service" ];
-    wants = [ "network-online.target" "easytier-net-zen14.service" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -132,14 +131,6 @@
     path = with pkgs; [ nftables ];
     script = ''
       nft delete table ip zen14_k0s_relay 2>/dev/null || true
-      nft -f - <<'EOF'
-      table ip zen14_k0s_relay {
-        chain output {
-          type nat hook output priority dstnat; policy accept;
-          ip daddr 10.144.144.1 tcp dport 6443 dnat to 10.144.200.1:6443
-        }
-      }
-      EOF
     '';
   };
 
