@@ -163,6 +163,8 @@ in
         ])
 
         (lib.optionals cfg.infra.enable [
+          pnpm
+
           woodpecker-cli
           kubeseal
           k9s
