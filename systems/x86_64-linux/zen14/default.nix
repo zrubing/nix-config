@@ -282,6 +282,13 @@
     "k0sWritableEtc"
   ];
   environment.etc."k0s/k0s.yaml".enable = lib.mkForce false;
+  environment.etc."k0s/containerd.d/mirrors.toml".text = ''
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."zot.zot.svc.cluster.local:5000"]
+      endpoint = ["http://10.144.144.4:30000", "http://10.144.144.1:30000"]
+
+    [plugins."io.containerd.grpc.v1.cri".registry.configs."zot.zot.svc.cluster.local:5000".tls]
+      insecure_skip_verify = true
+  '';
 
   services.k0s = {
     enable = true;
