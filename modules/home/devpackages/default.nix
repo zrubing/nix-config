@@ -22,6 +22,84 @@ in
       description = "Enable development package set.";
     };
 
+    cli.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable general CLI development and troubleshooting tools.";
+    };
+
+    infra.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable infrastructure / cloud / container related tools.";
+    };
+
+    nix.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable Nix development tools.";
+    };
+
+    doc.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable documentation and text processing tools.";
+    };
+
+    cCpp.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable C/C++ toolchain.";
+    };
+
+    python.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable Python development toolchain and libraries.";
+    };
+
+    rust.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable Rust development toolchain.";
+    };
+
+    go.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable Go development toolchain.";
+    };
+
+    java.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable Java development toolchain.";
+    };
+
+    shell.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable shell scripting tools.";
+    };
+
+    web.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable Node.js / TypeScript / web development tools.";
+    };
+
+    lisp.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable Lisp-family language tools.";
+    };
+
+    miscLang.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable assorted language-specific formatters / tools.";
+    };
+
     gui.enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -48,38 +126,24 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    xdg.configFile."lsp-bridge-lib/typescript-lib" = {
-      source = "${pkgs.nodePackages.typescript}/lib/node_modules/typescript/lib";
-      recursive = true;
-    };
+    xdg.configFile = lib.mkMerge [
+      (lib.mkIf cfg.web.enable {
+        "lsp-bridge-lib/typescript-lib" = {
+          source = "${pkgs.nodePackages.typescript}/lib/node_modules/typescript/lib";
+          recursive = true;
+        };
+      })
+    ];
 
     home.packages =
       with pkgs;
-      (
-        # -*- Data & Configuration Languages -*-#
-        [
-
+      lib.flatten [
+        (lib.optionals cfg.cli.enable [
           trickle
           pv
-          woodpecker-cli
-
-          kubeseal
-          k9s
-
           llm
-
-          kubectl
-          kubie
-
-
           aichat
           btop
-          telepresence2
-
-          pkgs.${namespace}.tramp-rpc-server
-
-          pkgs.${namespace}.pexpect-cli
-          pkgs.${namespace}.claude-md
           pueue
           dnsutils
           binutils
@@ -87,198 +151,156 @@ in
           sysdig
           bcc
           ast-grep
-
           pkg-config
           unzip
-
-          # inputs.codex-nix.packages.${pkgs.stdenv.hostPlatform.system}.default
-
-          #pkgs.${namespace}.sunloginclient
-          uv
-          # for emacs dirvish
-          vips
-
-          nix-direnv
-          direnv
-          #-- nix
-          nixfmt-rfc-style
-          # rnix-lsp
-          # nixd
-          statix # Lints and suggestions for the nix programming language
-          deadnix # Find and remove unused code in .nix source files
-          alejandra # Nix Code Formatter
-
-          #-- nickel lang
-          nickel
-
-          #-- json like
-          # terraform  # install via brew on macOS
-          jsonnet
-          actionlint # GitHub Actions linter
-
-          #-- dockerfile
-          hadolint # Dockerfile linter
-
-          #-- markdown
-          glow # markdown previewer
-          pandoc # document converter
-          pkgs-unstable.hugo # static site generator
-
           universal-ctags
-
-          #-- sql
-          sqlfluff
-
-          #-- protocol buffer
-          buf # linting and formatting
-        ]
-        ++
-          #-*- General Purpose Languages -*-#
-          [
-            #-- c/c++
-            cmake
-            gnumake
-            checkmake
-            # c/c++ compiler, required by nvim-treesitter!
-            gcc
-            gdb
-            # c/c++ tools with clang-tools, the unwrapped version won't
-            # add alias like `cc` and `c++`, so that it won't conflict with gcc
-            # llvmPackages.clang-unwrapped
-            clang-tools
-            lldb
-
-            #-- python
-            pkgs-unstable.ty
-
-            # for cliphist image
-            xdg-utils
-
-            (python312.withPackages (
-              ps: with ps; [
-                paddleocr
-                pipdeptree
-
-                ruff
-
-                black # python formatter
-                # debugpy
-
-                # my commonly used python packages
-                jupyter
-                ipython
-                pandas
-                requests
-                pyquery
-                pyyaml
-                boto3
-
-                ## emacs's lsp-bridge dependenciesge
-                epc
-                orjson
-                sexpdata
-                six
-                setuptools
-                paramiko
-                rapidfuzz
-                watchdog
-                packaging
-
-                ## emacs emigo dependencies
-                networkx
-                pygments
-                #grep-ast
-                diskcache
-                tiktoken
-                tqdm
-                gitignore-parser
-                scipy
-                litellm
-
-              ] ++ lib.optionals cfg.treeSitter.enable [
-                pkgs.${namespace}.grep-ast
-                pkgs.${namespace}.tree-sitter-language-pack
-                pkgs.${namespace}.tree-sitter-c-sharp
-                pkgs.${namespace}.tree-sitter-embedded-template
-                pkgs.${namespace}.tree-sitter-yaml
-                tree-sitter
-              ]
-            ))
-
-            #-- rust
-            # we'd better use the rust-overlays for rust development
-            pkgs-unstable.rustc
-            pkgs-unstable.rustup
-            #pkgs-unstable.rust-analyzer
-            #pkgs-unstable.cargo # rust package manager
-            #pkgs-unstable.rustfmt
-            #pkgs-unstable.clippy # rust linter
-
-            #-- golang
-            go
-            gomodifytags
-            iferr # generate error handling code for go
-            impl # generate function implementation for go
-            gotools # contains tools like: godoc, goimports, etc.
-            delve # go debugger
-
-            # -- java
-            # jdk24
-            javaPackages.compiler.temurin-bin.jdk-25
-            leiningen
-
-            google-java-format
-
-            gradle
-            maven
-            spring-boot-cli
-            # pkgs.${namespace}.java-debug #依赖总是不固定，先注释
-            # pkgs.${namespace}.claude-code-proxy
-
-            google-antigravity
-
-            # php
-
-            #-- lua
-            stylua
-
-            #-- bash
-            shellcheck
-            shfmt
-            #bitcoin
-          ]
-        #-*- Web Development -*-#
-        ++ [
-          nodePackages.nodejs
-          nodePackages.typescript
-        ]
-        # -*- Lisp like Languages -*-#
-        ++ [
-          guile
-          racket-minimal
-          fnlfmt # fennel
-        ]
-        ++ [
-          proselint # English prose linter
-
-          #-- verilog / systemverilog
-          verible
-
-          #-- Optional Requirements:
-          # nodePackages.prettier # common code formatter - now provided by prettier module
-
+          proselint
           fzf
-          gdu # disk usage analyzer, required by AstroNvim
+          gdu
           (ripgrep.override {
             withPCRE2 = true;
-          }) # RECURSIVELY SEARCHES DIRECTORIES FOR A REGEX PATTERN
-        ]
-        ++ lib.optionals cfg.vscodeTools.enable [
+          })
+        ])
+
+        (lib.optionals cfg.infra.enable [
+          woodpecker-cli
+          kubeseal
+          k9s
+          kubectl
+          kubie
+          telepresence2
+          pkgs.${namespace}.tramp-rpc-server
+          pkgs.${namespace}.pexpect-cli
+          pkgs.${namespace}.claude-md
+          xdg-utils
+          vips
+          actionlint
+          hadolint
+          sqlfluff
+          buf
+        ])
+
+        (lib.optionals cfg.nix.enable [
+          nix-direnv
+          direnv
+          nixfmt-rfc-style
+          statix
+          deadnix
+          alejandra
+          nickel
+          jsonnet
+        ])
+
+        (lib.optionals cfg.doc.enable [
+          glow
+          pandoc
+          pkgs-unstable.hugo
+        ])
+
+        (lib.optionals cfg.cCpp.enable [
+          cmake
+          gnumake
+          checkmake
+          gcc
+          gdb
+          clang-tools
+          lldb
+        ])
+
+        (lib.optionals cfg.python.enable [
+          pkgs-unstable.ty
+          (python312.withPackages (
+            ps: with ps; [
+              paddleocr
+              pipdeptree
+              ruff
+              black
+              jupyter
+              ipython
+              pandas
+              requests
+              pyquery
+              pyyaml
+              boto3
+              epc
+              orjson
+              sexpdata
+              six
+              setuptools
+              paramiko
+              rapidfuzz
+              watchdog
+              packaging
+              networkx
+              pygments
+              diskcache
+              tiktoken
+              tqdm
+              gitignore-parser
+              scipy
+              litellm
+            ] ++ lib.optionals cfg.treeSitter.enable [
+              pkgs.${namespace}.grep-ast
+              pkgs.${namespace}.tree-sitter-language-pack
+              pkgs.${namespace}.tree-sitter-c-sharp
+              pkgs.${namespace}.tree-sitter-embedded-template
+              pkgs.${namespace}.tree-sitter-yaml
+              tree-sitter
+            ]
+          ))
+        ])
+
+        (lib.optionals cfg.rust.enable [
+          pkgs-unstable.rustc
+          pkgs-unstable.rustup
+        ])
+
+        (lib.optionals cfg.go.enable [
+          go
+          gomodifytags
+          iferr
+          impl
+          gotools
+          delve
+        ])
+
+        (lib.optionals cfg.java.enable [
+          javaPackages.compiler.temurin-bin.jdk-25
+          leiningen
+          google-java-format
+          gradle
+          maven
+          spring-boot-cli
+          google-antigravity
+        ])
+
+        (lib.optionals cfg.shell.enable [
+          stylua
+          shellcheck
+          shfmt
+        ])
+
+        (lib.optionals cfg.web.enable [
+          nodePackages.nodejs
+          nodePackages.typescript
+        ])
+
+        (lib.optionals cfg.lisp.enable [
+          guile
+          racket-minimal
+          fnlfmt
+        ])
+
+        (lib.optionals cfg.miscLang.enable [
+          verible
+        ])
+
+        (lib.optionals cfg.vscodeTools.enable [
           vscode-extensions.vadimcn.vscode-lldb.adapter
-          # HTML/CSS/JSON/ESLint language servers extracted from vscode
           nodePackages.vscode-langservers-extracted
-        ]
-        ++ lib.optionals cfg.languageServers.enable [
+        ])
+
+        (lib.optionals cfg.languageServers.enable [
           copilot-language-server
           nixd
           nil
@@ -303,13 +325,13 @@ in
           nodePackages."@tailwindcss/language-server"
           emmet-ls
           (if pkgs.stdenv.isDarwin then pkgs.emptyDirectory else pkgs-unstable.akkuPackages.scheme-langserver)
-        ]
-        ++ lib.optionals cfg.gui.enable [
+        ])
+
+        (lib.optionals cfg.gui.enable [
           xfce.catfish
           firefox
           pkgs-unstable.google-chrome
-        ]
-      );
-
+        ])
+      ];
   };
 }

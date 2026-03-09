@@ -38,6 +38,8 @@
       extraGroups = [
         "wheel"
         "networkmanager"
+        "docker"
+        "podman"
       ];
       initialPassword = "test";
     };
@@ -63,7 +65,6 @@
         modules.packages.emacsTools.enable = lib.mkForce false;
         modules.packages.ocr.enable = lib.mkForce false;
         ghostty.enable = lib.mkForce false;
-        modules.fuzzel.enable = lib.mkForce false;
         modules.fcitx5.enable = lib.mkForce false;
         programs.wechat-uos.enable = lib.mkForce false;
       };

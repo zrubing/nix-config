@@ -46,6 +46,10 @@ in
           source = "${mysecrets}/public/iZ2ze2lnmogyew9adm2h32Z.pub";
           trust = 5;
         }
+        {
+          source = "${mysecrets}/public/iZj6ceb1vr0baqid5dctyzZ.pub";
+          trust = 5;
+        }
 
       ];
 
