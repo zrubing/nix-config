@@ -14,7 +14,12 @@
     };
   };
   snowfallorg.users.hiar = {
-    home.config = config.${namespace}.home.extraOptions;
+    home.config = lib.mkMerge [
+      config.${namespace}.home.extraOptions
+      {
+        ${namespace}.programs.wechat-uos.enable = true;
+      }
+    ];
   };
 
   time.timeZone = "Asia/Shanghai";
