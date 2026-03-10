@@ -813,11 +813,11 @@
     "pi-guardrails-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1772894171,
-        "narHash": "sha256-070B8GRS/Bd8pUNhEWyvVfGAz7IwYcKDt8eejgn2yRg=",
+        "lastModified": 1773130222,
+        "narHash": "sha256-wK9Qi8VMlRM65GRsVWrr5pTyD+toHzKDtNpSlBYA8D0=",
         "owner": "zrubing",
         "repo": "pi-guardrails",
-        "rev": "ae512a6d5b2e9ccfb4ac163059fa5070226441e4",
+        "rev": "712a2ae0b5150a867414bfcb99049128339dc44a",
         "type": "github"
       },
       "original": {

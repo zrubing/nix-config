@@ -18,7 +18,9 @@ let
   cfg = config.${namespace}.modules.packages;
 in
 let
-  guardrailsPackage = "git:github.com/zrubing/pi-guardrails";
+  flakeLock = builtins.fromJSON (builtins.readFile ../../../flake.lock);
+  guardrailsRev = flakeLock.nodes."pi-guardrails-src".locked.rev;
+  guardrailsPackage = "git:github.com/zrubing/pi-guardrails#${guardrailsRev}";
 in
 {
 

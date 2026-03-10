@@ -15,7 +15,7 @@
     llm-agents.url = "github:numtide/llm-agents.nix";
 
     pi-guardrails-src = {
-      url = "github:zrubing/pi-guardrails";
+      url = "github:zrubing/pi-guardrails?rev=712a2ae0b5150a867414bfcb99049128339dc44a";
       flake = false;
     };
 
