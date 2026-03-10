@@ -14,6 +14,11 @@
 
     llm-agents.url = "github:numtide/llm-agents.nix";
 
+    pi-guardrails-src = {
+      url = "github:zrubing/pi-guardrails";
+      flake = false;
+    };
+
     catppuccin-bat = {
       url = "github:catppuccin/bat";
       flake = false;

@@ -93,20 +93,6 @@ in
         fi
 
 
-        kubectl() {
-            local ctx=$(command kubectl config current-context 2>/dev/null)
-            if [[ "$ctx" =~ "k0s" ]]; then
-                if ! (echo > /dev/tcp/localhost/6443) >/dev/null 2>&1; then
-                    echo "🚀 Detected k0s context, creating SSH tunnel..."
-                    ssh -fN k0s-server
-                    # 给隧道建立留一点响应时间
-                    sleep 0.5
-                fi
-            fi
-            # 4. 调用真实的 kubectl
-            command kubectl "$@"
-        }
-
 
         # Enable bash completion if available
         if ! shopt -oq posix; then

@@ -197,11 +197,11 @@
     "doomemacs": {
       "flake": false,
       "locked": {
-        "lastModified": 1768984347,
-        "narHash": "sha256-VvC4rgAAaFnYLCdcUoz7dTE3kuBNuHIc+GlXOrPCxpg=",
+        "lastModified": 1773029989,
+        "narHash": "sha256-7TaTwmnyRLIxDcdRKFZrXhomqBFgHwr3GSIhNWLJKH4=",
         "owner": "doomemacs",
         "repo": "doomemacs",
-        "rev": "57818a6da90fbef39ff80d62fab2cd319496c3b9",
+        "rev": "dd72eac1971616a6ebe81067cca33b14c148cbcd",
         "type": "github"
       },
       "original": {
@@ -528,11 +528,11 @@
     "mysecrets": {
       "flake": false,
       "locked": {
-        "lastModified": 1772827655,
-        "narHash": "sha256-TN2gLHYBHJPJXh/sKxbaXarFZ1OnfWTZnMkaY6lnIWE=",
+        "lastModified": 1773077395,
+        "narHash": "sha256-WmYwXM7YDjTvA9qeo3itTZ9ub8cpeOTGsGP2DhH6/ew=",
         "ref": "main",
-        "rev": "7a21fa16f66699ccabe6ad293fff85e2980693aa",
-        "revCount": 219,
+        "rev": "8a933eec2afda530c8a1aa490cf20cc863c9ddac",
+        "revCount": 220,
         "type": "git",
         "url": "ssh://git@github.com/zrubing/nix-secrets.git"
       },
@@ -810,6 +810,22 @@
         "type": "github"
       }
     },
+    "pi-guardrails-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1772894171,
+        "narHash": "sha256-070B8GRS/Bd8pUNhEWyvVfGAz7IwYcKDt8eejgn2yRg=",
+        "owner": "zrubing",
+        "repo": "pi-guardrails",
+        "rev": "ae512a6d5b2e9ccfb4ac163059fa5070226441e4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "zrubing",
+        "repo": "pi-guardrails",
+        "type": "github"
+      }
+    },
     "rime-3gram": {
       "flake": false,
       "locked": {
@@ -843,6 +859,7 @@
         "nixpkgs": "nixpkgs_8",
         "nixpkgs-unstable": "nixpkgs-unstable",
         "noctalia": "noctalia",
+        "pi-guardrails-src": "pi-guardrails-src",
         "rime-3gram": "rime-3gram",
         "snowfall-lib": "snowfall-lib",
         "sops-nix": "sops-nix",
