@@ -18,6 +18,15 @@ in
 
     programs.bash = {
       enable = true;
+
+      # For login shells: ensure Maven sees the same JDK as `java`.
+      profileExtra = ''
+        if command -v java >/dev/null 2>&1; then
+          export JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+          export PATH="$JAVA_HOME/bin:$PATH"
+        fi
+      '';
+
       initExtra = ''
         # Add to PATH
 
@@ -29,6 +38,12 @@ in
 
         export PATH="$HOME/bin:$PATH"
         export PATH="$HOME/.local/bin:$PATH"
+
+        # Make Maven follow the same JDK as `java` (so `mvn -v` shows Java 25).
+        if command -v java >/dev/null 2>&1; then
+          export JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+          export PATH="$JAVA_HOME/bin:$PATH"
+        fi
 
         ${lib.optionalString (shellCfg.provider == "GLM") ''
           # 设置 Anthropic 环境变量（读取 SOPS 秘密文件）
