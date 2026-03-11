@@ -33,7 +33,7 @@ in
 {
   home.file = {
     ".claude/CLAUDE.md".source = ./CLAUDE.md;
-    ".claude/settings.json".source = mergedSettings;
+    # ".claude/settings.json".source = mergedSettings;
   };
 
   home.activation = {
