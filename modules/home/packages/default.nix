@@ -26,6 +26,33 @@ in
 
   options.${namespace}.modules.packages = {
     enable = lib.mkEnableOption "packages";
+
+    tools.dev.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable general development toolchain packages.";
+    };
+    tools.ai.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable AI coding and agent toolchain packages.";
+    };
+    tools.network.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable networking and remote access helper packages.";
+    };
+    tools.database.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable database client and management packages.";
+    };
+    tools.office.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable office/document desktop applications.";
+    };
+
     gui.enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -82,12 +109,18 @@ in
       lsof
 
       jujutsu
-
+    ] ++ lib.optionals cfg.emacsTools.enable [
+      pkgs.${namespace}.emacs-lsp-proxy
+    ] ++ lib.optionals cfg.tools.dev.enable [
       conda
+      pkgs-unstable.mise
+      devenv
+      devpod
+      devbox
+    ] ++ lib.optionals cfg.tools.ai.enable [
       ollama-rocm
       # for aider
       python312Packages.playwright
-      mysql84
       pkgs-unstable.tdlib
       #pkgs.${namespace}.aider
       pkgs.aider-chat
@@ -111,16 +144,12 @@ in
       pkgs-nix-ai.openspec
       pkgs-nix-ai.cc-switch-cli
       #pkgs.${namespace}.trojan-go
-      pkgs-unstable.mise
       pkgs-nix-ai.eca
+    ] ++ lib.optionals cfg.tools.network.enable [
       pkgs-unstable.tailscale
       sshuttle
-      devenv
-      devpod
-      devbox
-
-    ] ++ lib.optionals cfg.emacsTools.enable [
-      pkgs.${namespace}.emacs-lsp-proxy
+    ] ++ lib.optionals cfg.tools.database.enable [
+      mysql84
     ] ++ lib.optionals cfg.ocr.enable [
       pkgs.${namespace}.wl-ocr
       tesseract
@@ -131,19 +160,21 @@ in
       satty
       nautilus
       pkgs-unstable.cherry-studio
-      redisinsight
-      mongodb-compass
       feishu
       vscode
       code-cursor
       wireshark-qt
       pkgs-unstable.localsend
-      pkgs-unstable.dbeaver-bin
       sioyek
-      libreoffice
       pkgs-unstable.zed-editor
-      pkgs-unstable.wpsoffice
       libnotify
+    ] ++ lib.optionals cfg.tools.database.enable [
+      redisinsight
+      mongodb-compass
+      pkgs-unstable.dbeaver-bin
+    ] ++ lib.optionals cfg.tools.office.enable [
+      libreoffice
+      pkgs-unstable.wpsoffice
     ]);
 
     programs = {
@@ -155,7 +186,7 @@ in
       };
     };
 
-    xdg.desktopEntries = lib.mkIf cfg.gui.enable {
+    xdg.desktopEntries = lib.mkIf (cfg.gui.enable && cfg.tools.database.enable) {
       # 创建自定义桌面项
       mongodb-compass = {
         name = "MongoDB Compass";
