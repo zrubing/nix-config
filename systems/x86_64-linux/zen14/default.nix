@@ -116,13 +116,28 @@ in
     desktop-programs.enable = false;
 
     restic.enable = true;
+    askpass.enable = true;  # sudo 时弹出 GUI 密码输入
   };
 
   networking.networkmanager.enable = true;
 
   environment.systemPackages = [
     (pkgs.writeShellScriptBin "pi-as-agent" ''
-      exec sudo -u agent ${piBin} "$@"
+      # 保存当前用户的 GUI 相关环境变量
+      _display="$DISPLAY"
+      _wayland="$WAYLAND_DISPLAY"
+      _xauthority="$XAUTHORITY"
+      
+      # 允许 agent 用户访问当前显示
+      ${pkgs.xorg.xhost}/bin/xhost +SI:localuser:agent 2>/dev/null || true
+      
+      # 以 agent 用户身份运行，并传递 GUI 环境变量和 SUDO_ASKPASS
+      exec sudo -u agent \
+        DISPLAY="$_display" \
+        WAYLAND_DISPLAY="$_wayland" \
+        XAUTHORITY="$_xauthority" \
+        SUDO_ASKPASS="/run/current-system/sw/bin/sudo-askpass" \
+        ${piBin} "$@"
     '')
   ];
 
@@ -225,8 +240,9 @@ in
   };
 
 
-  # sudo 免密码
+  # sudo 规则
   security.sudo.extraRules = [
+    # jojo 可以免密码切换到 agent 用户运行 pi
     {
       users = [ "jojo" ];
       runAs = "agent";
@@ -237,12 +253,13 @@ in
         }
       ];
     }
+    # jojo 和 agent 用户执行 sudo 需要密码（使用 SUDO_ASKPASS 弹出 GUI）
     {
-      users = [ "jojo" ];
+      users = [ "jojo" "agent" ];
       commands = [
         {
           command = "ALL";
-          options = [ "NOPASSWD" ];
+          options = [ "SETENV" ];  # 允许继承环境变量（包括 SUDO_ASKPASS）
         }
       ];
     }
