@@ -1,11 +1,15 @@
 {
   config,
+  inputs,
   lib,
   namespace,
   ...
 }:
 let
   cfg = config.${namespace}.networking;
+  mysecrets = inputs.mysecrets;
+  hostName = config.networking.hostName;
+  hostsSecretKey = "networking/extra_hosts/${hostName}";
 in
 {
   options.${namespace}.networking = with lib; {
@@ -16,11 +20,19 @@ in
 
     networking.firewall.enable = false;
 
+    assertions = [
+      {
+        assertion = hostName != null;
+        message = "networking.hostName must be set to load host-specific hosts entries from sops.";
+      }
+    ];
+
+    sops.secrets.${hostsSecretKey} = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+
     networking.extraHosts = ''
-      127.0.0.1 cc-proxy-work-volcengine-kimi.local
-      127.0.0.1 cc-proxy-work-volcengine-deepseek.local
-      127.0.0.1 cc-proxy-self-zhipu-glm.local
-      172.16.6.101 docker.pve.com
+      ${config.sops.placeholder.${hostsSecretKey}}
     '';
 
     # Enable the OpenSSH daemon.
