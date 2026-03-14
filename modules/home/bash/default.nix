@@ -148,6 +148,7 @@ in
         la = "ls -A";
         l = "ls -CF";
         grep = "grep --color=auto";
+        sudo = "sudo -A";  # 默认使用 GUI askpass
       };
 
     };

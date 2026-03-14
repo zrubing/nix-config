@@ -1,120 +1,110 @@
 {
-  "enabled": true,
-  "features": {
-    "policies": true,
-    "permissionGate": true,
-    "structureOnlyRead": true
-  },
-  "policies": {
-    "rules": [
-      {
-        "id": "secret-files",
-        "description": "Files containing secrets",
+    "enabled": true,
+    "features": {
+        "policies": true,
+        "permissionGate": true,
+        "structureOnlyRead": true
+    },
+    "policies": {
+        "rules": [
+            {
+                "id": "secret-files",
+                "description": "Files containing secrets",
+                "patterns": [
+                    {
+                        "pattern": "application-prod**.properties"
+                    },
+                    {
+                        "pattern": "application-test**.properties"
+                    },
+                    {
+                        "pattern": ".env"
+                    },
+                    {
+                        "pattern": ".env.local"
+                    },
+                    {
+                        "pattern": ".env.production"
+                    },
+                    {
+                        "pattern": ".env.prod"
+                    },
+                    {
+                        "pattern": ".dev.vars"
+                    }
+                ],
+                "allowedPatterns": [
+                    {
+                        "pattern": ".env.example"
+                    },
+                    {
+                        "pattern": ".env.sample"
+                    },
+                    {
+                        "pattern": ".env.test"
+                    },
+                    {
+                        "pattern": "*.example.env"
+                    },
+                    {
+                        "pattern": "*.sample.env"
+                    },
+                    {
+                        "pattern": "*.test.env"
+                    },
+                    {
+                        "pattern": "application-sample**.properties"
+                    }
+                ],
+                "protection": "noAccess",
+                "onlyIfExists": true
+            }
+        ]
+    },
+    "permissionGate": {
         "patterns": [
-          {
-            "pattern": ".env"
-          },
-          {
-            "pattern": ".env.local"
-          },
-          {
-            "pattern": ".env.production"
-          },
-          {
-            "pattern": ".env.prod"
-          },
-          {
-            "pattern": ".dev.vars"
-          }
+            {
+                "pattern": "rm -rf",
+                "description": "recursive force delete",
+                "regex": true
+            },
+            {
+                "pattern": "sudo",
+                "description": "superuser command",
+                "regex": true
+            },
+            {
+                "pattern": "dd if=",
+                "description": "disk write operation",
+                "regex": true
+            },
+            {
+                "pattern": "mkfs.",
+                "description": "filesystem format",
+                "regex": true
+            },
+            {
+                "pattern": "chmod -R 777",
+                "description": "insecure recursive permissions",
+                "regex": true
+            },
+            {
+                "pattern": "chown -R",
+                "description": "recursive ownership change",
+                "regex": true
+            }
         ],
-        "allowedPatterns": [
-          {
-            "pattern": ".env.example"
-          },
-          {
-            "pattern": ".env.sample"
-          },
-          {
-            "pattern": ".env.test"
-          },
-          {
-            "pattern": "*.example.env"
-          },
-          {
-            "pattern": "*.sample.env"
-          },
-          {
-            "pattern": "*.test.env"
-          }
-        ],
-        "protection": "noAccess",
-        "onlyIfExists": true
-      }
-    ]
-  },
-  "permissionGate": {
-    "patterns": [
-      {
-        "pattern": "rm -rf",
-        "description": "recursive force delete",
-        "regex": true
-      },
-      {
-        "pattern": "sudo",
-        "description": "superuser command",
-        "regex": true
-      },
-      {
-        "pattern": "dd if=",
-        "description": "disk write operation",
-        "regex": true
-      },
-      {
-        "pattern": "mkfs.",
-        "description": "filesystem format",
-        "regex": true
-      },
-      {
-        "pattern": "chmod -R 777",
-        "description": "insecure recursive permissions",
-        "regex": true
-      },
-      {
-        "pattern": "chown -R",
-        "description": "recursive ownership change",
-        "regex": true
-      }
-    ],
-    "customPatterns": [],
-    "requireConfirmation": true,
-    "allowedPatterns": [],
-    "autoDenyPatterns": [],
-    "explainCommands": false,
-    "explainModel": null,
-    "explainTimeout": 5000
-  },
-  "structureOnlyRead": {
-    "patterns": [
-      {
-        "pattern": "*.yaml"
-      },
-      {
-        "pattern": "*.yml"
-      },
-      {
-        "pattern": "*.properties"
-      },
-      {
-        "pattern": "**/application*.yaml"
-      },
-      {
-        "pattern": "**/application*.properties"
-      },
-      {
-        "pattern": "**/values*.yaml"
-      }
-    ],
-    "redactValue": "[REDACTED]"
-  },
-  "version": "0.8.0-20260228"
+        "customPatterns": [],
+        "requireConfirmation": true,
+        "allowedPatterns": [],
+        "autoDenyPatterns": [],
+        "explainCommands": false,
+        "explainModel": null,
+        "explainTimeout": 5000
+    },
+    "structureOnlyRead": {
+        "patterns": [],
+        "redactValue": "[REDACTED]"
+    },
+    "version": "0.8.0-20260228"
 }
