@@ -47,7 +47,28 @@ in
         # };
 
         outputs = {
+          # ── 多屏配置（mixed DPI workaround）──
+          # xwayland-satellite 0.8 会取最低 scale（1.0）统一报告给 Xwayland，
+          # 所以这里主要确保 niri 端的逻辑尺寸和位置正确。
+          "eDP-1" = {
+            scale = 1.75;
+            mode = {
+              width = 2880;
+              height = 1800;
+              refresh = 120.003;
+            };
+            position = {
+              x = 0;
+              y = 0;
+            };
+          };
           "HDMI-A-1" = {
+            scale = 1.0;
+            mode = {
+              width = 1920;
+              height = 1080;
+              refresh = 60.0;
+            };
             position = {
               x = -1920;
               y = 0;
@@ -122,6 +143,20 @@ in
 
         # 窗口规则：自动打开到特定工作区
         window-rules = [
+          # ── X11 应用锁定到主屏（eDP-1）──
+          # xwayland-satellite 0.8 在混合 DPI 下，X11 应用在低 DPI 屏上容易偏大/偏小，
+          # 把常见 X11 应用锁定到高 DPI 主屏可获得最佳体验。
+          # 通过 is-window-rule 无法直接匹配 X11，这里按已知的 X11 app-id 来锁定。
+          {
+            matches = [
+              { app-id = "^DBeaver$"; }
+              { app-id = "^org\\.eclipse\\.platform$"; }
+              { app-id = "^jetbrains-"; }
+              { app-id = "^sun-awt-X11"; }
+            ];
+            open-on-workspace = "db";
+            open-on-output = "eDP-1";
+          }
           {
             matches = [
               { app-id = "^[Bb]rave-browser$"; }
@@ -140,13 +175,6 @@ in
               { app-id = "^com\\.mitchellh\\.ghostty$"; }
             ];
             open-on-workspace = "code";
-          }
-          {
-            matches = [
-              { app-id = "^DBeaver$"; }
-              { app-id = "^org\\.eclipse\\.platform$"; }
-            ];
-            open-on-workspace = "db";
           }
           {
             matches = [

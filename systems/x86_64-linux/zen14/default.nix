@@ -9,6 +9,7 @@
 }:
 let
   piBin = "${inputs.llm-agents.packages.${system}.pi}/bin/pi";
+  mysecrets = inputs.mysecrets;
 in
 {
   snowfallorg.users.jojo = {
@@ -97,8 +98,40 @@ in
 
   modules.secrets.desktop.enable = true;
 
+  sops.secrets."proxysql/admin_password" = {
+    sopsFile = "${mysecrets}/secrets/env.yaml";
+  };
+  sops.secrets."proxysql/monitor_password" = {
+    sopsFile = "${mysecrets}/secrets/env.yaml";
+  };
+
+  sops.templates."proxysql.cnf" = {
+    owner = "proxysql";
+    group = "proxysql";
+    mode = "0400";
+    content = ''
+      datadir="/var/lib/proxysql"
+      errorlog="/var/lib/proxysql/proxysql.log"
+
+      admin_variables={
+        admin_credentials="admin:${config.sops.placeholder."proxysql/admin_password"}"
+        mysql_ifaces="127.0.0.1:6032"
+      }
+
+      mysql_variables={
+        interfaces="127.0.0.1:6033"
+        monitor_username="monitor"
+        monitor_password="${config.sops.placeholder."proxysql/monitor_password"}"
+      }
+    '';
+  };
+
   ${namespace} = {
     user.name = "jojo";
+    proxysql = {
+      enable = true;
+      configFile = config.sops.templates."proxysql.cnf".path;
+    };
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-zen14.age";
     #builder.enable = true;

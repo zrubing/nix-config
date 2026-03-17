@@ -8,6 +8,14 @@
 
 let
   cfg = config.xwayland;
+
+  # ── 多屏 X11 DPI 折中值 ──
+  # 主屏 eDP-1 scale=1.75 → 理想 dpi=168
+  # 副屏 HDMI-A-1 scale=1.0 → 理想 dpi=96
+  # 折中取 144（1.5x），两边都可接受
+  # 可按需调整：168（偏向主屏）/ 96（偏向副屏）
+  xftDpi = 144;
+  cursorSize = 32;
 in
 {
 
@@ -45,24 +53,28 @@ in
   config = {
     xwayland.x-resources = rec {
       text = ''
-        Xft.dpi: ${toString (builtins.ceil (96 * 2))}
-        Xcursor.size: ${toString 24}
+        Xft.dpi: ${toString xftDpi}
+        Xcursor.size: ${toString cursorSize}
        '';
       source = lib.mkIf (text != null) (
         lib.mkDerivedConfig options.xwayland.x-resources.text (pkgs.writeText ".Xresources")
       );
     };
     # 设置系统级的 X resources
+    #
+    # 多屏 DPI 折中策略（2026-03）：
+    # - eDP-1: 2880x1800, scale 1.75 → X11 app 需要 dpi ≈ 96 × 1.75 = 168 才能在此屏正常显示
+    # - HDMI-A-1: 1920x1080, scale 1.0 → X11 app 需要 dpi = 96
+    # - xwayland-satellite 0.8 统一使用最低 scale（1.0），所以 X11 像素在 HDMI 上 1:1 映射，
+    #   在 eDP 上被 niri 按 1.75x 缩放
+    # - 设为 144（1.5x）是折中值：HDMI 上略大但可用，eDP 上 144/1.75 ≈ 82 也还行
+    # - 如果主要在 eDP 上用 X11 程序，可以改成 168；主要在 HDMI 上用则改成 96
     xresources.properties = {
-      # --- 关键设置 ---
-      # 从 192 (2x 缩放) 开始尝试
-      "Xft.dpi" = 192;
-
-      # --- 其他推荐的字体相关设置 (可选但建议) ---
-      "Xft.antialias" = true; # 开启抗锯齿
-      "Xft.hinting" = true; # 开启微调
-      "Xft.hintstyle" = "hintslight"; # 微调风格 (可选值: hintnone, hintslight, hintmedium, hintfull)
-      "Xft.rgba" = "rgb"; # 子像素渲染顺序 (通常是 rgb, 根据你的显示器可能不同)
+      "Xft.dpi" = xftDpi;
+      "Xft.antialias" = true;
+      "Xft.hinting" = true;
+      "Xft.hintstyle" = "hintslight";
+      "Xft.rgba" = "rgb";
     };
 
   };

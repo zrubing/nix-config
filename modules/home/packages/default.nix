@@ -117,6 +117,7 @@ in
       devenv
       devpod
       devbox
+      mprocs
     ] ++ lib.optionals cfg.tools.ai.enable [
       ollama-rocm
       # for aider
