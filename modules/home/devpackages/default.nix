@@ -332,6 +332,7 @@ in
         (lib.optionals cfg.gui.enable [
           xfce.catfish
           firefox
+          obs-studio
           pkgs-unstable.google-chrome
         ])
       ];

@@ -201,6 +201,8 @@ in
   systemd.tmpfiles.rules = [
     "d /etc/k0s 0755 root root -"
     "d /opt/local-path-provisioner 0777 root root -"
+    "d /opt/local-path-provisioner/woodpecker-cache 0777 root root -"
+    "d /opt/local-path-provisioner/woodpecker-cache/buildkit-cache 0777 root root -"
     "d /var/lib/pi-shared 0750 root agent -"
     "d /var/lib/pi-shared/agent 0750 root agent -"
     "d /var/lib/agent/.pi 0750 agent agent -"
@@ -209,6 +211,47 @@ in
     "L+ /var/lib/agent/.pi/agent/extensions - - - - /var/lib/pi-shared/agent/extensions"
     "L+ /var/lib/agent/.pi/agent/models.json - - - - /var/lib/pi-shared/agent/models.json"
   ];
+
+  systemd.services.woodpecker-buildkit-cache-gc = {
+    description = "GC old Woodpecker BuildKit local cache";
+    wantedBy = [ "multi-user.target" ];
+    path = with pkgs; [ coreutils findutils util-linux gawk ];
+    serviceConfig = {
+      Type = "oneshot";
+    };
+    script = ''
+      set -euo pipefail
+
+      cache_dir="/opt/local-path-provisioner/woodpecker-cache/buildkit-cache"
+      retention_days=7
+      high_watermark=85
+
+      if [ ! -d "$cache_dir" ]; then
+        echo "cache dir not found: $cache_dir, skip"
+        exit 0
+      fi
+
+      chmod 0777 "$cache_dir" || true
+
+      echo "gc old buildkit cache files older than $retention_days days"
+      find "$cache_dir" -mindepth 1 -mtime +"$retention_days" -print -delete || true
+
+      usage="$(df -P /opt/local-path-provisioner | awk 'NR==2{gsub("%","",$5); print $5}')"
+      if [ "''${usage:-0}" -ge "$high_watermark" ]; then
+        echo "disk usage ''${usage}% >= ''${high_watermark}%, wipe buildkit cache"
+        find "$cache_dir" -mindepth 1 -print -delete || true
+      fi
+    '';
+  };
+
+  systemd.timers.woodpecker-buildkit-cache-gc = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "daily";
+      RandomizedDelaySec = "30m";
+      Persistent = true;
+    };
+  };
 
   system.activationScripts.agentPiSharedConfig = {
     deps = [ "users" "groups" ];
