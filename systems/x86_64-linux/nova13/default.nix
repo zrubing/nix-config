@@ -143,6 +143,8 @@ in
     "d /home/hermes-agent/.hermes 0750 hermes-agent users -"
     "d /home/hermes-agent/.hermes/logs 0750 hermes-agent users -"
     "f /home/hermes-agent/.hermes/.env 0640 hermes-agent users -"
+    "d /var/log/hermes-gateway-hermes-agent 0700 hermes-agent users -"
+    "f /var/log/hermes-gateway-hermes-agent/gateway.log 0600 hermes-agent users -"
   ];
 
   systemd.services.hermes-gateway-hermes-agent = {
@@ -163,8 +165,25 @@ in
       ExecStart = "${hermesPackage}/bin/hermes gateway run";
       Restart = "always";
       RestartSec = 5;
+      UMask = "0077";
+      # Write logs to a dedicated file so hermes-agent can read without broad journal permissions.
+      StandardOutput = "append:/var/log/hermes-gateway-hermes-agent/gateway.log";
+      StandardError = "append:/var/log/hermes-gateway-hermes-agent/gateway.log";
     };
   };
+
+  security.polkit.extraConfig = ''
+    polkit.addRule(function(action, subject) {
+      if (
+        subject.user == "hermes-agent" &&
+        action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "hermes-gateway-hermes-agent.service" &&
+        ["start", "stop", "restart"].indexOf(action.lookup("verb")) >= 0
+      ) {
+        return polkit.Result.YES;
+      }
+    });
+  '';
 
   networking.networkmanager.enable = true;
 
