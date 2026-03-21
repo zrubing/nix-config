@@ -14,6 +14,8 @@ let
     config.allowUnfree = true;
   };
   mystuff = pkgs.writeShellScriptBin "echo-secret" ''
+    set -euo pipefail
+
     ${pkgs.coreutils}/bin/cat ${config.age.secrets.authinfo.path} > /home/${username}/.authinfo
     ${pkgs.coreutils}/bin/chmod 0600 /home/${username}/.authinfo
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.config/rclone
@@ -33,6 +35,7 @@ let
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.codex
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."codex/auth.json".path} > /home/${username}/.codex/auth.json
 
+    ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.claude-code-router
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."ccr.config.json".path} > /home/${username}/.claude-code-router/config.json
   '';
 in
@@ -67,6 +70,7 @@ in
     systemd.user.services."agenix-echo-secret" = {
       Unit = {
         Description = "agenix in home";
+        Requires = [ "agenix.service" ];
         After = [ "agenix.service" ];
       };
       Service = {
