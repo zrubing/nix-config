@@ -98,10 +98,31 @@ in
 
   modules.secrets.desktop.enable = true;
 
+  sops.secrets."proxysql/admin_username" = {
+    sopsFile = "${mysecrets}/secrets/env.yaml";
+  };
   sops.secrets."proxysql/admin_password" = {
     sopsFile = "${mysecrets}/secrets/env.yaml";
   };
+  sops.secrets."proxysql/monitor_username" = {
+    sopsFile = "${mysecrets}/secrets/env.yaml";
+  };
   sops.secrets."proxysql/monitor_password" = {
+    sopsFile = "${mysecrets}/secrets/env.yaml";
+  };
+  sops.secrets."proxysql/frontend_username" = {
+    sopsFile = "${mysecrets}/secrets/env.yaml";
+  };
+  sops.secrets."proxysql/frontend_password" = {
+    sopsFile = "${mysecrets}/secrets/env.yaml";
+  };
+  sops.secrets."proxysql/backend_username" = {
+    sopsFile = "${mysecrets}/secrets/env.yaml";
+  };
+  sops.secrets."proxysql/backend_password" = {
+    sopsFile = "${mysecrets}/secrets/env.yaml";
+  };
+  sops.secrets."proxysql/backend_address" = {
     sopsFile = "${mysecrets}/secrets/env.yaml";
   };
 
@@ -114,15 +135,39 @@ in
       errorlog="/var/lib/proxysql/proxysql.log"
 
       admin_variables={
-        admin_credentials="admin:${config.sops.placeholder."proxysql/admin_password"}"
+        admin_credentials="${config.sops.placeholder."proxysql/admin_username"}:${config.sops.placeholder."proxysql/admin_password"}"
         mysql_ifaces="127.0.0.1:6032"
       }
 
       mysql_variables={
         interfaces="127.0.0.1:6033"
-        monitor_username="monitor"
+        monitor_username="${config.sops.placeholder."proxysql/monitor_username"}"
         monitor_password="${config.sops.placeholder."proxysql/monitor_password"}"
       }
+
+      mysql_servers=(
+        { address="${config.sops.placeholder."proxysql/backend_address"}" port=3306 hostgroup=10 }
+      )
+
+      # 前后端账号分离：客户端与后端 MySQL 可使用不同凭据。
+      mysql_users=(
+        {
+          username="${config.sops.placeholder."proxysql/frontend_username"}"
+          password="${config.sops.placeholder."proxysql/frontend_password"}"
+          default_hostgroup=10
+          active=true
+          frontend=true
+          backend=false
+        },
+        {
+          username="${config.sops.placeholder."proxysql/backend_username"}"
+          password="${config.sops.placeholder."proxysql/backend_password"}"
+          default_hostgroup=10
+          active=true
+          frontend=false
+          backend=true
+        }
+      )
     '';
   };
 
@@ -153,6 +198,9 @@ in
   };
 
   networking.networkmanager.enable = true;
+  networking.hosts = {
+    "127.0.0.1" = [ "redis.test.local" ];
+  };
 
   environment.systemPackages = [
     (pkgs.writeShellScriptBin "pi-as-agent" ''

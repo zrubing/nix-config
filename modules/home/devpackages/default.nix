@@ -139,6 +139,7 @@ in
       with pkgs;
       lib.flatten [
         (lib.optionals cfg.cli.enable [
+          uv
           trickle
           pv
           llm

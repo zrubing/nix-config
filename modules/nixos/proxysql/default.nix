@@ -523,9 +523,11 @@ in
           CapabilityBoundingSet = [ "CAP_SETGID" "CAP_SETUID" "CAP_SYS_RESOURCE" ];
           RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" "AF_ALG" ];
           ProtectSystem = "full";
-          ReadWritePaths = [ cfg.dataDir ];
+          # Allow missing path during namespace setup; preStart creates it before proxysql starts.
+          ReadWritePaths = [ "-${cfg.dataDir}" ];
           PrivateDevices = true;
-          WorkingDirectory = cfg.dataDir;
+          # Keep preStart runnable on first boot even if dataDir is not created yet.
+          WorkingDirectory = "/";
         };
       };
     }
