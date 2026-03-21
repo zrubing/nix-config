@@ -92,6 +92,27 @@
 
   # };
 
+  # 合盖不休眠，适合合盖外接屏幕或后台持续任务。
+  services.logind.settings.Login = {
+    HandleLidSwitch = "ignore";
+    HandleLidSwitchExternalPower = "ignore";
+    HandleLidSwitchDocked = "ignore";
+  };
+
+  # 启用电源策略并默认切到 performance，让散热风扇更积极介入。
+  services.power-profiles-daemon.enable = true;
+  services.upower.enable = true;
+  systemd.services.default-performance-profile = {
+    description = "Set default power profile to performance";
+    wants = [ "power-profiles-daemon.service" ];
+    after = [ "power-profiles-daemon.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig.Type = "oneshot";
+    script = ''
+      ${pkgs.power-profiles-daemon}/bin/powerprofilesctl set performance || true
+    '';
+  };
+
   networking.networkmanager.enable = true;
 
 }
