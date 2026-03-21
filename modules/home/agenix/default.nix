@@ -16,6 +16,9 @@ let
   mystuff = pkgs.writeShellScriptBin "echo-secret" ''
     set -euo pipefail
 
+    XDG_RUNTIME_DIR="''${XDG_RUNTIME_DIR:-/run/user/$(${pkgs.coreutils}/bin/id -u)}"
+    export XDG_RUNTIME_DIR
+
     ${pkgs.coreutils}/bin/cat ${config.age.secrets.authinfo.path} > /home/${username}/.authinfo
     ${pkgs.coreutils}/bin/chmod 0600 /home/${username}/.authinfo
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.config/rclone
@@ -35,8 +38,10 @@ let
     ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.codex
     ${pkgs.coreutils}/bin/cat ${config.age.secrets."codex/auth.json".path} > /home/${username}/.codex/auth.json
 
-    ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.claude-code-router
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets."ccr.config.json".path} > /home/${username}/.claude-code-router/config.json
+    if [ -r ${config.age.secrets."ccr.config.json".path} ]; then
+      ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.claude-code-router
+      ${pkgs.coreutils}/bin/cat ${config.age.secrets."ccr.config.json".path} > /home/${username}/.claude-code-router/config.json
+    fi
   '';
 in
 {
