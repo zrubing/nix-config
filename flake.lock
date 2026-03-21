@@ -853,7 +853,7 @@
     "rime-3gram": {
       "flake": false,
       "locked": {
-        "narHash": "sha256-Vqg+fs9d++ZY3tKXGgZZX6iUsykLPyJrXmlrmyeF5ws=",
+        "narHash": "sha256-I9a0VLH9ywko/mm3YRPft/ePz8aErN+NW+yU7YTNrKY=",
         "type": "file",
         "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
       },
