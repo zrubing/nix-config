@@ -9,6 +9,8 @@
 }:
 let
   hermesPackage = inputs.llm-agents.packages.${system}.hermes-agent;
+  codexPackage = inputs.llm-agents.packages.${system}.codex;
+  piPackage = inputs.llm-agents.packages.${system}.pi;
 in
 {
   snowfallorg.users.jojo = { };
@@ -137,12 +139,16 @@ in
 
   environment.systemPackages = [
     hermesPackage
+    codexPackage
+    piPackage
   ];
 
   systemd.tmpfiles.rules = [
     "d /home/hermes-agent/.hermes 0750 hermes-agent users -"
     "d /home/hermes-agent/.hermes/logs 0750 hermes-agent users -"
     "f /home/hermes-agent/.hermes/.env 0640 hermes-agent users -"
+    "d /home/hermes-agent/.codex 0700 hermes-agent users -"
+    "d /home/hermes-agent/.pi 0700 hermes-agent users -"
     "d /var/log/hermes-gateway-hermes-agent 0700 hermes-agent users -"
     "f /var/log/hermes-gateway-hermes-agent/gateway.log 0600 hermes-agent users -"
   ];
@@ -152,6 +158,10 @@ in
     wantedBy = [ "multi-user.target" ];
     wants = [ "network-online.target" ];
     after = [ "network-online.target" ];
+    path = [
+      codexPackage
+      piPackage
+    ];
     serviceConfig = {
       Type = "simple";
       User = "hermes-agent";
