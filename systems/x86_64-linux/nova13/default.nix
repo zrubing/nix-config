@@ -45,6 +45,17 @@
       ];
       initialPassword = "test";
     };
+
+    "hermes-agent" = {
+      isNormalUser = true;
+      group = "users";
+      extraGroups = [
+        "networkmanager"
+        "docker"
+        "podman"
+      ];
+      initialPassword = "test";
+    };
   };
 
   ${namespace} = {
