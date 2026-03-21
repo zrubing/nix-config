@@ -7,6 +7,9 @@
   namespace,
   ...
 }:
+let
+  hermesPackage = inputs.llm-agents.packages.${system}.hermes-agent;
+in
 {
   snowfallorg.users.jojo = { };
   snowfallorg.users.hiar = {
@@ -48,6 +51,8 @@
 
     "hermes-agent" = {
       isNormalUser = true;
+      createHome = true;
+      home = "/home/hermes-agent";
       group = "users";
       extraGroups = [
         "networkmanager"
@@ -128,6 +133,37 @@
     script = ''
       ${pkgs.power-profiles-daemon}/bin/powerprofilesctl set performance || true
     '';
+  };
+
+  environment.systemPackages = [
+    hermesPackage
+  ];
+
+  systemd.tmpfiles.rules = [
+    "d /home/hermes-agent/.hermes 0750 hermes-agent users -"
+    "d /home/hermes-agent/.hermes/logs 0750 hermes-agent users -"
+    "f /home/hermes-agent/.hermes/.env 0640 hermes-agent users -"
+  ];
+
+  systemd.services.hermes-gateway-hermes-agent = {
+    description = "Hermes gateway daemon for hermes-agent";
+    wantedBy = [ "multi-user.target" ];
+    wants = [ "network-online.target" ];
+    after = [ "network-online.target" ];
+    serviceConfig = {
+      Type = "simple";
+      User = "hermes-agent";
+      Group = "users";
+      WorkingDirectory = "/home/hermes-agent";
+      Environment = [
+        "HOME=/home/hermes-agent"
+        "HERMES_HOME=/home/hermes-agent/.hermes"
+      ];
+      EnvironmentFile = "-/home/hermes-agent/.hermes/.env";
+      ExecStart = "${hermesPackage}/bin/hermes gateway run";
+      Restart = "always";
+      RestartSec = 5;
+    };
   };
 
   networking.networkmanager.enable = true;
