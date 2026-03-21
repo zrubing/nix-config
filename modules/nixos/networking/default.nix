@@ -1,17 +1,15 @@
 {
   config,
-  inputs,
   lib,
   namespace,
   ...
 }:
-let
-  cfg = config.${namespace}.networking;
-  mysecrets = inputs.mysecrets;
-  hostName = config.networking.hostName;
-  hostsSecretKey = "networking/extra_hosts/${hostName}";
-in
 {
+  imports = [
+    ./zen14.nix
+    ./nova13.nix
+  ];
+
   options.${namespace}.networking = with lib; {
     wifi.enable = mkEnableOption "Enable wifi";
   };
@@ -19,21 +17,6 @@ in
   config = {
 
     networking.firewall.enable = false;
-
-    assertions = [
-      {
-        assertion = hostName != null;
-        message = "networking.hostName must be set to load host-specific hosts entries from sops.";
-      }
-    ];
-
-    sops.secrets.${hostsSecretKey} = {
-      sopsFile = "${mysecrets}/secrets/env.yaml";
-    };
-
-    networking.extraHosts = ''
-      ${config.sops.placeholder.${hostsSecretKey}}
-    '';
 
     # Enable the OpenSSH daemon.
     services.openssh = {
