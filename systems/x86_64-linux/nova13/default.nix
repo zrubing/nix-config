@@ -57,9 +57,6 @@
     desktop.niri.enable = lib.mkForce false;
 
     home.extraOptions = {
-      # nova13 的 sops-nix 使用主机 SSH key 解密，避免依赖用户家目录私钥。
-      sops.age.sshKeyPaths = lib.mkForce [ "/etc/ssh/ssh_host_ed25519_key" ];
-
       ${namespace} = {
         ccr-router.enable = lib.mkForce false;
         desktop.niri.enable = lib.mkForce false;
