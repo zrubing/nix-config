@@ -51,7 +51,7 @@
     tailscale.headscaleAuthkeyFile = "headscale-authkey-nova13.age";
     nix-ld.enable = false;
     #builder.enable = true;
-    desktop.niri.enable = false;
+    desktop.niri.enable = lib.mkForce false;
 
     home.extraOptions = {
       ${namespace} = {
@@ -67,6 +67,7 @@
         ghostty.enable = lib.mkForce false;
         modules.fcitx5.enable = lib.mkForce false;
         programs.wechat-uos.enable = lib.mkForce false;
+        noctalia.enable = lib.mkForce false;
       };
     };
 
