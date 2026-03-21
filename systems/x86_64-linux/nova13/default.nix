@@ -52,14 +52,14 @@
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-nova13.age";
     nix-ld.enable = false;
-    noctalia.enable = lib.mkForce false;
+    noctalia.enable = lib.mkForce true;
     #builder.enable = true;
-    desktop.niri.enable = lib.mkForce false;
+    desktop.niri.enable = lib.mkForce true;
 
     home.extraOptions = {
       ${namespace} = {
         ccr-router.enable = lib.mkForce false;
-        desktop.niri.enable = lib.mkForce false;
+        desktop.niri.enable = lib.mkForce true;
         emacs.enable = lib.mkForce false;
         devpackages.treeSitter.enable = lib.mkForce false;
         devpackages.vscodeTools.enable = lib.mkForce false;
@@ -72,7 +72,7 @@
         ghostty.enable = lib.mkForce false;
         modules.fcitx5.enable = lib.mkForce false;
         programs.wechat-uos.enable = lib.mkForce false;
-        noctalia.enable = lib.mkForce false;
+        noctalia.enable = lib.mkForce true;
       };
     };
 
