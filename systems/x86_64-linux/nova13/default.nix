@@ -160,6 +160,7 @@ in
       Environment = [
         "HOME=/home/hermes-agent"
         "HERMES_HOME=/home/hermes-agent/.hermes"
+        "PYTHONPATH=${pkgs.python3Packages.python-telegram-bot}/${pkgs.python3.sitePackages}"
       ];
       EnvironmentFile = "-/home/hermes-agent/.hermes/.env";
       ExecStart = "${hermesPackage}/bin/hermes gateway run";
