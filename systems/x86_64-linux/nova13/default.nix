@@ -9,7 +9,9 @@
 }:
 {
   snowfallorg.users.jojo = { };
-  snowfallorg.users.hiar = { };
+  snowfallorg.users.hiar = {
+    home.config = config.${namespace}.home.extraOptions;
+  };
 
   time.timeZone = "Asia/Shanghai";
 
@@ -50,6 +52,7 @@
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-nova13.age";
     nix-ld.enable = false;
+    noctalia.enable = lib.mkForce false;
     #builder.enable = true;
     desktop.niri.enable = lib.mkForce false;
 
