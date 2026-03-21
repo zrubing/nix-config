@@ -1,12 +1,16 @@
 {
   lib,
+  config,
   pkgs,
   inputs,
   system,
+  namespace,
   ...
 }:
 let
   pkgs-nix-ai = inputs.llm-agents.packages.${system};
+  llmAgentsEnabled =
+    config.${namespace}.modules.packages.tools.ai.llmAgents.enable;
 in
 {
   home.stateVersion = "25.11";
@@ -49,7 +53,7 @@ in
     programs.wechat-uos.enable = true;
   };
 
-  home.packages = [ pkgs-nix-ai.pi ];
+  home.packages = lib.optionals llmAgentsEnabled [ pkgs-nix-ai.pi ];
 
   home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skills/woodpecker-ci;
   home.file.".pi/agent/skills/zli".source = ../../../.pi/skills/zli;

@@ -37,6 +37,11 @@ in
       default = true;
       description = "Enable AI coding and agent toolchain packages.";
     };
+    tools.ai.llmAgents.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Enable packages provided by the llm-agents flake.";
+    };
     tools.network.enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -127,12 +132,13 @@ in
       pkgs.aider-chat
       #pkgs-unstable.aider-chat
       #pkgs-unstable.claude-code
+      pkgs.${namespace}.zli
+    ] ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.llmAgents.enable) [
       pkgs.${namespace}.claude-code
       pkgs-nix-ai.claude-code-router
       pkgs-nix-ai.pi
       pkgs-nix-ai.omp
       pkgs-nix-ai.codex
-      pkgs.${namespace}.zli
       pkgs-nix-ai.workmux
       pkgs-nix-ai.openskills
       pkgs-nix-ai.beads

@@ -86,7 +86,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    codex-nix.url = "github:sadjow/codex-nix";
     design-doc-mermaid = {
       url = "github:SpillwaveSolutions/design-doc-mermaid?rev=e13f987306d5cd7a34f541927a3228343dd90e45";
       flake = false;

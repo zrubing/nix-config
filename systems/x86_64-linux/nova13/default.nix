@@ -58,6 +58,7 @@
 
     home.extraOptions = {
       ${namespace} = {
+        ccr-router.enable = lib.mkForce false;
         desktop.niri.enable = lib.mkForce false;
         emacs.enable = lib.mkForce false;
         devpackages.treeSitter.enable = lib.mkForce false;
@@ -67,6 +68,7 @@
         modules.packages.gui.enable = lib.mkForce false;
         modules.packages.emacsTools.enable = lib.mkForce false;
         modules.packages.ocr.enable = lib.mkForce false;
+        modules.packages.tools.ai.llmAgents.enable = lib.mkForce false;
         ghostty.enable = lib.mkForce false;
         modules.fcitx5.enable = lib.mkForce false;
         programs.wechat-uos.enable = lib.mkForce false;
