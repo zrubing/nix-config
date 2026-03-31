@@ -10,7 +10,12 @@
 let
   pkgs-unstable = import inputs.nixpkgs-unstable {
     inherit system;
-    config.allowUnfree = true;
+    config = {
+      allowUnfree = true;
+      permittedInsecurePackages = [
+        "electron-38.8.4"
+      ];
+    };
   };
 
   pkgs-nix-ai = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system};

@@ -76,9 +76,15 @@
     #   flake = false;
     # };
 
+    noctalia-qs-patched = {
+      url = "path:./third_party/noctalia-qs-patched";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+
     noctalia = {
       url = "github:noctalia-dev/noctalia-shell";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
+      inputs.noctalia-qs.follows = "noctalia-qs-patched";
     };
 
     antigravity-nix = {
@@ -138,6 +144,9 @@
       channels-config = {
         # Allow unfree packages.
         allowUnfree = true;
+        permittedInsecurePackages = [
+          "electron-38.8.4"
+        ];
         overlays = [ inputs.k0s-nix.overlays.default ];
 
       };

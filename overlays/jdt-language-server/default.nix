@@ -6,8 +6,8 @@
 }:
 self: super: {
   jdt-language-server = super.jdt-language-server.overrideAttrs (old: rec {
-    version = "1.51.0";
-    timestamp = "202510022025";
+    version = "1.57.0";
+    timestamp = "202602261110";
 
     src = super.fetchurl {
       url = "https://download.eclipse.org/jdtls/milestones/${version}/jdt-language-server-${version}-${timestamp}.tar.gz";
@@ -27,8 +27,8 @@ self: super: {
 
     postInstall = ''
       wrapProgram $out/bin/jdtls \
-        --prefix PATH : ${lib.makeBinPath [ super.jdk24 ]} \
-        --set JAVA_HOME ${super.jdk24.home}
+        --prefix PATH : ${lib.makeBinPath [ super.jdk25 ]} \
+        --set JAVA_HOME ${super.jdk25.home}
     '';
 
   });
