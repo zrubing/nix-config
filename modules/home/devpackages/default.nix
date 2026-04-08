@@ -169,7 +169,6 @@ in
 
           woodpecker-cli
           kubeseal
-          k9s
           kubectl
           kubie
           telepresence2

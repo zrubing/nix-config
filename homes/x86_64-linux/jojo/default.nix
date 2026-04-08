@@ -1,9 +1,29 @@
-{ lib, config, ... }:
+{ lib, config, pkgs, namespace, ... }:
 {
 
   home.stateVersion = "25.11";
 
-  
+  home.packages = [
+    pkgs.${namespace}."pv-inspect"
+  ];
+
+  programs.k9s = {
+    enable = true;
+    plugins = {
+      pv_inspect = {
+        shortCut = "p";
+        description = "Inspect PVC with pv_inspect";
+        scopes = [ "pvc" ];
+        command = "pv_inspect";
+        background = false;
+        args = [
+          "-n"
+          "$NAMESPACE"
+          "$NAME"
+        ];
+      };
+    };
+  };
 
   internal.javalib.enable = true;
 
