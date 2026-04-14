@@ -20,7 +20,6 @@ in
 
     home.packages = with pkgs; [
       brave
-      pkgs.${namespace}.reqable
     ];
   };
 }

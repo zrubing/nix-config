@@ -1,5 +1,6 @@
 {
   lib,
+  stdenv,
   stdenvNoCC,
   fetchurl,
 }:
@@ -26,8 +27,8 @@ let
     };
   };
 
-  platform = binaries.${stdenvNoCC.hostPlatform.system}
-    or (throw "Unsupported system: ${stdenvNoCC.hostPlatform.system}");
+  platform = binaries.${stdenv.hostPlatform.system}
+    or (throw "Unsupported system: ${stdenv.hostPlatform.system}");
 in
 stdenvNoCC.mkDerivation {
   pname = "zli";

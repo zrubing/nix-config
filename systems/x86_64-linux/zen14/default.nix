@@ -21,7 +21,7 @@ in
     home.config = lib.mkMerge [
       config.${namespace}.home.extraOptions
       {
-        ${namespace}.programs.wechat-uos.enable = true;
+        ${namespace}.programs.wechat.enable = true;
       }
     ];
   };
@@ -281,10 +281,14 @@ in
         values = {
           evictionHard = {
             "memory.available" = "100Mi";
+            # 磁盘压力阈值：剩余 5% 时才触发，等价于 95% 使用率
             "nodefs.available" = "5%";
             "nodefs.inodesFree" = "5%";
             "imagefs.available" = "5%";
           };
+          # 镜像 GC 默认阈值通常更早触发；显式提高到 95%，避免在 ~85% 使用率就进入磁盘回收/压力流程
+          imageGCHighThresholdPercent = 95;
+          imageGCLowThresholdPercent = 90;
         };
       }
     ];

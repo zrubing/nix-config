@@ -89,7 +89,7 @@ in
         modules.packages.tools.ai.llmAgents.enable = lib.mkForce false;
         ghostty.enable = lib.mkForce false;
         modules.fcitx5.enable = lib.mkForce false;
-        programs.wechat-uos.enable = lib.mkForce false;
+        programs.wechat.enable = lib.mkForce false;
         noctalia.enable = lib.mkForce true;
       };
     };

@@ -31,7 +31,6 @@ in
         fuzzel
         wl-clipboard
 
-        pkgs.${namespace}.reqable
         brightnessctl
       ];
       programs.niri.enable = true;

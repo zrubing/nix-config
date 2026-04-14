@@ -50,7 +50,7 @@ in
       fuzzel.enable = true;
     };
 
-    programs.wechat-uos.enable = true;
+    programs.wechat.enable = true;
   };
 
   home.packages = lib.optionals llmAgentsEnabled [ pkgs-nix-ai.pi ];
