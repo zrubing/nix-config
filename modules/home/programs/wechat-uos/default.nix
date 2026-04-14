@@ -9,42 +9,41 @@
 }:
 
 let
-  cfg = config.${namespace}.programs.wechat-uos;
+  cfg = config.${namespace}.programs.wechat;
   pkgs-unstable = import inputs.nixpkgs-unstable {
     system = system;
     config.allowUnfree = true;
   };
 
-  wechat-uos-wrapper = pkgs.writeShellScriptBin "wechat-uos-wrapper" ''
+  wechat-wrapper = pkgs.writeShellScriptBin "wechat-wrapper" ''
     export QT_QPA_PLATFORM=xcb
     export QT_AUTO_SCREEN_SCALE_FACTOR=1
 
-    # 直接写死 fcitx5，避免依赖 XMODIFIERS, fuzzel启动时 XMODIFIERS 没有传进去
-    export QT_IM_MODULE=fcitx5
-    export GTK_IM_MODULE=fcitx5
-    export XMODIFIERS="@im=fcitx5"
+    # 与当前系统全局 fcitx 环境保持一致，避免 WeChat 在 XWayland 下拿到不兼容的 IME 变量
+    export QT_IM_MODULE=fcitx
+    export GTK_IM_MODULE=fcitx
+    export XMODIFIERS="@im=fcitx"
 
-    exec ${pkgs-unstable.wechat-uos}/bin/wechat-uos "$@"
+    exec ${pkgs-unstable.wechat}/bin/wechat "$@"
   '';
 in
 {
-  options.${namespace}.programs.wechat-uos.enable = lib.mkOption {
+  options.${namespace}.programs.wechat.enable = lib.mkOption {
     type = lib.types.bool;
     default = true;
-    description = "Enable wechat-uos wrapper and desktop entry.";
+    description = "Enable WeChat wrapper and desktop entry.";
   };
 
   config = lib.mkIf cfg.enable {
     home.packages = [
-      wechat-uos-wrapper
-      #pkgs-unstable.wechat-uos
+      wechat-wrapper
     ];
 
-    xdg.desktopEntries.wechat-uos = {
+    xdg.desktopEntries.wechat = {
       name = "微信";
       genericName = "WeChat";
       startupNotify = true;
-      exec = "${wechat-uos-wrapper}/bin/wechat-uos-wrapper %U";
+      exec = "${wechat-wrapper}/bin/wechat-wrapper %U";
       icon = "com.tencent.wechat";
       type = "Application";
       terminal = false;

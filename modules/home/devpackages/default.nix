@@ -170,6 +170,7 @@ in
           woodpecker-cli
           kubeseal
           kubectl
+          kubelogin-oidc
           kubie
           telepresence2
           pkgs.${namespace}.tramp-rpc-server
