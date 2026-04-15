@@ -4,6 +4,7 @@
   inputs,
   lib,
   namespace,
+  system,
   ...
 }:
 let
@@ -18,7 +19,7 @@ in
 
   config = lib.mkIf cfg.enable {
     environment.systemPackages = with pkgs; [
-      inputs.noctalia.packages.${stdenv.hostPlatform.system}.default
+      inputs.noctalia.packages.${system}.default
     ];
   };
 }

@@ -6,7 +6,6 @@
   ...
 }:
 let
-  inherit (pkgs.stdenv.hostPlatform) system; # for agenix pkg
   username = config.snowfallorg.user.name;
   mysecrets = inputs.mysecrets;
   pkgs-unstable = import inputs.nixpkgs-unstable {

@@ -1,7 +1,7 @@
 { config, lib, pkgs, inputs, system, namespace, ... }:
 
 let
-  pkgs-nix-ai = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system};
+  pkgs-nix-ai = inputs.llm-agents.packages.${system};
   cfg = config.internal.ccr-router;
 in
 {

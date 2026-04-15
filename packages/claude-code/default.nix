@@ -6,7 +6,7 @@
 }:
 
 let
-  claude-code = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
+  claude-code = inputs.llm-agents.packages.${pkgs.stdenv.system}.claude-code;
 in
 writeShellApplication {
   name = "claude";

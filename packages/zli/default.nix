@@ -27,8 +27,8 @@ let
     };
   };
 
-  platform = binaries.${stdenv.hostPlatform.system}
-    or (throw "Unsupported system: ${stdenv.hostPlatform.system}");
+  platform = binaries.${stdenv.system}
+    or (throw "Unsupported system: ${stdenv.system}");
 in
 stdenvNoCC.mkDerivation {
   pname = "zli";

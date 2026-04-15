@@ -15,7 +15,7 @@ let
       hash = "sha256-u+2yYLf1K+5YAy3QaA3tyKVLxUhIihp4bMnQVBdWnQs=";
     };
   };
-  platform = platforms.${stdenv.hostPlatform.system} or (throw "Unsupported system: ${stdenv.hostPlatform.system}");
+  platform = platforms.${stdenv.system} or (throw "Unsupported system: ${stdenv.system}");
 in
 stdenv.mkDerivation {
   pname = "tramp-rpc-server";

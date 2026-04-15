@@ -11,7 +11,7 @@
 }:
 
 let
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${stdenv.hostPlatform.system};
+  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${stdenv.system};
   python312Packages = pkgs-unstable.python312Packages;
   tree-sitter-language-pack = python312Packages.buildPythonPackage rec {
     pname = "tree-sitter-language-pack";
