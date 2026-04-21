@@ -55,6 +55,6 @@ in
 
   home.packages = lib.optionals llmAgentsEnabled [ pkgs-nix-ai.pi ];
 
-  home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skills/woodpecker-ci;
-  home.file.".pi/agent/skills/zli".source = ../../../.pi/skills/zli;
+  home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skill-sources/woodpecker-ci;
+  home.file.".pi/agent/skills/zli".source = ../../../.pi/skill-sources/zli;
 }

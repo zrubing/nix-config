@@ -212,6 +212,8 @@ in
   };
 
   environment.systemPackages = [
+    pkgs.grafana-loki
+
     (pkgs.writeShellScriptBin "pi-as-agent" ''
       # 保存当前用户的 GUI 相关环境变量
       _display="$DISPLAY"

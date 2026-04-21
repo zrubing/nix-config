@@ -81,8 +81,8 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skills/woodpecker-ci;
-    home.file.".pi/agent/skills/zli".source = ../../../.pi/skills/zli;
+    home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skill-sources/woodpecker-ci;
+    home.file.".pi/agent/skills/zli".source = ../../../.pi/skill-sources/zli;
 
     # Caveman skills
     home.file.".pi/agent/skills/caveman".source = "${inputs.caveman-skills}/skills/caveman";

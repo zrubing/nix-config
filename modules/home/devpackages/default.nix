@@ -135,6 +135,10 @@ in
       })
     ];
 
+    home.sessionPath = lib.mkIf cfg.infra.enable [
+      "$HOME/.krew/bin"
+    ];
+
     home.packages =
       with pkgs;
       lib.flatten [
@@ -170,6 +174,13 @@ in
           woodpecker-cli
           kubeseal
           kubectl
+          (symlinkJoin {
+            name = "kubectl-krew-wrapper";
+            paths = [ krew ];
+            postBuild = ''
+              ln -s $out/bin/krew $out/bin/kubectl-krew
+            '';
+          })
           kubelogin-oidc
           kubie
           telepresence2
