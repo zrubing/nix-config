@@ -83,6 +83,9 @@ in
   config = lib.mkIf cfg.enable {
     home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skills/woodpecker-ci;
     home.file.".pi/agent/skills/zli".source = ../../../.pi/skills/zli;
+
+    # Caveman skills
+    home.file.".pi/agent/skills/caveman".source = "${inputs.caveman-skills}/skills/caveman";
     home.file.".pi/agent/extensions/guardrails.json".source = ../../../.pi/extensions/guardrails.json;
 
     home.activation.configurePiGuardrailsFork = config.lib.dag.entryAfter [ "writeBoundary" ] ''

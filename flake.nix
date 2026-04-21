@@ -97,6 +97,11 @@
       flake = false;
     };
 
+    caveman-skills = {
+      url = "github:JuliusBrussee/caveman?rev=84cc3c14fa1e10182adaced856e003406ccd250d";
+      flake = false;
+    };
+
     ########################  My own repositories  #########################################
     # my private secrets, it's a private repository, you need to replace it with your own.
     # use ssh protocol to authenticate via ssh-agent/ssh-key, and shallow clone to save time
