@@ -187,6 +187,7 @@ in
           pkgs.${namespace}.tramp-rpc-server
           pkgs.${namespace}.pexpect-cli
           pkgs.${namespace}.claude-md
+          pkgs.${namespace}.java-debug
           xdg-utils
           vips
           actionlint

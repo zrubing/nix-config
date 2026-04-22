@@ -1,40 +1,36 @@
 {
   lib,
-  fetchFromGitHub,
-  jre,
-  makeWrapper,
-  maven,
+  stdenvNoCC,
+  vscode-extensions,
 }:
 
-maven.buildMavenPackage rec {
+stdenvNoCC.mkDerivation rec {
   pname = "java-debug";
-  version = "0.53.2";
+  version = vscode-extensions.vscjava.vscode-java-debug.version;
 
-  src = fetchFromGitHub {
-    owner = "zrubing";
-    repo = "${pname}";
-    rev = "be0ff9c12ae8fab85c6bcd0947470623c77cfd7d";
-    sha256 = "sha256-1M3OU593dsLJs9Mh9H0r45lDbbpV7294BT4dZWf45K8=";
-  };
-
-  mvnHash = "sha256-m2ZXyTA37QoCW7XhR4NXgZT9MtYCD/D2eZ880yWPlcg=";
-
-  nativeBuildInputs = [
-    maven
-    makeWrapper
-  ];
-
-  buildInputs = [
-    jre
-  ];
-
-  buildPhase = ''
-    ./mvnw clean install
-  '';
+  dontUnpack = true;
 
   installPhase = ''
+    runHook preInstall
+
+    extDir=${vscode-extensions.vscjava.vscode-java-debug}/share/vscode/extensions/vscjava.vscode-java-debug
+    jar=$(find "$extDir/server" -maxdepth 1 -type f -name 'com.microsoft.java.debug.plugin-*.jar' | head -n 1)
+
+    if [ -z "$jar" ]; then
+      echo "java-debug jar not found in $extDir/server" >&2
+      exit 1
+    fi
+
     mkdir -p $out/lib
-    mv com.microsoft.java.debug.plugin/target/com.microsoft.java.debug.plugin-0.53.2.jar \
-    $out/lib/java-debug.jar
+    cp "$jar" $out/lib/java-debug.jar
+
+    runHook postInstall
   '';
+
+  meta = with lib; {
+    description = "Java debug server jar extracted from VS Code Java Debug extension";
+    homepage = "https://github.com/microsoft/vscode-java-debug";
+    license = licenses.mit;
+    platforms = platforms.all;
+  };
 }
