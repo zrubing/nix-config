@@ -2,6 +2,7 @@
   lib,
   pkgs,
   fetchFromGitHub,
+  applyPatches,
   buildGoModule,
   ...
 }:
@@ -12,14 +13,17 @@ buildGoModule rec {
 
   rev = "c49cabe00cd07062b9365ea020020702ec076d08";
 
-  src = fetchFromGitHub {
-    owner = "gfw-report";
-    repo = pname;
-    rev = rev;
-    hash = "sha256-NibeOouvRrLi1UYfvNUM4wInLYnQXMuQP6SA32I1yaQ=";
+  src = applyPatches {
+    src = fetchFromGitHub {
+      owner = "gfw-report";
+      repo = pname;
+      rev = rev;
+      hash = "sha256-NibeOouvRrLi1UYfvNUM4wInLYnQXMuQP6SA32I1yaQ=";
+    };
+    patches = [ ./update-assume-no-moving-gc.patch ];
   };
 
-  vendorHash = "sha256-jb2XA152eQ9mQAFIodHA3a1oNkcDVuwrjpe6FvF8lu8=";
+  vendorHash = "sha256-Q6hqZgLygvyfTGWSojMb0B1XfHhQHMl9i9Vr7bQCkDA=";
   proxyVendor = true;
 
   # 禁用自动版本注入（改用 Makefile 方式）
@@ -52,7 +56,14 @@ buildGoModule rec {
     runHook preInstall
     mkdir -p $out/bin
     cp build/trojan-go $out/bin/
+    runHook postInstall
   '';
 
-  
+  meta = with lib; {
+    description = "Trojan-Go proxy client/server";
+    homepage = "https://github.com/gfw-report/trojan-go";
+    license = licenses.gpl3Only;
+    mainProgram = "trojan-go";
+    platforms = platforms.linux;
+  };
 }

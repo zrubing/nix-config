@@ -1,0 +1,24 @@
+diff -ruN a/go.mod b/go.mod
+--- a/go.mod	2026-04-27 18:28:37.561345474 +0800
++++ b/go.mod	2026-04-27 18:28:37.578870275 +0800
+@@ -35,7 +35,7 @@
+ 	github.com/txthinking/x v0.0.0-20220929041811-1b4d914e9133 // indirect
+ 	go.starlark.net v0.0.0-20221028183056-acb66ad56dd2 // indirect
+ 	go4.org/intern v0.0.0-20220617035311-6925f38cc365 // indirect
+-	go4.org/unsafe/assume-no-moving-gc v0.0.0-20220617031537-928513b29760 // indirect
++	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6 // indirect
+ 	golang.org/x/crypto v0.3.0 // indirect
+ 	golang.org/x/sys v0.2.0 // indirect
+ 	golang.org/x/text v0.4.0 // indirect
+diff -ruN a/go.sum b/go.sum
+--- a/go.sum	2026-04-27 18:28:37.561370772 +0800
++++ b/go.sum	2026-04-27 18:28:37.580569641 +0800
+@@ -102,6 +102,8 @@
+ go4.org/unsafe/assume-no-moving-gc v0.0.0-20211027215541-db492cf91b37/go.mod h1:FftLjUGFEDu5k8lt0ddY+HcrH/qU/0qk+H8j9/nTl3E=
+ go4.org/unsafe/assume-no-moving-gc v0.0.0-20220617031537-928513b29760 h1:FyBZqvoA/jbNzuAWLQE2kG820zMAkcilx6BMjGbL/E4=
+ go4.org/unsafe/assume-no-moving-gc v0.0.0-20220617031537-928513b29760/go.mod h1:FftLjUGFEDu5k8lt0ddY+HcrH/qU/0qk+H8j9/nTl3E=
++go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6 h1:lGdhQUN/cnWdSH3291CUuxSEqc+AsGTiDxPP3r2J0l4=
++go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6/go.mod h1:FftLjUGFEDu5k8lt0ddY+HcrH/qU/0qk+H8j9/nTl3E=
+ golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
+ golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550/go.mod h1:yigFU9vqHzYiE8UmvKecakEJjdnWj3jj499lnFckfCI=
+ golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9/go.mod h1:LzIPMQfyMNhhGPhUkYOs5KpL4U8rLKemX1yGLhDgUto=

@@ -192,6 +192,7 @@ in
       enable = true;
       extraConfig = import ./miho-extra-config.nix;
     };
+    trojan-go.enable = true;
     ollama.enable = false;
     desktop-programs.enable = false;
 
