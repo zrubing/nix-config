@@ -201,6 +201,9 @@ in
 
     home.extraOptions = {
       ${namespace} = {
+        # devpackages.web.enable = lib.mkForce false;
+        # devpackages.infra.enable = lib.mkForce false;
+        # devpackages.languageServers.enable = lib.mkForce false;
         modules.packages.tools.ai.llmAgents.enable = true;
       };
     };
