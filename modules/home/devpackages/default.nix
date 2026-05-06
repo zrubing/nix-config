@@ -336,7 +336,8 @@ in
           zls
           lua-language-server
           nodePackages.bash-language-server
-          pkgs.${namespace}.vue-language-server
+          #pkgs.${namespace}.vue-language-server
+          vue-language-server
           pkgs-unstable.typescript-language-server
           nodePackages."@tailwindcss/language-server"
           emmet-ls

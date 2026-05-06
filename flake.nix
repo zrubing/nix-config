@@ -76,15 +76,20 @@
     #   flake = false;
     # };
 
-    noctalia-qs-patched = {
-      url = "path:./third_party/noctalia-qs-patched";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
-    };
+    # noctalia-qs-patched = {
+    #   url = "path:./third_party/noctalia-qs-patched";
+    #   inputs.nixpkgs.follows = "nixpkgs-unstable";
+    # };
 
+    # noctalia = {
+    #   url = "github:noctalia-dev/noctalia-shell";
+    #   inputs.nixpkgs.follows = "nixpkgs-unstable";
+    #   inputs.noctalia-qs.follows = "noctalia-qs-patched";
+    # };
+    #
     noctalia = {
       url = "github:noctalia-dev/noctalia-shell";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
-      inputs.noctalia-qs.follows = "noctalia-qs-patched";
     };
 
     antigravity-nix = {
@@ -125,7 +130,7 @@
     #     config.allowUnfree = true;
     #   };
     # };
-     lib.mkFlake {
+    lib.mkFlake {
 
       # Add modules to all NixOS systems.
       systems.modules.nixos = with inputs; [
