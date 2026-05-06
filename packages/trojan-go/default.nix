@@ -20,7 +20,11 @@ buildGoModule rec {
       rev = rev;
       hash = "sha256-NibeOouvRrLi1UYfvNUM4wInLYnQXMuQP6SA32I1yaQ=";
     };
-    patches = [ ./update-assume-no-moving-gc.patch ];
+    # 仍然使用 gfw-report/trojan-go，只更新 assume-no-moving-gc 依赖以兼容 Go 1.25 运行时检查。
+    patches = [
+      ./update-assume-no-moving-gc.patch
+      ./force-client-alpn.patch
+    ];
   };
 
   vendorHash = "sha256-Q6hqZgLygvyfTGWSojMb0B1XfHhQHMl9i9Vr7bQCkDA=";

@@ -1,0 +1,45 @@
+diff --git a/tunnel/tls/client.go b/tunnel/tls/client.go
+index 1106084..44a69b8 100644
+--- a/tunnel/tls/client.go
++++ b/tunnel/tls/client.go
+@@ -23,6 +23,7 @@ type Client struct {
+ 	verify        bool
+ 	sni           string
+ 	ca            *x509.CertPool
++	alpn          []string
+ 	cipher        []uint16
+ 	sessionTicket bool
+ 	reuseSession  bool
+@@ -53,6 +54,7 @@ func (c *Client) DialConn(_ *tunnel.Address, overlay tunnel.Tunnel) (tunnel.Conn
+ 	tlsConn := tls.UClient(conn, &tls.Config{
+ 		RootCAs:            c.ca,
+ 		ServerName:         c.sni,
++		NextProtos:         c.alpn,
+ 		InsecureSkipVerify: !c.verify,
+ 		KeyLogWriter:       c.keyLogger,
+ 	}, c.helloID)
+@@ -96,6 +98,16 @@ func NewClient(ctx context.Context, underlay tunnel.Client) (*Client, error) {
+ 		log.Info("No 'fingerprint' value specified in your configuration. Your trojan's TLS fingerprint will look like Chrome by default.")
+ 	}
+ 
++	// Cloudflare prefers h2 when the built-in Chrome parrots advertise
++	// "h2,http/1.1". Trojan-Go's websocket transport only implements an
++	// HTTP/1.1 Upgrade handshake, so receiving HTTP/2 frames makes it fail with
++	// "malformed HTTP response". HelloGolang honors Config.NextProtos, so use it
++	// when the config explicitly asks for HTTP/1.1-only ALPN.
++	if len(cfg.TLS.ALPN) == 1 && cfg.TLS.ALPN[0] == "http/1.1" {
++		helloID = tls.HelloGolang
++		log.Info("TLS ALPN is forced to http/1.1; using Go ClientHello")
++	}
++
+ 	if cfg.TLS.SNI == "" {
+ 		cfg.TLS.SNI = cfg.RemoteHost
+ 		log.Warn("tls sni is unspecified")
+@@ -105,6 +117,7 @@ func NewClient(ctx context.Context, underlay tunnel.Client) (*Client, error) {
+ 		underlay:      underlay,
+ 		verify:        cfg.TLS.Verify,
+ 		sni:           cfg.TLS.SNI,
++		alpn:          cfg.TLS.ALPN,
+ 		cipher:        fingerprint.ParseCipher(strings.Split(cfg.TLS.Cipher, ":")),
+ 		sessionTicket: cfg.TLS.ReuseSession,
+ 		fingerprint:   cfg.TLS.Fingerprint,

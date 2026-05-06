@@ -29,7 +29,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    age.secrets."trojan-go-client-conf.yaml" = {
+    age.secrets."trojan-go-client-conf.json" = {
       file = "${mysecrets}/${cfg.configSecretFile}";
       owner = "trojan-go";
       group = "trojan-go";
@@ -60,7 +60,7 @@ in
         Type = "simple";
         User = "trojan-go";
         Group = "trojan-go";
-        ExecStart = "${cfg.package}/bin/trojan-go -config ${config.age.secrets."trojan-go-client-conf.yaml".path}";
+        ExecStart = "${cfg.package}/bin/trojan-go -config ${config.age.secrets."trojan-go-client-conf.json".path}";
         Restart = "on-failure";
         RestartSec = "5s";
 
@@ -68,7 +68,7 @@ in
         PrivateTmp = true;
         ProtectHome = true;
         ProtectSystem = "strict";
-        ReadOnlyPaths = [ config.age.secrets."trojan-go-client-conf.yaml".path ];
+        ReadOnlyPaths = [ config.age.secrets."trojan-go-client-conf.json".path ];
       };
     };
   };
