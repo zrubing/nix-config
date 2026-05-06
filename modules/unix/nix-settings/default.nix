@@ -4,8 +4,8 @@
     extraOptions = ''
       trusted-users = root jojo
 
-      extra-substituters = https://devenv.cachix.org https://attic.xuyh0120.win/lantian https://cache.garnix.io
-      extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw= lantian:EeAUQ+W+6r7EtwnmYjeVwx5kOGEBpjlBfPlzGlTNvHc= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
+      extra-substituters = https://devenv.cachix.org https://attic.xuyh0120.win/lantian https://cache.garnix.io https://noctalia.cachix.org
+      extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw= lantian:EeAUQ+W+6r7EtwnmYjeVwx5kOGEBpjlBfPlzGlTNvHc= cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g= noctalia.cachix.org-1:pCOR47nnMEo5thcxNDtzWpOxNFQsBRglJzxWPp3dkU4=
     '';
     # TODO try this?
     # enable = config.host.role != "cloud-server";
@@ -45,6 +45,7 @@
         "https://numtide.cachix.org"
         "https://attic.xuyh0120.win/lantian"
         "https://cache.garnix.io"
+        "https://noctalia.cachix.org"
       ];
 
       trusted-public-keys = [
@@ -53,6 +54,7 @@
         "numtide.cachix.org-1:2ps1kLBUWjxIneOy1Ik6cQjb41X0iXVXeHigGmycPPE="
         "lantian:EeAUQ+W+6r7EtwnmYjeVwx5kOGEBpjlBfPlzGlTNvHc="
         "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
+        "noctalia.cachix.org-1:pCOR47nnMEo5thcxNDtzWpOxNFQsBRglJzxWPp3dkU4="
       ];
     };
 
