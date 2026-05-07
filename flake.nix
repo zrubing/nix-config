@@ -107,6 +107,11 @@
       flake = false;
     };
 
+    process-compose = {
+      url = "github:F1bonacc1/process-compose";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+
     ########################  My own repositories  #########################################
     # my private secrets, it's a private repository, you need to replace it with your own.
     # use ssh protocol to authenticate via ssh-agent/ssh-key, and shallow clone to save time
@@ -157,7 +162,10 @@
         permittedInsecurePackages = [
           "electron-38.8.4"
         ];
-        overlays = [ inputs.k0s-nix.overlays.default ];
+        overlays = [
+          inputs.k0s-nix.overlays.default
+          inputs.process-compose.overlays.default
+        ];
 
       };
 

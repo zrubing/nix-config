@@ -171,6 +171,8 @@ in
         (lib.optionals cfg.infra.enable [
           pnpm
 
+          inputs.process-compose.packages.${system}.process-compose
+
           woodpecker-cli
           kubeseal
           kubectl
