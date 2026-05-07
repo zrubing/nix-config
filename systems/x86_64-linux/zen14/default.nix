@@ -192,6 +192,10 @@ in
       enable = true;
       extraConfig = import ./miho-extra-config.nix;
     };
+    xray-client = {
+      enable = true;
+      configSecretFile = "xray-client-conf.json.age";
+    };
     trojan-go.enable = true;
     ollama.enable = false;
     desktop-programs.enable = false;
