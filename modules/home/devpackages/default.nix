@@ -170,6 +170,8 @@ in
 
         (lib.optionals cfg.infra.enable [
           pnpm
+          postgresql
+          flyway
 
           inputs.process-compose.packages.${system}.process-compose
 

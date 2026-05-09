@@ -1,20 +1,11 @@
 {
   config,
-  inputs,
   lib,
   ...
 }:
-let
-  hostsSecretKey = "networking/extra_hosts/zen14";
-in
 {
-  config = lib.mkIf (config.networking.hostName == "zen14") {
-    sops.secrets.${hostsSecretKey} = {
-      sopsFile = "${inputs.mysecrets}/secrets/env.yaml";
-    };
-
-    networking.extraHosts = ''
-      ${config.sops.placeholder.${hostsSecretKey}}
-    '';
-  };
+  # Do not put sops placeholders directly into networking.extraHosts.
+  # /etc/hosts is generated at build/switch time and sops-nix placeholder
+  # substitution only happens in sops.templates, not in arbitrary NixOS options.
+  config = lib.mkIf (config.networking.hostName == "zen14") { };
 }

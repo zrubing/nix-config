@@ -179,6 +179,20 @@ in
       enable = true;
       configFile = config.sops.templates."proxysql.cnf".path;
     };
+    mysql-proxy = {
+      enable = true;
+      proxies = {
+        test = {
+          listenIp = "127.0.0.2";
+          targetHostSecret = "mysql_proxy/test/target_host";
+        };
+        prod = {
+          autoStart = false;
+          listenIp = "127.0.0.3";
+          targetHostSecret = "mysql_proxy/prod/target_host";
+        };
+      };
+    };
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-zen14.age";
     #builder.enable = true;
@@ -217,6 +231,10 @@ in
   networking.networkmanager.enable = true;
   networking.hosts = {
     "127.0.0.1" = [ "redis.test.local" ];
+    "127.0.0.2" = [
+      "test.mysql.local"
+    ];
+    "127.0.0.3" = [ "prod.mysql.local" ];
   };
 
   environment.systemPackages = [
