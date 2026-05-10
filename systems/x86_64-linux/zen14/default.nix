@@ -15,6 +15,7 @@ in
   snowfallorg.users.jojo = {
     home.config = {
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
+      internal.observabilityPortForward.enable = true;
     };
   };
   snowfallorg.users.hiar = {
@@ -235,6 +236,8 @@ in
       "test.mysql.local"
     ];
     "127.0.0.3" = [ "prod.mysql.local" ];
+    "127.0.0.10" = [ "loki.local" ];
+    "127.0.0.11" = [ "tempo.local" ];
   };
 
   environment.systemPackages = [
