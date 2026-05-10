@@ -37,6 +37,9 @@ in
         "podman"
       ];
       initialPassword = "test";
+      openssh.authorizedKeys.keys = [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILMrn032wZrsH01z36zJLqXRIVDiXK9Xx0gNXVClMhbT rd@jojo"
+      ];
     };
 
     hiar = {
@@ -92,6 +95,14 @@ in
         programs.wechat.enable = lib.mkForce false;
         noctalia.enable = lib.mkForce true;
       };
+
+      # nova13 常通过 SSH 使用；不要继承桌面机的 `sudo -A` GUI askpass 习惯，
+      # 否则无 TTY/无 askpass 环境下会报 “sudo: no askpass program specified”。
+      programs.bash.shellAliases.sudo = lib.mkForce "command sudo";
+
+      # SSLKEYLOGFILE 是桌面抓包调试用变量。nova13 上通过 SSH 使用 jojo 时不应强制
+      # 走 GUI/桌面抓包配置，避免 sudo/su 到其他用户时继承 `/home/jojo/.ssl-key.log`。
+      home.sessionVariables.SSLKEYLOGFILE = lib.mkForce "";
     };
 
     #dae.enable = true;
@@ -143,12 +154,19 @@ in
     piPackage
   ];
 
+  environment.etc."profile.d/hermes-agent-sslkeylog.sh".text = ''
+    if [ "''${USER:-}" = "hermes-agent" ]; then
+      export SSLKEYLOGFILE=/home/hermes-agent/.ssl-key.log
+    fi
+  '';
+
   systemd.tmpfiles.rules = [
     "d /home/hermes-agent/.hermes 0750 hermes-agent users -"
     "d /home/hermes-agent/.hermes/logs 0750 hermes-agent users -"
     "f /home/hermes-agent/.hermes/.env 0640 hermes-agent users -"
     "d /home/hermes-agent/.codex 0700 hermes-agent users -"
     "d /home/hermes-agent/.pi 0700 hermes-agent users -"
+    "f /home/hermes-agent/.ssl-key.log 0600 hermes-agent users -"
     "d /var/log/hermes-gateway-hermes-agent 0700 hermes-agent users -"
     "f /var/log/hermes-gateway-hermes-agent/gateway.log 0600 hermes-agent users -"
   ];
@@ -170,6 +188,7 @@ in
       Environment = [
         "HOME=/home/hermes-agent"
         "HERMES_HOME=/home/hermes-agent/.hermes"
+        "SSLKEYLOGFILE=/home/hermes-agent/.ssl-key.log"
         "PYTHONPATH=${pkgs.python3Packages.python-telegram-bot}/${pkgs.python3.sitePackages}"
       ];
       EnvironmentFile = "-/home/hermes-agent/.hermes/.env";
