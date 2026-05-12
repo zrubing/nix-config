@@ -154,6 +154,69 @@ in
     piPackage
   ];
 
+  # 本地通过 SSH 隧道推送到集群内 Zot（HTTP registry）。
+  virtualisation.containers.registries.insecure = [
+    "localhost:5000"
+    "zot.zot.svc.cluster.local:5000"
+    "10.144.144.4:30000"
+  ];
+
+  # 让 nova13 作为集群的 k0s worker（build/proxy 角色），与 zen14 保持同类配置。
+  system.activationScripts.k0sWritableEtc = {
+    deps = [ "specialfs" ];
+    text = ''
+      if [ -L /etc/k0s ]; then
+        rm -f /etc/k0s
+      elif [ -e /etc/k0s ] && [ ! -d /etc/k0s ]; then
+        rm -f /etc/k0s
+      fi
+      mkdir -p /etc/k0s
+      chmod 0755 /etc/k0s
+    '';
+  };
+  system.activationScripts.etc.deps = lib.mkForce [
+    "users"
+    "groups"
+    "specialfs"
+    "k0sWritableEtc"
+  ];
+  environment.etc."k0s/k0s.yaml".enable = lib.mkForce false;
+  environment.etc."k0s/containerd.d/mirrors.toml".text = ''
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."zot.zot.svc.cluster.local:5000"]
+      endpoint = ["http://10.144.144.4:30000", "http://10.144.144.1:30000"]
+
+    [plugins."io.containerd.grpc.v1.cri".registry.configs."zot.zot.svc.cluster.local:5000".tls]
+      insecure_skip_verify = true
+  '';
+
+  services.k0s = {
+    enable = true;
+    package = inputs.k0s-nix.packages.${system}.k0s;
+    role = "worker";
+    # 首次 join 需要提前放置 token 文件到 /var/lib/k0s/k0stoken
+    tokenFile = "/var/lib/k0s/k0stoken";
+    dataDir = "/var/lib/k0s";
+    extraArgs = ''--kubelet-extra-args="--node-ip=10.144.200.3 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=nova13:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
+    spec.api.address = "0.0.0.0";
+    spec.workerProfiles = [
+      {
+        name = "default";
+        values = {
+          evictionHard = {
+            "memory.available" = "100Mi";
+            # 磁盘压力阈值：剩余 5% 时才触发，等价于 95% 使用率
+            "nodefs.available" = "5%";
+            "nodefs.inodesFree" = "5%";
+            "imagefs.available" = "5%";
+          };
+          # 镜像 GC 默认阈值通常更早触发；显式提高到 95%，避免在 ~85% 使用率就进入磁盘回收/压力流程
+          imageGCHighThresholdPercent = 95;
+          imageGCLowThresholdPercent = 90;
+        };
+      }
+    ];
+  };
+
   environment.etc."profile.d/hermes-agent-sslkeylog.sh".text = ''
     if [ "''${USER:-}" = "hermes-agent" ]; then
       export SSLKEYLOGFILE=/home/hermes-agent/.ssl-key.log
@@ -161,6 +224,10 @@ in
   '';
 
   systemd.tmpfiles.rules = [
+    "d /etc/k0s 0755 root root -"
+    "d /opt/local-path-provisioner 0777 root root -"
+    "d /opt/local-path-provisioner/woodpecker-cache 0777 root root -"
+    "d /opt/local-path-provisioner/woodpecker-cache/buildkit-cache 0777 root root -"
     "d /home/hermes-agent/.hermes 0750 hermes-agent users -"
     "d /home/hermes-agent/.hermes/logs 0750 hermes-agent users -"
     "f /home/hermes-agent/.hermes/.env 0640 hermes-agent users -"
@@ -170,6 +237,52 @@ in
     "d /var/log/hermes-gateway-hermes-agent 0700 hermes-agent users -"
     "f /var/log/hermes-gateway-hermes-agent/gateway.log 0600 hermes-agent users -"
   ];
+
+  systemd.services.woodpecker-buildkit-cache-gc = {
+    description = "GC old Woodpecker BuildKit local cache";
+    wantedBy = [ "multi-user.target" ];
+    path = with pkgs; [
+      coreutils
+      findutils
+      util-linux
+      gawk
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+    };
+    script = ''
+      set -euo pipefail
+
+      cache_dir="/opt/local-path-provisioner/woodpecker-cache/buildkit-cache"
+      retention_days=7
+      high_watermark=85
+
+      if [ ! -d "$cache_dir" ]; then
+        echo "cache dir not found: $cache_dir, skip"
+        exit 0
+      fi
+
+      chmod 0777 "$cache_dir" || true
+
+      echo "gc old buildkit cache files older than $retention_days days"
+      find "$cache_dir" -mindepth 1 -mtime +"$retention_days" -print -delete || true
+
+      usage="$(df -P /opt/local-path-provisioner | awk 'NR==2{gsub("%","",$5); print $5}')"
+      if [ "''${usage:-0}" -ge "$high_watermark" ]; then
+        echo "disk usage ''${usage}% >= ''${high_watermark}%, wipe buildkit cache"
+        find "$cache_dir" -mindepth 1 -print -delete || true
+      fi
+    '';
+  };
+
+  systemd.timers.woodpecker-buildkit-cache-gc = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "daily";
+      RandomizedDelaySec = "30m";
+      Persistent = true;
+    };
+  };
 
   systemd.services.hermes-gateway-hermes-agent = {
     description = "Hermes gateway daemon for hermes-agent";
