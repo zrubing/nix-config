@@ -1,11 +1,16 @@
-{ config, lib, pkgs, namespace, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  namespace,
+  ...
+}:
 with lib;
 with lib.${namespace};
 let
   cfg = config.${namespace}.hypridle;
 
-  # noctalia 锁屏命令
-  lockCmd = "noctalia-shell ipc call lockScreen lock";
+  lockCmd = "swaylock -f";
   # niri 关闭显示器命令
   powerOffMonitors = "${pkgs.niri}/bin/niri msg action power-off-monitors";
 in
