@@ -106,7 +106,10 @@ in
     };
 
     #dae.enable = true;
-    miho.enable = true;
+    miho = {
+      enable = true;
+      extraConfig = import ./miho-extra-config.nix;
+    };
     desktop-programs.enable = false;
 
     restic.enable = true;
@@ -153,6 +156,7 @@ in
     codexPackage
     piPackage
   ];
+
 
   # 本地通过 SSH 隧道推送到集群内 Zot（HTTP registry）。
   virtualisation.containers.registries.insecure = [
