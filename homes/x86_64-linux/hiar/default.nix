@@ -9,8 +9,7 @@
 }:
 let
   pkgs-nix-ai = inputs.llm-agents.packages.${system};
-  llmAgentsEnabled =
-    config.${namespace}.modules.packages.tools.ai.llmAgents.enable;
+  llmAgentsEnabled = config.${namespace}.modules.packages.tools.ai.llmAgents.enable;
 in
 {
   home.stateVersion = "25.11";
@@ -19,7 +18,8 @@ in
 
   internal = {
     desktop.niri.enable = true;
-    noctalia.enable = true;
+    gpui-shell.enable = true;
+    noctalia.enable = false;
 
     emacs = {
       enable = true;
@@ -35,7 +35,6 @@ in
     };
     sops.enable = true;
     bash.enable = true;
-
 
     devpackages = {
       enable = true;

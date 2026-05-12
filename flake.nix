@@ -92,6 +92,11 @@
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
 
+    gpui-shell = {
+      url = "github:andre-brandao/gpui-shell";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+
     antigravity-nix = {
       url = "github:jacopone/antigravity-nix";
       inputs.nixpkgs.follows = "nixpkgs";

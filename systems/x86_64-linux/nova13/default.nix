@@ -73,7 +73,8 @@ in
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-nova13.age";
     nix-ld.enable = false;
-    noctalia.enable = lib.mkForce true;
+    gpui-shell.enable = lib.mkForce true;
+    noctalia.enable = lib.mkForce false;
     #builder.enable = true;
     desktop.niri.enable = lib.mkForce true;
 
@@ -93,7 +94,8 @@ in
         ghostty.enable = lib.mkForce false;
         modules.fcitx5.enable = lib.mkForce false;
         programs.wechat.enable = lib.mkForce false;
-        noctalia.enable = lib.mkForce true;
+        gpui-shell.enable = lib.mkForce true;
+        noctalia.enable = lib.mkForce false;
       };
 
       # nova13 常通过 SSH 使用；不要继承桌面机的 `sudo -A` GUI askpass 习惯，
@@ -156,7 +158,6 @@ in
     codexPackage
     piPackage
   ];
-
 
   # 本地通过 SSH 隧道推送到集群内 Zot（HTTP registry）。
   virtualisation.containers.registries.insecure = [

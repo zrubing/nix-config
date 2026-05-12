@@ -21,11 +21,11 @@ in
     # services.xwayland-satellite.enable = true;
     # services.dunst.enable = true;
     # services.swayidle.enable = true;
-    
 
     ${namespace} = {
       #rgbar.enable = true;
-      noctalia.enable = true;
+      gpui-shell.enable = true;
+      noctalia.enable = false;
       #copyq.enable = true;
       yazi.enable = true;
       #xdg-portal.enable = true;
@@ -36,7 +36,6 @@ in
 
       swayidle.enable = false;
       hypridle.enable = true;
-
 
       # 使用niri-flake自带的xwayland-satellite
       niri-flake.enable = true;
