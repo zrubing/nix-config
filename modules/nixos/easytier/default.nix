@@ -6,7 +6,10 @@
   ...
 }:
 let
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
+  pkgs-unstable = import inputs.nixpkgs-unstable {
+    inherit system;
+    overlays = [ (import ../../../overlays/easytier-bin { }) ];
+  };
   hostName = config.networking.hostName;
   easytierIpByHost = {
     zen14 = "10.144.200.2";
