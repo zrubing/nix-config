@@ -72,7 +72,11 @@ in
         install -d -m 0700 /run/mihomo
         yq eval-all 'select(fileIndex == 0) *+ select(fileIndex == 1)' \
           /run/agenix/miho-conf \
-          ${mihomoExtraConfigFile} > /run/mihomo/config.yaml
+          ${mihomoExtraConfigFile} > /run/mihomo/config.yaml.tmp
+        yq eval-all --inplace 'select(fileIndex == 0) * select(fileIndex == 1)' \
+          /run/mihomo/config.yaml.tmp \
+          ${mihomoExtraConfigFile}
+        mv /run/mihomo/config.yaml.tmp /run/mihomo/config.yaml
         chmod 0600 /run/mihomo/config.yaml
       '';
     };
