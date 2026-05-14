@@ -56,4 +56,5 @@ in
 
   home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skill-sources/woodpecker-ci;
   home.file.".pi/agent/skills/zli".source = ../../../.pi/skill-sources/zli;
+  home.file.".pi/agent/skills/sealed-secrets".source = ../../../.pi/skill-sources/sealed-secrets;
 }
