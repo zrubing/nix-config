@@ -266,7 +266,9 @@ in
     "localhost:5000"
     "zot.zot.svc.cluster.local:5000"
     "10.144.144.4:30000"
+    "10.144.200.2:30002"
   ];
+
 
   # 让 zen14 作为集群的 k0s worker（build/proxy 角色）
   system.activationScripts.k0sWritableEtc = {

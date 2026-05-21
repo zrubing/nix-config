@@ -1,4 +1,7 @@
-{ inputs, lib, ... }:
+{ inputs, lib, config, ... }:
+let
+  isNixOS = config ? systemd;
+in
 {
   nix = {
     extraOptions = ''
@@ -64,5 +67,16 @@
       automatic = lib.mkDefault false;
       options = "--delete-older-than 1d";
     };
+  };
+
+  services.fast-nix-gc = lib.mkIf isNixOS {
+    enable = lib.mkDefault true;
+    automatic = lib.mkDefault false;
+    dates = lib.mkDefault "03:15";
+    randomizedDelaySec = lib.mkDefault "45min";
+    persistent = lib.mkDefault true;
+    deleteOlderThan = lib.mkDefault "7d";
+    keepRecent = lib.mkDefault "1d";
+    extraArgs = lib.mkDefault [ "--delete-old" ];
   };
 }

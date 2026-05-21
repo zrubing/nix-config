@@ -59,6 +59,10 @@
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    fast-nix-gc = {
+      url = "github:Mic92/fast-nix-gc";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     k0s-nix.url = "github:zrubing/k0s-nix/main";
 
     rime-3gram = {
@@ -93,7 +97,7 @@
     };
 
     gpui-shell = {
-      url = "github:andre-brandao/gpui-shell";
+      url = "github:zrubing/gpui-shell";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
 
@@ -146,6 +150,7 @@
       systems.modules.nixos = with inputs; [
         agenix.nixosModules.default
         sops-nix.nixosModules.sops
+        fast-nix-gc.nixosModules.default
         k0s-nix.nixosModules.default
       ];
 
