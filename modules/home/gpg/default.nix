@@ -50,6 +50,10 @@ in
           source = "${mysecrets}/public/iZj6ceb1vr0baqid5dctyzZ.pub";
           trust = 5;
         }
+        {
+          source = "${mysecrets}/public/vm0-16-ubuntu.pub";
+          trust = 5;
+        }
 
       ];
 

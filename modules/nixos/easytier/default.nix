@@ -38,6 +38,20 @@ in
     '';
   };
 
+  # zen14 ↔ sg 直连
+  sops.templates."easytier-zen-sg-config" = lib.mkIf (easytierIp != null) {
+    content = ''
+      instance_name = "easytier-zen-sg"
+
+      [network_identity]
+      network_name = "zen-sg"
+      network_secret = "${config.sops.placeholder."easytier/zen-sg/network_secret"}"
+
+      [[peer]]
+      uri = "${config.sops.placeholder."easytier/zen-sg/peer"}"
+    '';
+  };
+
   services.easytier = lib.mkIf (easytierIp != null) {
     enable = true;
     package = pkgs-unstable.easytier;
@@ -60,6 +74,21 @@ in
         "true"
       ];
       configFile = "${config.sops.templates."easytier-config".path}";
+    };
+
+    # zen14 ↔ sg 直连网络（给 build pod push 镜像到 sg zot 用，10.144.210.0/24）
+    instances."easytier-zen-sg" = {
+      extraArgs = [
+        "-i"
+        "10.144.210.2"
+        "--listeners"
+        "tcp://0.0.0.0:18135"
+        "--accept-dns"
+        "false"
+        "--disable-p2p"
+        "true"
+      ];
+      configFile = "${config.sops.templates."easytier-zen-sg-config".path}";
     };
   };
 }
