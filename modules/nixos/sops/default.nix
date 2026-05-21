@@ -33,27 +33,4 @@ in
     sopsFile = "${mysecrets}/secrets/env.yaml";
   };
 
-  # SG 专用 Zot 上游 registry：zen14 写入公网 TOS/S3，SG 只读同一 backend。
-  # 这些 key 只给 zen14 本机 registry 使用，不影响 ali 现有 zot/CI。
-  sops.secrets."zot/sg_s3/region" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-    path = "/run/secrets/zot_sg_s3_region";
-  };
-  sops.secrets."zot/sg_s3/region_endpoint" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-    path = "/run/secrets/zot_sg_s3_region_endpoint";
-  };
-  sops.secrets."zot/sg_s3/bucket" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-    path = "/run/secrets/zot_sg_s3_bucket";
-  };
-  sops.secrets."zot/sg_s3/access_key" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-    path = "/run/secrets/zot_sg_s3_access_key";
-  };
-  sops.secrets."zot/sg_s3/secret_key" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-    path = "/run/secrets/zot_sg_s3_secret_key";
-  };
-
 }
