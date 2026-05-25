@@ -16,6 +16,7 @@ in
     home.config = {
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
       internal.observabilityPortForward.enable = true;
+
     };
   };
   snowfallorg.users.hiar = {
@@ -193,6 +194,8 @@ in
         };
       };
     };
+    # 暂时关闭，避免 sops secret k8s_port_forward/commands 缺失导致系统构建失败。
+    k8s-port-forward.enable = false;
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-zen14.age";
     #builder.enable = true;
@@ -233,6 +236,7 @@ in
     "127.0.0.1" = [ "redis.test.local" ];
     "127.0.0.2" = [
       "test.mysql.local"
+      "sg.postgres.local"
     ];
     "127.0.0.3" = [ "prod.mysql.local" ];
     "127.0.0.10" = [ "loki.local" ];
