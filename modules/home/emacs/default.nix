@@ -18,6 +18,14 @@ let
   tdlib-dir = "${config.xdg.dataHome}/tdlib";
   rime-data-dir = "${config.xdg.dataHome}/rime-data";
 
+  # tdlib's transitive shared library dependencies
+  tdlib-pkg = pkgs-unstable.tdlib;
+  tdlib-so-deps = [
+    (lib.getLib pkgs-unstable.openssl)
+    (lib.getLib pkgs-unstable.zlib)
+    (lib.getLib pkgs-unstable.stdenv.cc.cc.lib)
+  ];
+
   doom-repo = "${config.xdg.configHome}/emacs.doom/.local/straight/repos";
 
   envConfig = ''
@@ -58,7 +66,18 @@ let
       mkdir -p ${rime-data-dir}
       ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs.rime-ice}/ ${rime-data-dir}/
       mkdir -p ${tdlib-dir}
-      ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${pkgs-unstable.tdlib}/ ${tdlib-dir}/
+      ${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${tdlib-pkg}/ ${tdlib-dir}/
+      # Copy transitive .so dependencies (openssl, zlib, libstdc++) so
+      # the rsync'd tdlib is self-contained and survives nix GC.
+      ${lib.concatStringsSep "\n" (
+        map (dep: "${pkgs.rsync}/bin/rsync -avz --chmod=D2755,F744 ${dep}/lib/ ${tdlib-dir}/lib/")
+          tdlib-so-deps
+      )}
+      # Patch RUNPATH to $ORIGIN so libtdjson.so finds co-located deps
+      for so in ${tdlib-dir}/lib/libtdjson.so*; do
+        if [ -L "$so" ] || ! file "$so" | grep -q 'ELF'; then continue; fi
+        ${pkgs.patchelf}/bin/patchelf --set-rpath '\$ORIGIN' "$so" 2>/dev/null || true
+      done
     '';
   };
 in
