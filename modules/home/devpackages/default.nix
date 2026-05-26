@@ -173,7 +173,7 @@ in
           postgresql
           flyway
 
-          inputs.process-compose.packages.${system}.process-compose
+          #inputs.process-compose.packages.${system}.process-compose
 
           woodpecker-cli
           kubeseal
