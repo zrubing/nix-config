@@ -212,6 +212,8 @@ in
     xray-client = {
       enable = true;
       configSecretFile = "xray-client-conf.json.age";
+      # 固定 uid/gid，供 nftables 在构建期用数字 skuid 匹配，避免构建沙箱无法解析用户名。
+      userId = 983;
     };
     trojan-go.enable = true;
     ollama.enable = false;
