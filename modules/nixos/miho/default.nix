@@ -4,12 +4,10 @@
   lib,
   namespace,
   pkgs,
-  system,
   ...
 }:
 let
   mysecrets = inputs.mysecrets;
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
   cfg = config.${namespace}.miho;
   mihomoExtraConfigFile = (pkgs.formats.yaml { }).generate "mihomo-extra.yaml" cfg.extraConfig;
 in
@@ -25,13 +23,13 @@ in
 
   config = lib.mkIf cfg.enable {
 
-    environment.systemPackages = with pkgs; [ pkgs-unstable.mihomo ];
+    environment.systemPackages = [ pkgs.${namespace}.mihomo ];
 
     age.secrets.miho-conf.file = "${mysecrets}/miho-conf/zen14-test.age";
 
     services.mihomo = {
       enable = true;
-      package = pkgs-unstable.mihomo;
+      package = pkgs.${namespace}.mihomo;
       configFile = "/run/mihomo/config.yaml";
       tunMode = true;
     };
