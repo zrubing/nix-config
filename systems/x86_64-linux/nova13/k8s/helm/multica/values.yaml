@@ -24,7 +24,7 @@ backend:
     allowSignup: true
     allowedEmails: ""
     allowedEmailDomains: ""
-    disableWorkspaceCreation: true
+    disableWorkspaceCreation: false
 
 frontend:
   replicas: 1
