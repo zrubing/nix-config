@@ -2,11 +2,12 @@
 let
   cfgFile = config.age.secrets.caddy-conf.path;
   mysecrets = inputs.mysecrets;
+  hostName = config.networking.hostName;
 in
 {
 
   age.secrets.caddy-conf = {
-    file = "${mysecrets}/caddy-conf.age";
+    file = lib.mkDefault "${mysecrets}/caddy-conf-${hostName}.age";
     owner = "caddy";
     group = "users";
   };
