@@ -12,9 +12,18 @@ let
   codexPackage = inputs.llm-agents.packages.${system}.codex;
   piPackage = inputs.llm-agents.packages.${system}.pi;
   multicaPackage = pkgs.${namespace}.multica;
+  multicaK8s = import ./k8s/helm/multica {
+    inherit pkgs;
+    hostname = "nova13";
+  };
+  multicaManifest = multicaK8s.manifest;
 in
 {
-  snowfallorg.users.jojo = { };
+  snowfallorg.users.jojo = {
+    home.config = {
+      home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
+    };
+  };
   snowfallorg.users.hiar = {
     home.config = config.${namespace}.home.extraOptions;
   };
@@ -106,6 +115,7 @@ in
       # SSLKEYLOGFILE 是桌面抓包调试用变量。nova13 上通过 SSH 使用 jojo 时不应强制
       # 走 GUI/桌面抓包配置，避免 sudo/su 到其他用户时继承 `/home/jojo/.ssl-key.log`。
       home.sessionVariables.SSLKEYLOGFILE = lib.mkForce "";
+      home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
     };
 
     #dae.enable = true;
@@ -154,12 +164,76 @@ in
     '';
   };
 
+  sops.age.sshKeyPaths = [ "/home/jojo/.ssh/id_ed25519" ];
+  sops.secrets."multica/JWT_SECRET".sopsFile = ./secrets/multica.yaml;
+  sops.secrets."multica/POSTGRES_PASSWORD".sopsFile = ./secrets/multica.yaml;
+
   environment.systemPackages = [
     hermesPackage
     codexPackage
     piPackage
     multicaPackage
+    pkgs.kubernetes-helm
+    pkgs.kubectl
   ];
+
+  environment.etc."multica/multica.yaml".source = multicaManifest;
+  environment.etc."multica/values.yaml".source = multicaK8s.valuesFile;
+  environment.etc."multica/extra-resources.yaml".source = multicaK8s.extraResourcesFile;
+
+  systemd.services.multica-k0s-apply = {
+    description = "Apply Multica kubenix manifests to k0s cluster";
+    wantedBy = [ "multi-user.target" ];
+    after = [
+      "network-online.target"
+      "sops-install-secrets.service"
+      "k0sworker.service"
+    ];
+    wants = [
+      "network-online.target"
+      "sops-install-secrets.service"
+    ];
+    path = with pkgs; [
+      kubectl
+      coreutils
+      bash
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      set -euo pipefail
+
+      kubeconfig="/home/jojo/.kube/config-k0s.yml"
+
+      if [ ! -s "$kubeconfig" ]; then
+        echo "kubeconfig not ready: $kubeconfig"
+        exit 1
+      fi
+
+      for _ in $(seq 1 60); do
+        if ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" cluster-info >/dev/null 2>&1; then
+          break
+        fi
+        sleep 5
+      done
+
+      jwt_secret=$(tr -d '\n' < ${config.sops.secrets."multica/JWT_SECRET".path})
+      postgres_password=$(tr -d '\n' < ${config.sops.secrets."multica/POSTGRES_PASSWORD".path})
+
+      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" create namespace multica --dry-run=client -o yaml | \
+        ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f -
+
+      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" -n multica create secret generic multica-secrets \
+        --from-literal=JWT_SECRET="$jwt_secret" \
+        --from-literal=POSTGRES_PASSWORD="$postgres_password" \
+        --dry-run=client -o yaml | \
+        ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f -
+
+      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f /etc/multica/multica.yaml
+    '';
+  };
 
   # 本地通过 SSH 隧道推送到集群内 Zot（HTTP registry）。
   virtualisation.containers.registries.insecure = [
