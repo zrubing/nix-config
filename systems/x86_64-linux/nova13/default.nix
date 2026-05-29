@@ -222,10 +222,10 @@ in
       jwt_secret=$(tr -d '\n' < ${config.sops.secrets."multica/JWT_SECRET".path})
       postgres_password=$(tr -d '\n' < ${config.sops.secrets."multica/POSTGRES_PASSWORD".path})
 
-      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" create namespace multica --dry-run=client -o yaml | \
+      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" create namespace ${multicaK8s.namespace} --dry-run=client -o yaml | \
         ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f -
 
-      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" -n multica create secret generic multica-secrets \
+      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" -n ${multicaK8s.namespace} create secret generic ${multicaK8s.secretName} \
         --from-literal=JWT_SECRET="$jwt_secret" \
         --from-literal=POSTGRES_PASSWORD="$postgres_password" \
         --dry-run=client -o yaml | \
