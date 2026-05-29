@@ -3,6 +3,8 @@ let
   namespace = "multica";
   releaseName = "multica";
   secretName = "multica-secrets";
+  frontendNodePort = 30082;
+  backendNodePort = 30081;
   chart =
     let
       src = pkgs.fetchFromGitHub {
@@ -32,11 +34,20 @@ with open(src) as f:
     docs = list(yaml.safe_load_all(f))
 
 pin_names = {"multica-backend", "multica-frontend", "multica-postgres"}
+node_port_map = {
+    "multica-frontend": ${toString frontendNodePort},
+    "multica-backend": ${toString backendNodePort},
+}
+
 for doc in docs:
     if not isinstance(doc, dict):
         continue
-    if doc.get("apiVersion") == "apps/v1" and doc.get("kind") == "Deployment":
-        name = ((doc.get("metadata") or {}).get("name"))
+
+    kind = doc.get("kind")
+    metadata = doc.get("metadata") or {}
+    name = metadata.get("name")
+
+    if doc.get("apiVersion") == "apps/v1" and kind == "Deployment":
         if name in pin_names:
             spec = doc.setdefault("spec", {}).setdefault("template", {}).setdefault("spec", {})
             spec["nodeSelector"] = {"kubernetes.io/hostname": "${hostname}"}
@@ -46,6 +57,13 @@ for doc in docs:
                 "value": "${hostname}",
                 "effect": "NoSchedule",
             }]
+
+    if doc.get("apiVersion") == "v1" and kind == "Service" and name in node_port_map:
+        spec = doc.setdefault("spec", {})
+        spec["type"] = "NodePort"
+        ports = spec.get("ports") or []
+        if ports:
+            ports[0]["nodePort"] = node_port_map[name]
 
 first = True
 for doc in docs:
@@ -59,5 +77,5 @@ PY
   '';
 in
 {
-  inherit namespace releaseName secretName chart valuesFile extraResourcesFile postRenderer;
+  inherit namespace releaseName secretName chart valuesFile extraResourcesFile postRenderer frontendNodePort backendNodePort;
 }
