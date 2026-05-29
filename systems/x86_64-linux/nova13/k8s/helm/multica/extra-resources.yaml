@@ -1,0 +1,74 @@
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: multica-frontend-route
+  namespace: multica
+spec:
+  parentRefs:
+    - name: main-gateway
+      namespace: nginx-gateway
+      sectionName: http
+  hostnames:
+    - multica.hinihao.net
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: multica-frontend
+          port: 3000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: multica-backend-route
+  namespace: multica
+spec:
+  parentRefs:
+    - name: main-gateway
+      namespace: nginx-gateway
+      sectionName: http
+  hostnames:
+    - multica-api.hinihao.net
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: multica-backend
+          port: 8080
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: multica-rollup-task-usage-hourly
+  namespace: multica
+spec:
+  schedule: '*/5 * * * *'
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: rollup
+              image: pgvector/pgvector:pg17
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: multica-secrets
+                      key: POSTGRES_PASSWORD
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  psql -h multica-postgres -U multica -d multica \
+                    -c "SELECT rollup_task_usage_hourly();"

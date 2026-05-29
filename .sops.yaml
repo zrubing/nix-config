@@ -1,0 +1,7 @@
+creation_rules:
+  - path_regex: ^systems/x86_64-linux/nova13/secrets/.*\.ya?ml$
+    age:
+      # zen14
+      - age18punjd2wdz9s3p74sj8w6k5krkhxuwyn2g275ujkcjg76yuqjpws66s9l6
+      # nova13
+      - age1hdh4aq9dhsnkzjws9s9c243mzn9v5hu433lk72c4pf29vrmuq36qg2ksmr
