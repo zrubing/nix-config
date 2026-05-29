@@ -21,10 +21,21 @@ in
   snowfallorg.users.jojo = {
     home.config = {
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
+      home.file.".multica/config.json".text = builtins.toJSON {
+        server_url = "http://multica-api.local";
+        app_url = "http://multica.local";
+      };
     };
   };
   snowfallorg.users.hiar = {
     home.config = config.${namespace}.home.extraOptions;
+  };
+
+  networking.hosts = {
+    "10.144.200.3" = [
+      "multica.local"
+      "multica-api.local"
+    ];
   };
 
   time.timeZone = "Asia/Shanghai";
