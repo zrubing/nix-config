@@ -41,6 +41,12 @@ let
       ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.claude-code-router
       ${pkgs.coreutils}/bin/cat ${config.age.secrets."ccr.config.json".path} > /home/${username}/.claude-code-router/config.json
     fi
+
+    if [ -r ${config.age.secrets."agents/pi/models.json".path} ]; then
+      ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.pi/agent
+      ${pkgs.coreutils}/bin/cat ${config.age.secrets."agents/pi/models.json".path} > /home/${username}/.pi/agent/models.json
+      ${pkgs.coreutils}/bin/chmod 0600 /home/${username}/.pi/agent/models.json
+    fi
   '';
 in
 {
@@ -65,6 +71,7 @@ in
     age.secrets."codex/auth.json".file = "${mysecrets}/codex/auth.json.age";
 
     age.secrets."ccr.config.json".file = "${mysecrets}/ccr.config.age";
+    age.secrets."agents/pi/models.json".file = "${mysecrets}/agents/pi/models.json.age";
 
     home.packages = [
       #inputs.agenix.packages.${system}.agenix
