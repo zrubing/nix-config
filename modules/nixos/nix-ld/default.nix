@@ -20,19 +20,19 @@ in
     programs.nix-ld.libraries = with pkgs; [
     stdenv.cc.cc
     openssl
-    xorg.libXcomposite
-    xorg.libXtst
-    xorg.libXrandr
-    xorg.libXext
-    xorg.libX11
-    xorg.libXfixes
+    pkgs.libxcomposite
+    pkgs.libxtst
+    pkgs.libxrandr
+    pkgs.libxext
+    pkgs.libx11
+    pkgs.libxfixes
     libGL
     libva
     #pipewire.lib
-    xorg.libxcb
-    xorg.libXdamage
-    xorg.libxshmfence
-    xorg.libXxf86vm
+    pkgs.libxcb
+    pkgs.libxdamage
+    pkgs.libxshmfence
+    pkgs.libxxf86vm
     libelf
 
     # Required
@@ -42,13 +42,13 @@ in
     bzip2
 
     # Without these it silently fails
-    xorg.libXinerama
-    xorg.libXcursor
-    xorg.libXrender
-    xorg.libXScrnSaver
-    xorg.libXi
-    xorg.libSM
-    xorg.libICE
+    pkgs.libxinerama
+    pkgs.libxcursor
+    pkgs.libxrender
+    pkgs.libxscrnsaver
+    pkgs.libxi
+    pkgs.libsm
+    pkgs.libice
     gnome2.GConf
     nspr
     nss
@@ -62,13 +62,13 @@ in
     libudev0-shim
 
     # Verified games requirements
-    xorg.libXt
-    xorg.libXmu
+    pkgs.libxt
+    pkgs.libxmu
     libogg
     libvorbis
     SDL
     SDL2_image
-    glew110
+    glew_1_10
     libidn
     tbb
 
@@ -97,7 +97,7 @@ in
     libgcrypt
     libvpx
     librsvg
-    xorg.libXft
+    pkgs.libxft
     libvdpau
     pango
     cairo

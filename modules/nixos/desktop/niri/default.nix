@@ -27,7 +27,6 @@ in
       services.flatpak.enable = true;
       environment.systemPackages = with pkgs; [
         dunst
-        pkgs.${namespace}.rgbar
         fuzzel
         wl-clipboard
 

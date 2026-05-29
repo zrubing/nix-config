@@ -20,8 +20,8 @@ let
     };
   };
 
-  platform = binaries.${stdenv.system}
-    or (throw "Unsupported system: ${stdenv.system}");
+  platform = binaries.${stdenv.hostPlatform.system}
+    or (throw "Unsupported system: ${stdenv.hostPlatform.system}");
 in
 stdenvNoCC.mkDerivation {
   pname = "mihomo";

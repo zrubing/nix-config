@@ -46,7 +46,7 @@ in
       slurp
 
       mako
-      xorg.xrdb
+      xrdb
       papirus-icon-theme
     ];
 

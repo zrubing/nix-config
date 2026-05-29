@@ -11,6 +11,7 @@ let
   hermesPackage = inputs.llm-agents.packages.${system}.hermes-agent;
   codexPackage = inputs.llm-agents.packages.${system}.codex;
   piPackage = inputs.llm-agents.packages.${system}.pi;
+  multicaPackage = pkgs.${namespace}.multica;
 in
 {
   snowfallorg.users.jojo = { };
@@ -157,6 +158,7 @@ in
     hermesPackage
     codexPackage
     piPackage
+    multicaPackage
   ];
 
   # 本地通过 SSH 隧道推送到集群内 Zot（HTTP registry）。

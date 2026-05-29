@@ -2,7 +2,7 @@
   lib,
   buildNpmPackage,
   fetchzip,
-  nodejs_20,
+  nodejs_24,
   makeWrapper,
 }:
 
@@ -10,7 +10,7 @@ buildNpmPackage rec {
   pname = "prettier-plugin-nginx";
   version = "1.0.3";
 
-  nodejs = nodejs_20;
+  nodejs = nodejs_24;
 
   nativeBuildInputs = [ makeWrapper ];
 

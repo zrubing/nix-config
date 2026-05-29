@@ -129,7 +129,7 @@ in
     xdg.configFile = lib.mkMerge [
       (lib.mkIf cfg.web.enable {
         "lsp-bridge-lib/typescript-lib" = {
-          source = "${pkgs.nodePackages.typescript}/lib/node_modules/typescript/lib";
+          source = "${pkgs.typescript}/lib/node_modules/typescript/lib";
           recursive = true;
         };
       })
@@ -203,7 +203,7 @@ in
         (lib.optionals cfg.nix.enable [
           nix-direnv
           direnv
-          nixfmt-rfc-style
+          nixfmt
           statix
           deadnix
           alejandra
@@ -231,11 +231,11 @@ in
           pkgs-unstable.ty
           (python312.withPackages (
             ps: with ps; [
-              paddleocr
+              # paddleocr 先停用，避免拉入 pdf2docx/pymupdf/mupdf 重依赖链
               pipdeptree
               ruff
               black
-              jupyter
+              # jupyter 先停用，减少重型 Python 依赖链
               ipython
               pandas
               requests
@@ -258,13 +258,14 @@ in
               tqdm
               gitignore-parser
               scipy
-              litellm
+              # litellm 先停用，避免拉入 tokenizers/huggingface-hub/hf-xet
             ] ++ lib.optionals cfg.treeSitter.enable [
-              pkgs.${namespace}.grep-ast
-              pkgs.${namespace}.tree-sitter-language-pack
-              pkgs.${namespace}.tree-sitter-c-sharp
-              pkgs.${namespace}.tree-sitter-embedded-template
-              pkgs.${namespace}.tree-sitter-yaml
+              # 先停用 tree-sitter 扩展包，避免无用构建和依赖报错
+              # pkgs.${namespace}.grep-ast
+              # pkgs.${namespace}.tree-sitter-language-pack
+              # pkgs.${namespace}.tree-sitter-c-sharp
+              # pkgs.${namespace}.tree-sitter-embedded-template
+              # pkgs.${namespace}.tree-sitter-yaml
               tree-sitter
             ]
           ))
@@ -291,7 +292,7 @@ in
           gradle
           maven
           spring-boot-cli
-          google-antigravity
+          # google-antigravity 先停用，避免引入 antigravity-nix 的过时 xorg warning
         ])
 
         (lib.optionals cfg.shell.enable [
@@ -301,8 +302,8 @@ in
         ])
 
         (lib.optionals cfg.web.enable [
-          nodePackages.nodejs
-          nodePackages.typescript
+          nodejs
+          typescript
         ])
 
         (lib.optionals cfg.lisp.enable [
@@ -317,7 +318,7 @@ in
 
         (lib.optionals cfg.vscodeTools.enable [
           vscode-extensions.vadimcn.vscode-lldb.adapter
-          nodePackages.vscode-langservers-extracted
+          vscode-langservers-extracted
         ])
 
         (lib.optionals cfg.languageServers.enable [
@@ -327,7 +328,7 @@ in
           terraform-ls
           jsonnet-language-server
           taplo
-          nodePackages.yaml-language-server
+          yaml-language-server
           dockerfile-language-server
           marksman
           cmake-language-server
@@ -339,17 +340,17 @@ in
           intelephense
           zls
           lua-language-server
-          nodePackages.bash-language-server
+          bash-language-server
           #pkgs.${namespace}.vue-language-server
           vue-language-server
           pkgs-unstable.typescript-language-server
-          nodePackages."@tailwindcss/language-server"
+          tailwindcss-language-server
           emmet-ls
           (if pkgs.stdenv.isDarwin then pkgs.emptyDirectory else pkgs-unstable.akkuPackages.scheme-langserver)
         ])
 
         (lib.optionals cfg.gui.enable [
-          xfce.catfish
+          pkgs.catfish
           firefox
           obs-studio
           pkgs-unstable.google-chrome

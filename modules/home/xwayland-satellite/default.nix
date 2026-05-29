@@ -25,7 +25,7 @@ in
     # 暂时没用到，先生成一个文件
     home.file.".xinitrc".text = ''
       #!/usr/bin/env bash
-      ${pkgs.xorg.xrdb}/bin/xrdb -merge ~/.Xresources
+      ${pkgs.xrdb}/bin/xrdb -merge ~/.Xresources
     '';
 
     systemd.user.services.xrdb = {
@@ -45,7 +45,7 @@ in
 
       Service = {
         Type = "oneshot";
-        ExecStart = "/usr/bin/env 'DISPLAY=:0' ${pkgs.xorg.xrdb}/bin/xrdb ${cfg-xwayland.x-resources.source}";
+        ExecStart = "/usr/bin/env 'DISPLAY=:0' ${pkgs.xrdb}/bin/xrdb ${cfg-xwayland.x-resources.source}";
         Environment = "DISPLAY=:0";
       };
     };
