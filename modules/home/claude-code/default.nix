@@ -41,63 +41,63 @@ in
       # 设置 XDG_RUNTIME_DIR 默认值，避免在 systemd 服务中报错
       export XDG_RUNTIME_DIR=''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 
-      conf=$HOME/.claude.json
+      jq_bin=${pkgs.jq}/bin/jq
+      mv_bin=${pkgs.coreutils}/bin/mv
+      mkdir_bin=${pkgs.coreutils}/bin/mkdir
+      secret_path=${config.age.secrets."claude.settings.json".path}
+      merged_settings=${mergedSettings}
 
-      # 如果主配置不存在，先写一个空对象进去
-      if [[ ! -f $conf ]]; then
-        echo '{}' > "$conf"
-      fi
+      write_mcp_servers_from_sources() {
+        local target="$1"
+        local target_dir
+        target_dir=$(dirname "$target")
 
-      # 合并 MCP 配置到 ~/.claude.json
-      # 先合并 secret 中的配置，再合并 chrome-devtools（需要 nix store 路径）
-      if [[ -f ${config.age.secrets."claude.settings.json".path} ]]; then
-        ${pkgs.jq}/bin/jq \
-          --slurpfile secret ${config.age.secrets."claude.settings.json".path} \
-          --slurpfile mcp ${mergedSettings} \
-          '.mcpServers = ((.mcpServers // {}) * ($secret[0].mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
-          "$conf" > /tmp/.claude.json.tmp && \
-        ${pkgs.coreutils}/bin/mv /tmp/.claude.json.tmp "$conf"
-      else
-        ${pkgs.jq}/bin/jq --slurpfile mcp ${mergedSettings} \
-          '.mcpServers = ((.mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
-          "$conf" > /tmp/.claude.json.tmp && \
-        ${pkgs.coreutils}/bin/mv /tmp/.claude.json.tmp "$conf"
-      fi
+        "$mkdir_bin" -p "$target_dir"
 
-      # 使用与 Claude 相同的来源直接生成 Pi MCP 配置，避免依赖 ~/.claude.json 的运行时状态
-      pi_mcp_config="$HOME/.pi/agent/mcp.json"
-      ${pkgs.coreutils}/bin/mkdir -p "$HOME/.pi/agent"
+        if [[ ! -f "$target" ]]; then
+          echo '{}' > "$target"
+        fi
 
-      if [[ -f ${config.age.secrets."claude.settings.json".path} ]]; then
-        ${pkgs.jq}/bin/jq \
-          --slurpfile secret ${config.age.secrets."claude.settings.json".path} \
-          --slurpfile mcp ${mergedSettings} \
-          '.mcpServers = (($secret[0].mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
-          '{}' > "$pi_mcp_config.tmp" && \
-        ${pkgs.coreutils}/bin/mv "$pi_mcp_config.tmp" "$pi_mcp_config"
-      else
-        ${pkgs.jq}/bin/jq --slurpfile mcp ${mergedSettings} \
-          '.mcpServers = ($mcp[0].mcpServers // {})' \
-          '{}' > "$pi_mcp_config.tmp" && \
-        ${pkgs.coreutils}/bin/mv "$pi_mcp_config.tmp" "$pi_mcp_config"
-      fi
+        if [[ -f "$secret_path" ]]; then
+          "$jq_bin" \
+            --slurpfile secret "$secret_path" \
+            --slurpfile mcp "$merged_settings" \
+            '.mcpServers = ((.mcpServers // {}) * ($secret[0].mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
+            "$target" > "$target.tmp" && \
+          "$mv_bin" "$target.tmp" "$target"
+        else
+          "$jq_bin" \
+            --slurpfile mcp "$merged_settings" \
+            '.mcpServers = ((.mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
+            "$target" > "$target.tmp" && \
+          "$mv_bin" "$target.tmp" "$target"
+        fi
+      }
 
-      # 将 MCP 配置也替换到 ECA 配置中
-      eca_config="$HOME/.config/eca/config.json"
+      sync_mcp_servers_from_claude() {
+        local target="$1"
+        local target_dir
+        target_dir=$(dirname "$target")
 
-      # 如果 ECA 配置不存在，创建一个基础配置
-      if [[ ! -f "$eca_config" ]]; then
-        ${pkgs.coreutils}/bin/mkdir -p "$HOME/.config/eca"
-        echo '{}' > "$eca_config"
-      fi
+        "$mkdir_bin" -p "$target_dir"
 
-      # 如果 Claude 配置存在且包含 MCP 服务器配置，则完全替换到 ECA 配置
-      if [[ -f "$conf" ]]; then
-        ${pkgs.jq}/bin/jq --slurpfile claude "$conf" \
+        if [[ ! -f "$target" ]]; then
+          echo '{}' > "$target"
+        fi
+
+        "$jq_bin" --slurpfile claude "$conf" \
           '.mcpServers = ($claude[0].mcpServers // {})' \
-          "$eca_config" > "$eca_config.tmp" && \
-        ${pkgs.coreutils}/bin/mv "$eca_config.tmp" "$eca_config"
-      fi
+          "$target" > "$target.tmp" && \
+        "$mv_bin" "$target.tmp" "$target"
+      }
+
+      conf=$HOME/.claude.json
+      pi_mcp_config=$HOME/.pi/agent/mcp.json
+      eca_config=$HOME/.config/eca/config.json
+
+      write_mcp_servers_from_sources "$conf"
+      write_mcp_servers_from_sources "$pi_mcp_config"
+      sync_mcp_servers_from_claude "$eca_config"
     '';
   };
 }
