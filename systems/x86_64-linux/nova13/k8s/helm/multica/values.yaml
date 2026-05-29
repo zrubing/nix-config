@@ -17,12 +17,14 @@ backend:
       storageClass: local-path
   config:
     appEnv: production
-    appUrl: http://multica.acme.net
-    frontendOrigin: http://multica.acme.net
-    googleRedirectUri: http://multica.acme.net/auth/callback
-    localUploadBaseUrl: http://multica-api.acme.net
-    allowSignup: true
-    disableWorkspaceCreation: false
+    appUrl: http://multica.local
+    frontendOrigin: http://multica.local
+    googleRedirectUri: http://multica.local/auth/callback
+    localUploadBaseUrl: http://multica-api.local
+    allowSignup: false
+    allowedEmails: ""
+    allowedEmailDomains: ""
+    disableWorkspaceCreation: true
 
 frontend:
   replicas: 1
