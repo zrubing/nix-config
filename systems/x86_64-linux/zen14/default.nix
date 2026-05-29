@@ -230,6 +230,10 @@ in
     "127.0.0.3" = [ "prod.mysql.local" ];
     "127.0.0.10" = [ "loki.local" ];
     "127.0.0.11" = [ "tempo.local" ];
+    "10.144.200.3" = [
+      "multica.local"
+      "multica-api.local"
+    ];
   };
 
   environment.systemPackages = [

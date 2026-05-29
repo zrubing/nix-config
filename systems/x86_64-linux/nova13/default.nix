@@ -12,6 +12,7 @@ let
   codexPackage = inputs.llm-agents.packages.${system}.codex;
   piPackage = inputs.llm-agents.packages.${system}.pi;
   multicaPackage = pkgs.${namespace}.multica;
+  nova13NodeIp = "10.144.200.3";
   multicaK8s = import ./k8s/helm/multica {
     inherit pkgs;
     hostname = "nova13";
@@ -241,6 +242,16 @@ in
         --timeout 10m
 
       ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f /etc/multica/extra-resources.yaml
+    '';
+  };
+
+  services.caddy = {
+    enable = true;
+    virtualHosts."multica.local".extraConfig = ''
+      reverse_proxy ${nova13NodeIp}:${toString multicaK8s.frontendNodePort}
+    '';
+    virtualHosts."multica-api.local".extraConfig = ''
+      reverse_proxy ${nova13NodeIp}:${toString multicaK8s.backendNodePort}
     '';
   };
 
