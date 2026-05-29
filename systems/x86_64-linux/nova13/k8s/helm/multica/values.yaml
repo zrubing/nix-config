@@ -17,12 +17,14 @@ backend:
       storageClass: local-path
   config:
     appEnv: production
-    appUrl: http://multica.hinihao.net
-    frontendOrigin: http://multica.hinihao.net
-    googleRedirectUri: http://multica.hinihao.net/auth/callback
-    localUploadBaseUrl: http://multica-api.hinihao.net
-    allowSignup: true
-    disableWorkspaceCreation: false
+    appUrl: http://multica.local
+    frontendOrigin: http://multica.local
+    googleRedirectUri: http://multica.local/auth/callback
+    localUploadBaseUrl: http://multica-api.local
+    allowSignup: false
+    allowedEmails: ""
+    allowedEmailDomains: ""
+    disableWorkspaceCreation: true
 
 frontend:
   replicas: 1
