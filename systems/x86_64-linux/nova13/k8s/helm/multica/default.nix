@@ -2,6 +2,7 @@
 let
   namespace = "multica";
   releaseName = "multica";
+  secretName = "multica-secrets";
   chart =
     let
       src = pkgs.fetchFromGitHub {
@@ -68,5 +69,5 @@ PY
     '';
 in
 {
-  inherit namespace releaseName chart manifest valuesFile extraResourcesFile;
+  inherit namespace releaseName secretName chart manifest valuesFile extraResourcesFile;
 }
