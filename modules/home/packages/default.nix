@@ -89,31 +89,31 @@ in
     home.file.".pi/agent/skills/caveman".source = "${inputs.caveman-skills}/skills/caveman";
     home.file.".pi/agent/extensions/guardrails.json".source = ../../../.pi/extensions/guardrails.json;
 
-    home.activation.configurePiGuardrailsFork = config.lib.dag.entryAfter [ "writeBoundary" ] ''
-      settings_file="$HOME/.pi/agent/settings.json"
-      ${pkgs.coreutils}/bin/mkdir -p "$HOME/.pi/agent"
-
-      if [ ! -f "$settings_file" ]; then
-        cat > "$settings_file" <<'EOF'
-      {
-        "packages": []
-      }
-      EOF
-      fi
-
-      ${pkgs.jq}/bin/jq \
-        --arg forkPkg '${guardrailsPackage}' \
-        '
-        .packages = (
-          ((.packages // [])
-            | map(select(. != "npm:@aliou/pi-guardrails" and (. | startswith("git:github.com/zrubing/pi-guardrails") | not))))
-          + [$forkPkg]
-          | unique
-        )
-        ' "$settings_file" > "$settings_file.tmp"
-
-      ${pkgs.coreutils}/bin/mv "$settings_file.tmp" "$settings_file"
-    '';
+    # home.activation.configurePiGuardrailsFork = config.lib.dag.entryAfter [ "writeBoundary" ] ''
+    #   settings_file="$HOME/.pi/agent/settings.json"
+    #   ${pkgs.coreutils}/bin/mkdir -p "$HOME/.pi/agent"
+    #
+    #   if [ ! -f "$settings_file" ]; then
+    #     cat > "$settings_file" <<'EOF'
+    #   {
+    #     "packages": []
+    #   }
+    #   EOF
+    #   fi
+    #
+    #   ${pkgs.jq}/bin/jq \
+    #     --arg forkPkg '${guardrailsPackage}' \
+    #     '
+    #     .packages = (
+    #       ((.packages // [])
+    #         | map(select(. != "npm:@aliou/pi-guardrails" and (. | startswith("git:github.com/zrubing/pi-guardrails") | not))))
+    #       + [$forkPkg]
+    #       | unique
+    #     )
+    #     ' "$settings_file" > "$settings_file.tmp"
+    #
+    #   ${pkgs.coreutils}/bin/mv "$settings_file.tmp" "$settings_file"
+    # '';
 
     home.packages = with pkgs; [
       # claude sandbox
