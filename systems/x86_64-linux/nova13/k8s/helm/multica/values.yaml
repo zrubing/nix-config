@@ -21,7 +21,7 @@ backend:
     frontendOrigin: http://multica.local
     googleRedirectUri: http://multica.local/auth/callback
     localUploadBaseUrl: http://multica-api.local
-    allowSignup: false
+    allowSignup: true
     allowedEmails: ""
     allowedEmailDomains: ""
     disableWorkspaceCreation: true
