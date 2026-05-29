@@ -16,7 +16,7 @@ backend:
       size: 5Gi
       storageClass: local-path
   config:
-    appEnv: production
+    appEnv: development
     appUrl: http://multica.local
     frontendOrigin: http://multica.local
     googleRedirectUri: http://multica.local/auth/callback

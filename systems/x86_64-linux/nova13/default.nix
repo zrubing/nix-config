@@ -228,6 +228,7 @@ in
       ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" -n ${multicaK8s.namespace} create secret generic ${multicaK8s.secretName} \
         --from-literal=JWT_SECRET="$jwt_secret" \
         --from-literal=POSTGRES_PASSWORD="$postgres_password" \
+        --from-literal=MULTICA_DEV_VERIFICATION_CODE="888888" \
         --dry-run=client -o yaml | \
         ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f -
 
