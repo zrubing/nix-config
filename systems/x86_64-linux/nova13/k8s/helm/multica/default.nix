@@ -19,21 +19,15 @@ let
 
   valuesFile = ./values.yaml;
   extraResourcesFile = ./extra-resources.yaml;
+  postRenderer = pkgs.writeShellScript "multica-helm-post-renderer" ''
+    set -euo pipefail
 
-  manifest = pkgs.runCommand "multica-manifest.yaml"
-    {
-      nativeBuildInputs = [
-        pkgs.kubernetes-helm
-        (pkgs.python3.withPackages (ps: [ ps.pyyaml ]))
-      ];
-    }
-    ''
-      tmp_yaml=$(mktemp)
-      helm template ${releaseName} ${chart} -f ${valuesFile} > "$tmp_yaml"
+    tmp_yaml=$(mktemp)
+    cat > "$tmp_yaml"
 
-      python - "$tmp_yaml" "$out" <<'PY'
+    ${pkgs.python3.withPackages (ps: [ ps.pyyaml ])}/bin/python - "$tmp_yaml" <<'PY'
 import sys, yaml
-src, out = sys.argv[1], sys.argv[2]
+src = sys.argv[1]
 with open(src) as f:
     docs = list(yaml.safe_load_all(f))
 
@@ -53,21 +47,17 @@ for doc in docs:
                 "effect": "NoSchedule",
             }]
 
-with open(out, 'w') as f:
-    first = True
-    for doc in docs:
-        if doc is None:
-            continue
-        if not first:
-            f.write('---\n')
-        yaml.safe_dump(doc, f, sort_keys=False)
-        first = False
-    f.write('---\n')
-    with open('${extraResourcesFile}') as extra:
-        f.write(extra.read())
+first = True
+for doc in docs:
+    if doc is None:
+        continue
+    if not first:
+        print('---')
+    print(yaml.safe_dump(doc, sort_keys=False), end="")
+    first = False
 PY
-    '';
+  '';
 in
 {
-  inherit namespace releaseName secretName chart manifest valuesFile extraResourcesFile;
+  inherit namespace releaseName secretName chart valuesFile extraResourcesFile postRenderer;
 }

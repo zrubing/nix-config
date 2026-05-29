@@ -16,7 +16,6 @@ let
     inherit pkgs;
     hostname = "nova13";
   };
-  multicaManifest = multicaK8s.manifest;
 in
 {
   snowfallorg.users.jojo = {
@@ -177,12 +176,12 @@ in
     pkgs.kubectl
   ];
 
-  environment.etc."multica/multica.yaml".source = multicaManifest;
   environment.etc."multica/values.yaml".source = multicaK8s.valuesFile;
   environment.etc."multica/extra-resources.yaml".source = multicaK8s.extraResourcesFile;
+  environment.etc."multica/post-renderer".source = multicaK8s.postRenderer;
 
   systemd.services.multica-k0s-apply = {
-    description = "Apply Multica kubenix manifests to k0s cluster";
+    description = "Deploy Multica to k0s cluster via Helm";
     wantedBy = [ "multi-user.target" ];
     after = [
       "network-online.target"
@@ -195,6 +194,7 @@ in
     ];
     path = with pkgs; [
       kubectl
+      kubernetes-helm
       coreutils
       bash
     ];
@@ -231,7 +231,16 @@ in
         --dry-run=client -o yaml | \
         ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f -
 
-      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f /etc/multica/multica.yaml
+      ${pkgs.kubernetes-helm}/bin/helm upgrade --install ${multicaK8s.releaseName} ${multicaK8s.chart} \
+        --kubeconfig "$kubeconfig" \
+        --namespace ${multicaK8s.namespace} \
+        --create-namespace \
+        --values /etc/multica/values.yaml \
+        --post-renderer /etc/multica/post-renderer \
+        --wait \
+        --timeout 10m
+
+      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f /etc/multica/extra-resources.yaml
     '';
   };
 
