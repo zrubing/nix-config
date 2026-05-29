@@ -7,6 +7,7 @@ python312Packages.buildPythonPackage rec {
   pname = "grep-ast";
   version = "0.8.1";
   format = "wheel";
+
   src = fetchPypi {
     inherit version format;
     pname = "grep_ast";
@@ -15,8 +16,12 @@ python312Packages.buildPythonPackage rec {
     platform = "any";
     python = "py3";
     dist = "py3";
-
   };
-  doCheck = false;
 
+  propagatedBuildInputs = with python312Packages; [
+    pathspec
+    tree-sitter-language-pack
+  ];
+
+  doCheck = false;
 }

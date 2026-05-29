@@ -2,7 +2,7 @@
   lib,
   stdenv,
   fetchFromGitHub,
-  nodejs_20,
+  nodejs_24,
   pnpm_9,
   makeBinaryWrapper,
 }:
@@ -19,7 +19,7 @@ stdenv.mkDerivation (finalAttrs: rec {
   };
 
   nativeBuildInputs = [
-    nodejs_20
+    nodejs_24
     pnpm_9.configHook
     makeBinaryWrapper
   ];
@@ -47,7 +47,7 @@ stdenv.mkDerivation (finalAttrs: rec {
     cp -r node_modules bin dist $out/lib/openspec
     cp package.json $out/lib/openspec/
 
-    makeWrapper ${lib.getExe nodejs_20} $out/bin/openspec \
+    makeWrapper ${lib.getExe nodejs_24} $out/bin/openspec \
       --inherit-argv0 \
       --add-flags $out/lib/openspec/bin/openspec.js
 

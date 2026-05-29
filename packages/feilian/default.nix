@@ -44,18 +44,18 @@ let
       glib
       nss
       nspr
-      xorg.libX11
-      xorg.libxcb
-      xorg.libXcomposite
-      xorg.libXcursor
-      xorg.libXdamage
-      xorg.libXext
-      xorg.libXfixes
-      xorg.libXi
-      xorg.libXrender
-      xorg.libXtst
-      xorg.libXrandr
-      xorg.libXScrnSaver
+      pkgs.libx11
+      pkgs.libxcb
+      pkgs.libxcomposite
+      pkgs.libxcursor
+      pkgs.libxdamage
+      pkgs.libxext
+      pkgs.libxfixes
+      pkgs.libxi
+      pkgs.libxrender
+      pkgs.libxtst
+      pkgs.libxrandr
+      pkgs.libxscrnsaver
       alsa-lib
       dbus
       at-spi2-core

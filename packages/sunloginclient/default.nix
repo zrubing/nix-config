@@ -5,7 +5,6 @@
   autoPatchelfHook,
   lib,
   makeWrapper,
-  xorg,
   libappindicator-gtk3,
   systemd,
   ncurses5,
@@ -77,21 +76,21 @@ stdenv.mkDerivation rec {
   ];
 
   buildInputs = [
-    xorg.libX11
-    xorg.libXtst
-    xorg.libXrandr
-    xorg.libXinerama
-    xorg.libxcb
-    xorg.libXext
-    xorg.libXi
-    xorg.libXrender
-    xorg.libXau
+    pkgs.libx11
+    pkgs.libxtst
+    pkgs.libxrandr
+    pkgs.libxinerama
+    pkgs.libxcb
+    pkgs.libxext
+    pkgs.libxi
+    pkgs.libxrender
+    pkgs.libxau
     libappindicator-gtk3
     ncurses5
     libcrypt-compat
     nss
     alsa-lib
-    xorg.libXScrnSaver
+    pkgs.libxscrnsaver
     pkgs.gnome2.GConf
     libwidevinecdm-compat
   ];

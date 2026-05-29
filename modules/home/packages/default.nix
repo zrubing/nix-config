@@ -134,13 +134,13 @@ in
       mprocs
     ] ++ lib.optionals cfg.tools.ai.enable [
       ollama-rocm
-      # for aider
-      python312Packages.playwright
+      # for aider（暂时停用，避免无用编译）
+      # python312Packages.playwright
       pkgs-unstable.tdlib
-      #pkgs.${namespace}.aider
-      pkgs.aider-chat
-      #pkgs-unstable.aider-chat
-      #pkgs-unstable.claude-code
+      # pkgs.${namespace}.aider
+      # pkgs.aider-chat
+      # pkgs-unstable.aider-chat
+      # pkgs-unstable.claude-code
       pkgs.${namespace}.zli
     ] ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.llmAgents.enable) [
       pkgs.${namespace}.claude-code
@@ -179,13 +179,13 @@ in
       feishu
       vscode
       code-cursor
-      wireshark-qt
+      wireshark
       pkgs-unstable.localsend
       sioyek
       pkgs-unstable.zed-editor
       libnotify
     ] ++ lib.optionals cfg.tools.database.enable [
-      redisinsight
+      # redisinsight 先停用，避免本地编译 redisinsight/nodejs-slim
       mongodb-compass
       pkgs-unstable.dbeaver-bin
     ] ++ lib.optionals cfg.tools.office.enable [

@@ -4,10 +4,10 @@
   inputs = {
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
 
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
     agenix.url = "github:ryantm/agenix";
 
-    home-manager.url = "github:nix-community/home-manager/release-25.11";
+    home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
 
     claude-code.url = "github:sadjow/claude-code-nix";
@@ -171,6 +171,8 @@
         allowUnfree = true;
         permittedInsecurePackages = [
           "electron-38.8.4"
+          "nodejs-slim-20.20.2"
+          "nodejs-20.20.2"
         ];
         overlays = [
           inputs.k0s-nix.overlays.default

@@ -10,6 +10,7 @@
 let
   piBin = "${inputs.llm-agents.packages.${system}.pi}/bin/pi";
   mysecrets = inputs.mysecrets;
+  proxysqlEnabled = false;
 in
 {
   snowfallorg.users.jojo = {
@@ -100,86 +101,72 @@ in
 
   modules.secrets.desktop.enable = true;
 
-  sops.secrets."proxysql/admin_username" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-  };
-  sops.secrets."proxysql/admin_password" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-  };
-  sops.secrets."proxysql/monitor_username" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-  };
-  sops.secrets."proxysql/monitor_password" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-  };
-  sops.secrets."proxysql/frontend_username" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-  };
-  sops.secrets."proxysql/frontend_password" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-  };
-  sops.secrets."proxysql/backend_username" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-  };
-  sops.secrets."proxysql/backend_password" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
-  };
-  sops.secrets."proxysql/backend_address" = {
-    sopsFile = "${mysecrets}/secrets/env.yaml";
+  sops.secrets = lib.mkIf proxysqlEnabled {
+    "proxysql/admin_username".sopsFile = "${mysecrets}/secrets/env.yaml";
+    "proxysql/admin_password".sopsFile = "${mysecrets}/secrets/env.yaml";
+    "proxysql/monitor_username".sopsFile = "${mysecrets}/secrets/env.yaml";
+    "proxysql/monitor_password".sopsFile = "${mysecrets}/secrets/env.yaml";
+    "proxysql/frontend_username".sopsFile = "${mysecrets}/secrets/env.yaml";
+    "proxysql/frontend_password".sopsFile = "${mysecrets}/secrets/env.yaml";
+    "proxysql/backend_username".sopsFile = "${mysecrets}/secrets/env.yaml";
+    "proxysql/backend_password".sopsFile = "${mysecrets}/secrets/env.yaml";
+    "proxysql/backend_address".sopsFile = "${mysecrets}/secrets/env.yaml";
   };
 
-  sops.templates."proxysql.cnf" = {
-    owner = "proxysql";
-    group = "proxysql";
-    mode = "0400";
-    content = ''
-      datadir="/var/lib/proxysql"
-      errorlog="/var/lib/proxysql/proxysql.log"
+  sops.templates = lib.mkIf proxysqlEnabled {
+    "proxysql.cnf" = {
+      owner = "proxysql";
+      group = "proxysql";
+      mode = "0400";
+      content = ''
+        datadir="/var/lib/proxysql"
+        errorlog="/var/lib/proxysql/proxysql.log"
 
-      admin_variables={
-        admin_credentials="${config.sops.placeholder."proxysql/admin_username"}:${
-          config.sops.placeholder."proxysql/admin_password"
-        }"
-        mysql_ifaces="127.0.0.1:6032"
-      }
-
-      mysql_variables={
-        interfaces="127.0.0.1:6033"
-        monitor_username="${config.sops.placeholder."proxysql/monitor_username"}"
-        monitor_password="${config.sops.placeholder."proxysql/monitor_password"}"
-      }
-
-      mysql_servers=(
-        { address="${config.sops.placeholder."proxysql/backend_address"}" port=3306 hostgroup=10 }
-      )
-
-      # 前后端账号分离：客户端与后端 MySQL 可使用不同凭据。
-      mysql_users=(
-        {
-          username="${config.sops.placeholder."proxysql/frontend_username"}"
-          password="${config.sops.placeholder."proxysql/frontend_password"}"
-          default_hostgroup=10
-          active=true
-          frontend=true
-          backend=false
-        },
-        {
-          username="${config.sops.placeholder."proxysql/backend_username"}"
-          password="${config.sops.placeholder."proxysql/backend_password"}"
-          default_hostgroup=10
-          active=true
-          frontend=false
-          backend=true
+        admin_variables={
+          admin_credentials="${config.sops.placeholder."proxysql/admin_username"}:${
+            config.sops.placeholder."proxysql/admin_password"
+          }"
+          mysql_ifaces="127.0.0.1:6032"
         }
-      )
-    '';
+
+        mysql_variables={
+          interfaces="127.0.0.1:6033"
+          monitor_username="${config.sops.placeholder."proxysql/monitor_username"}"
+          monitor_password="${config.sops.placeholder."proxysql/monitor_password"}"
+        }
+
+        mysql_servers=(
+          { address="${config.sops.placeholder."proxysql/backend_address"}" port=3306 hostgroup=10 }
+        )
+
+        # 前后端账号分离：客户端与后端 MySQL 可使用不同凭据。
+        mysql_users=(
+          {
+            username="${config.sops.placeholder."proxysql/frontend_username"}"
+            password="${config.sops.placeholder."proxysql/frontend_password"}"
+            default_hostgroup=10
+            active=true
+            frontend=true
+            backend=false
+          },
+          {
+            username="${config.sops.placeholder."proxysql/backend_username"}"
+            password="${config.sops.placeholder."proxysql/backend_password"}"
+            default_hostgroup=10
+            active=true
+            frontend=false
+            backend=true
+          }
+        )
+      '';
+    };
   };
 
   ${namespace} = {
     user.name = "jojo";
     proxysql = {
-      enable = true;
-      configFile = config.sops.templates."proxysql.cnf".path;
+      enable = proxysqlEnabled;
+      configFile = lib.mkIf proxysqlEnabled config.sops.templates."proxysql.cnf".path;
     };
     mysql-proxy = {
       enable = true;
@@ -255,7 +242,7 @@ in
       _xauthority="$XAUTHORITY"
 
       # 允许 agent 用户访问当前显示
-      ${pkgs.xorg.xhost}/bin/xhost +SI:localuser:agent 2>/dev/null || true
+      ${pkgs.xhost}/bin/xhost +SI:localuser:agent 2>/dev/null || true
 
       # 以 agent 用户身份运行，并传递 GUI 环境变量和 SUDO_ASKPASS
       exec sudo -u agent \

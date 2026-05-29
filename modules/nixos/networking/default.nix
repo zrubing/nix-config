@@ -32,12 +32,13 @@
     # 启用 systemd-resolved
     services.resolved = {
       enable = true;
-      dnssec = "false";
-      extraConfig = ''
-        [Resolve]
-        DNS=127.0.0.1
-        FallbackDNS=8.8.8.8
-      '';
+      settings = {
+        Resolve = {
+          DNSSEC = false;
+          DNS = [ "127.0.0.1" ];
+          FallbackDNS = [ "8.8.8.8" ];
+        };
+      };
     };
 
     # 1. NM 只管连接，不管 DNS

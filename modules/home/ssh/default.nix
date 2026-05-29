@@ -18,48 +18,31 @@ in
       User root
   '';
 
-  programs.ssh = {
-    enable = true;
+  home.file.".ssh/config".text = ''
+    Include ${lib.replaceStrings [ "$\{XDG_RUNTIME_DIR}" ] [ "/run/user/1000" ] config.age.secrets."ssh/topsap-config".path}
+    Include ${lib.replaceStrings [ "$\{XDG_RUNTIME_DIR}" ] [ "/run/user/1000" ] config.age.secrets."ssh/work-config".path}
+    Include ${lib.replaceStrings [ "$\{XDG_RUNTIME_DIR}" ] [ "/run/user/1000" ] config.age.secrets."ssh/default-config".path}
+    Include ${config.sops.templates."ssh-easytier".path}
 
-    enableDefaultConfig = false;
+    Host *
+      ForwardAgent no
+      AddKeysToAgent no
+      Compression no
+      ServerAliveInterval 60
+      ServerAliveCountMax 3
+      HashKnownHosts no
+      UserKnownHostsFile ~/.ssh/known_hosts
+      ControlMaster auto
+      ControlPath ~/.ssh/sockets/%r@%h-%p
+      ControlPersist 10m
 
-    matchBlocks."*" = {
-      forwardAgent = false;
-      addKeysToAgent = "no";
-      compression = false;
-      serverAliveInterval = 60;
-      serverAliveCountMax = 3;
-      hashKnownHosts = false;
-      userKnownHostsFile = "~/.ssh/known_hosts";
-      controlMaster = "auto";
-      controlPath = "~/.ssh/sockets/%r@%h-%p";
-      controlPersist = "10m";
-    };
-
-    extraConfig = ''
-      Host github.com
-        Hostname github.com
-        IdentityFile ~/.ssh/id_ed25519
-        # Specifies that ssh should only use the identity file explicitly configured above
-        # required to prevent sending default identity files first.
-        IdentitiesOnly yes
-    '';
-
-    includes = [
-      # support for fish shell
-      (lib.replaceStrings [ "$\{XDG_RUNTIME_DIR}" ] [ "/run/user/1000" ]
-        config.age.secrets."ssh/topsap-config".path
-      )
-      (lib.replaceStrings [ "$\{XDG_RUNTIME_DIR}" ] [ "/run/user/1000" ]
-        config.age.secrets."ssh/work-config".path
-      )
-      (lib.replaceStrings [ "$\{XDG_RUNTIME_DIR}" ] [ "/run/user/1000" ]
-        config.age.secrets."ssh/default-config".path
-      )
-      # easytier peer
-      config.sops.templates."ssh-easytier".path
-    ];
-  };
+    Host github.com
+      Hostname github.com
+      IdentityFile ~/.ssh/id_ed25519
+      # Specifies that ssh should only use the identity file explicitly configured above
+      # required to prevent sending default identity files first.
+      IdentitiesOnly yes
+  '';
 
   # 确保 ControlMaster 的 socket 目录存在
   home.activation.createSshSocketsDir = hm.dag.entryAfter [ "writeBoundary" ] ''

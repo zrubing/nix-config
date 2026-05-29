@@ -64,20 +64,21 @@ in
         ${pkgs.coreutils}/bin/mv /tmp/.claude.json.tmp "$conf"
       fi
 
-      # 将 MCP 配置也替换到 Pi 配置中
+      # 使用与 Claude 相同的来源直接生成 Pi MCP 配置，避免依赖 ~/.claude.json 的运行时状态
       pi_mcp_config="$HOME/.pi/agent/mcp.json"
+      ${pkgs.coreutils}/bin/mkdir -p "$HOME/.pi/agent"
 
-      # 如果 Pi MCP 配置不存在，创建一个基础配置
-      if [[ ! -f "$pi_mcp_config" ]]; then
-        ${pkgs.coreutils}/bin/mkdir -p "$HOME/.pi/agent"
-        echo '{}' > "$pi_mcp_config"
-      fi
-
-      # 如果 Claude 配置存在且包含 MCP 服务器配置，则完全替换到 Pi MCP 配置
-      if [[ -f "$conf" ]]; then
-        ${pkgs.jq}/bin/jq --slurpfile claude "$conf" \
-          '.mcpServers = ($claude[0].mcpServers // {})' \
-          "$pi_mcp_config" > "$pi_mcp_config.tmp" && \
+      if [[ -f ${config.age.secrets."claude.settings.json".path} ]]; then
+        ${pkgs.jq}/bin/jq \
+          --slurpfile secret ${config.age.secrets."claude.settings.json".path} \
+          --slurpfile mcp ${mergedSettings} \
+          '.mcpServers = (($secret[0].mcpServers // {}) * ($mcp[0].mcpServers // {}))' \
+          '{}' > "$pi_mcp_config.tmp" && \
+        ${pkgs.coreutils}/bin/mv "$pi_mcp_config.tmp" "$pi_mcp_config"
+      else
+        ${pkgs.jq}/bin/jq --slurpfile mcp ${mergedSettings} \
+          '.mcpServers = ($mcp[0].mcpServers // {})' \
+          '{}' > "$pi_mcp_config.tmp" && \
         ${pkgs.coreutils}/bin/mv "$pi_mcp_config.tmp" "$pi_mcp_config"
       fi
 
