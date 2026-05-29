@@ -21,9 +21,12 @@ in
   snowfallorg.users.jojo = {
     home.config = {
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
-      home.file.".multica/config.json".text = builtins.toJSON {
-        server_url = "http://multica-api.local";
-        app_url = "http://multica.local";
+      home.file.".multica/config.json" = {
+        force = true;
+        text = builtins.toJSON {
+          server_url = "http://multica-api.local";
+          app_url = "http://multica.local";
+        };
       };
     };
   };
