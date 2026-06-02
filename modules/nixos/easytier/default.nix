@@ -30,10 +30,6 @@ in
   sops.templates."easytier-config" = lib.mkIf (easytierIp != null && !useMultiInstancePortal) {
     content = ''
       instance_name = "${hostName}"
-      listeners = [
-        "tcp://0.0.0.0:11010",
-        "udp://0.0.0.0:11010",
-      ]
 
       [network_identity]
       network_name = "${config.sops.placeholder."easytier/ali/network_name"}"
@@ -69,6 +65,7 @@ in
       [flags]
       accept_dns = true
       bind_device = true
+      disable_p2p = true
     '';
   };
 
@@ -151,9 +148,11 @@ in
         # 典型表现是 zen14 反复尝试 tcp://10.244.x.x:<port> 连接 nova13，
         # 形成“集群网络承载 VPN，VPN 又承载集群控制面”的递归路径，导致
         # apiserver/konnectivity 偶发 EOF、deadline exceeded。
-        # 这里让连接 socket 绑定到物理出口，避免选择 cilium/Meta/tun 等虚拟路径。
-        # 本次恢复 P2P 试验，仅移除 disable-p2p，便于验证 zen14/nova13 是否能脱离 relay。
+        # 这里让连接 socket 绑定到物理出口，并禁用自动 P2P 打洞，只保留到
+        # 声明 peer 的稳定连接，避免选择 cilium/Meta/tun 等虚拟路径。
         "--bind-device"
+        "true"
+        "--disable-p2p"
         "true"
       ];
       configFile = "${config.sops.templates."easytier-config".path}";
