@@ -16,8 +16,43 @@ in
   snowfallorg.users.jojo = {
     home.config = {
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
-      internal.observabilityPortForward.enable = true;
+      home.packages = [
+        pkgs.${namespace}.multica
+        pkgs.${namespace}.multica-desktop
+      ];
+      home.file.".multica/config.json" = {
+        force = true;
+        text = builtins.toJSON {
+          server_url = "http://multica-api.local";
+          app_url = "http://multica.local";
+        };
+      };
+      home.file.".multica/desktop.json" = {
+        force = true;
+        text = builtins.toJSON {
+          schemaVersion = 1;
+          apiUrl = "http://multica-api.local";
+          wsUrl = "ws://multica-api.local/ws";
+          appUrl = "http://multica.local";
+        };
+      };
+      systemd.user.services.multica-daemon = {
+        Unit = {
+          Description = "Multica local agent runtime daemon";
+          After = [ "network-online.target" ];
+          Wants = [ "network-online.target" ];
+        };
 
+        Service = {
+          ExecStart = "${pkgs.${namespace}.multica}/bin/multica daemon start --foreground --no-auto-update --device-name zen14 --runtime-name zen14";
+          Restart = "always";
+          RestartSec = 5;
+          WorkingDirectory = "/home/jojo";
+        };
+
+        Install.WantedBy = [ "default.target" ];
+      };
+      internal.observabilityPortForward.enable = true;
     };
   };
   snowfallorg.users.hiar = {
@@ -182,7 +217,7 @@ in
       };
     };
     # 暂时关闭，避免 sops secret k8s_port_forward/commands 缺失导致系统构建失败。
-    k8s-port-forward.enable = false;
+    k8s-port-forward.enable = true;
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-zen14.age";
     #builder.enable = true;

@@ -56,19 +56,41 @@ in
         #!/usr/bin/env bash
         # 基于 fuzzel 的应用启动器
 
+        # 获取 desktop application 目录，兼容 Nix / Home Manager
+        get_application_dirs() {
+          printf '%s\n' \
+            "$HOME/.local/share/applications" \
+            "$HOME/.nix-profile/share/applications" \
+            "/etc/profiles/per-user/$USER/share/applications" \
+            "/run/current-system/sw/share/applications" \
+            "/usr/local/share/applications" \
+            "/usr/share/applications"
+
+          if [[ -n "$XDG_DATA_DIRS" ]]; then
+            echo "$XDG_DATA_DIRS" | tr ':' '\n' | while read -r dir; do
+              [[ -n "$dir" ]] && printf '%s/applications\n' "$dir"
+            done
+          fi
+        }
+
         # 获取所有可执行文件
         get_apps() {
-          if command -v desktop-file-validate >/dev/null 2>&1; then
-            # 优先使用 desktop 文件
-            find /usr/share/applications ~/.local/share/applications -name "*.desktop" 2>/dev/null | \
-            xargs grep -l "NoDisplay=false" 2>/dev/null | \
+          local app_dirs
+          app_dirs=$(get_application_dirs | awk 'NF' | sort -u | while read -r dir; do [[ -d "$dir" ]] && printf '%s\0' "$dir"; done)
+
+          if [[ -n "$app_dirs" ]]; then
+            printf '%s' "$app_dirs" | xargs -0 -r find -L -maxdepth 1 -name "*.desktop" -type f 2>/dev/null | \
             while read -r desktop; do
-              if [[ -f "$desktop" ]]; then
-                name=$(grep "^Name=" "$desktop" | head -1 | cut -d= -f2- || basename "$desktop" .desktop)
-                exec=$(grep "^Exec=" "$desktop" | head -1 | cut -d= -f2- | cut -d' ' -f1)
-                if [[ -n "$name" && -n "$exec" ]]; then
-                  echo "$name"
-                fi
+              [[ -f "$desktop" ]] || continue
+
+              if grep -Eq '^NoDisplay=true$|^Hidden=true$' "$desktop"; then
+                continue
+              fi
+
+              name=$(grep '^Name=' "$desktop" | head -1 | cut -d= -f2- || basename "$desktop" .desktop)
+              exec=$(grep '^Exec=' "$desktop" | head -1 | cut -d= -f2- | sed -E 's/[[:space:]]+%[fFuUdDnNickvm]//g' | cut -d' ' -f1)
+              if [[ -n "$name" && -n "$exec" ]]; then
+                echo "$name"
               fi
             done | sort -u
           else
@@ -93,11 +115,13 @@ in
             exec "$selection" &
           else
             # 尝试查找 desktop 文件并执行
-            desktop_file=$(find /usr/share/applications ~/.local/share/applications -name "*.desktop" 2>/dev/null | \
-              xargs grep -l "Name=$selection" 2>/dev/null | head -1)
+            desktop_file=$(get_application_dirs | awk 'NF' | sort -u | while read -r dir; do
+              [[ -d "$dir" ]] || continue
+              find -L "$dir" -maxdepth 1 -name "*.desktop" -type f 2>/dev/null
+            done | xargs grep -l "^Name=$selection$" 2>/dev/null | head -1)
 
             if [[ -n "$desktop_file" ]]; then
-              exec=$(grep "^Exec=" "$desktop_file" | head -1 | cut -d= -f2- | cut -d' ' -f1)
+              exec=$(grep '^Exec=' "$desktop_file" | head -1 | cut -d= -f2- | sed -E 's/[[:space:]]+%[fFuUdDnNickvm]//g' | cut -d' ' -f1)
               if [[ -n "$exec" ]]; then
                 exec "$exec" &
               fi
