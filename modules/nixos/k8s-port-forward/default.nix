@@ -64,6 +64,8 @@ in
         RestartSec = 10;
       };
 
+      path = with pkgs; [ kubectl bash coreutils ];
+
       script =
         let
           runner = pkgs.writeShellScript "k8s-port-forward-runner" ''

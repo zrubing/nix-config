@@ -221,7 +221,7 @@ in
           ];
         };
         "Mod+D".action = {
-          spawn = [ "gpuishell" ];
+          spawn = [ "fuzzel" ];
         };
         "Mod+O".action = {
           spawn = [ "fuzzel-file-chooser" ];
