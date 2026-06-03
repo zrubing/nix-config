@@ -1,8 +1,8 @@
 images:
   backend:
-    tag: v0.3.13
+    tag: v0.3.14
   frontend:
-    tag: v0.3.13
+    tag: v0.3.14
 
 postgres:
   persistence:
