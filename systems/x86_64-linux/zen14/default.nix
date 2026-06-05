@@ -36,22 +36,6 @@ in
           appUrl = "http://multica.local";
         };
       };
-      systemd.user.services.multica-daemon = {
-        Unit = {
-          Description = "Multica local agent runtime daemon";
-          After = [ "network-online.target" ];
-          Wants = [ "network-online.target" ];
-        };
-
-        Service = {
-          ExecStart = "${pkgs.${namespace}.multica}/bin/multica daemon start --foreground --no-auto-update --device-name zen14 --runtime-name zen14";
-          Restart = "always";
-          RestartSec = 5;
-          WorkingDirectory = "/home/jojo";
-        };
-
-        Install.WantedBy = [ "default.target" ];
-      };
       internal.observabilityPortForward.enable = true;
     };
   };
