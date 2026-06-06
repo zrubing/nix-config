@@ -21,13 +21,24 @@ in
   snowfallorg.users.jojo = {
     home.config = {
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
-      home.file.".multica/config.json" = {
-        force = true;
-        text = builtins.toJSON {
-          server_url = "http://multica-api.local";
-          app_url = "http://multica.local";
-        };
-      };
+      home.activation.configureMultica = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        config_file="$HOME/.multica/config.json"
+        mkdir -p "$(dirname "$config_file")"
+        tmp_file="$(mktemp "$HOME/.multica/config.json.XXXXXX")"
+
+        if [ -f "$config_file" ]; then
+          if ! ${pkgs.jq}/bin/jq \
+            '. + {server_url: "http://multica-api.local", app_url: "http://multica.local"}' \
+            "$config_file" > "$tmp_file"; then
+            printf '{"server_url":"http://multica-api.local","app_url":"http://multica.local"}\n' > "$tmp_file"
+          fi
+        else
+          printf '{"server_url":"http://multica-api.local","app_url":"http://multica.local"}\n' > "$tmp_file"
+        fi
+
+        chmod 600 "$tmp_file"
+        mv -f "$tmp_file" "$config_file"
+      '';
     };
   };
   snowfallorg.users.hiar = {
