@@ -91,6 +91,22 @@ in
     };
   };
 
+  # nova13 上 jojo 允许免密码 sudo，便于 SSH/自动化操作。
+  security.sudo.extraRules = [
+    {
+      users = [ "jojo" ];
+      commands = [
+        {
+          command = "ALL";
+          options = [
+            "NOPASSWD"
+            "SETENV"
+          ];
+        }
+      ];
+    }
+  ];
+
   ${namespace} = {
     user.name = "jojo";
     networking.wifi.enable = true;
