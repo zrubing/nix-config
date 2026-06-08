@@ -11,19 +11,19 @@ let
   binaries = {
     x86_64-linux = {
       artifact = "multica-cli-${version}-linux-amd64.tar.gz";
-      hash = "sha256-003qbg85777g9vr37yqp1hqd7sjhsnllqx8gwyyjic1a6045dmzn";
+      hash = "sha256-9tdWCDAqsCi95w91TKnVUOrTMAwX+zPyTu+cU9BbeAA=";
     };
     aarch64-linux = {
       artifact = "multica-cli-${version}-linux-arm64.tar.gz";
-      hash = "sha256-095ydaw7j53qihlibp9qxk535fxgi7sncw36g9qk2553q0smaydv";
+      hash = "sha256-u3lVNcCjFDFxemZwZvWJr7syyuw43RUpjHgUebhqviQ=";
     };
     x86_64-darwin = {
       artifact = "multica-cli-${version}-darwin-amd64.tar.gz";
-      hash = "sha256-1smm8f0pvg30fln708cyz3zz9m250mxnfimkggflflpil525arzr";
+      hash = "sha256-+WdVRKHxUkfde7NGZ3sFRdT0//ieIXAsdWC8fYFDteo=";
     };
     aarch64-darwin = {
       artifact = "multica-cli-${version}-darwin-arm64.tar.gz";
-      hash = "sha256-03dc5dqhndvrxqg1n0dbq6rinyl0j486ysv3sa3w7xapc3lh41vi";
+      hash = "sha256-cQcC6WBX9cOH0mNrbxCRgHobs8GrARse7nk3C3ErrA0=";
     };
   };
 
