@@ -29,6 +29,30 @@ in
       pkgs.${namespace}.niri-fuzzel-switcher
     ];
 
+    systemd.user.services.gpuishell = {
+      Unit = {
+        Description = "GPUi Shell for niri Wayland";
+        BindsTo = [ "graphical-session.target" ];
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session.target" ];
+        Requisite = [ "graphical-session.target" ];
+      };
+
+      Install.WantedBy = [ "graphical-session.target" ];
+
+      Service = {
+        ExecStart = lib.getExe gpuishell;
+        Restart = "on-failure";
+        RestartSec = 2;
+        StandardOutput = "journal";
+        StandardError = "journal";
+        Environment = [
+          "DISPLAY=:0"
+          "RUST_BACKTRACE=1"
+        ];
+      };
+    };
+
     xdg.configFile."gpuishell/config.toml" = {
       force = true;
       text = ''
@@ -148,7 +172,6 @@ in
             "store"
           ];
         }
-        { argv = [ "gpuishell" ]; }
       ];
 
       # 窗口规则：自动打开到特定工作区
