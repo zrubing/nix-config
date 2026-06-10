@@ -213,6 +213,7 @@ in
     codexPackage
     piPackage
     multicaPackage
+    pkgs.${namespace}.tradingagents
     pkgs.kubernetes-helm
     pkgs.kubectl
   ];
