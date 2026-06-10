@@ -45,57 +45,11 @@ in
           export PATH="$JAVA_HOME/bin:$PATH"
         fi
 
-        ${lib.optionalString (shellCfg.provider == "GLM") ''
-          # 设置 Anthropic 环境变量（读取 SOPS 秘密文件）
-          if [ -f ${config.sops.secrets."anthropic/base_url".path} ]; then
-            export ANTHROPIC_BASE_URL="$(cat ${config.sops.secrets."anthropic/base_url".path} | xargs)"
-          fi
-          if [ -f ${config.sops.secrets."anthropic/api_key".path} ]; then
-            export ANTHROPIC_API_KEY="$(cat ${config.sops.secrets."anthropic/api_key".path} | xargs)"
-          fi
-
-          export ANTHROPIC_MODEL="GLM-5"
-        ''}
-
-        ${lib.optionalString (shellCfg.provider == "MiniMax") ''
-          # 设置 Minimax 环境变量（读取 SOPS 秘密文件）
-          if [ -f ${config.sops.secrets."minimax-coding/base_url".path} ]; then
-            export ANTHROPIC_BASE_URL="$(cat ${config.sops.secrets."minimax-coding/base_url".path} | xargs)"
-          fi
-          if [ -f ${config.sops.secrets."minimax-coding/api_key".path} ]; then
-            export ANTHROPIC_API_KEY="$(cat ${config.sops.secrets."minimax-coding/api_key".path} | xargs)"
-          fi
-
-          export ANTHROPIC_MODEL="MiniMax-M2.1"
-        ''}
-
-        ${lib.optionalString (shellCfg.provider == "Qwen") ''
-          # 设置 Qwen 环境变量（读取 SOPS 秘密文件）
-          if [ -f ${config.sops.secrets."qwen/base_url".path} ]; then
-            export ANTHROPIC_BASE_URL="$(cat ${config.sops.secrets."qwen/base_url".path} | xargs)"
-          fi
-          if [ -f ${config.sops.secrets."qwen/api_key".path} ]; then
-            export ANTHROPIC_AUTH_TOKEN="$(cat ${config.sops.secrets."qwen/api_key".path} | xargs)"
-          fi
-
-          export ANTHROPIC_MODEL="qwen3-max-2026-01-23"
-        ''}
-
-        ${lib.optionalString (shellCfg.provider == "Volc") ''
-          # 设置 Volc 环境变量（读取 SOPS 秘密文件）
-          if [ -f ${config.sops.secrets."volc-coding/base_url".path} ]; then
-            export ANTHROPIC_BASE_URL="$(cat ${config.sops.secrets."volc-coding/base_url".path} | xargs)"
-          fi
-          if [ -f ${config.sops.secrets."volc-coding/api_key".path} ]; then
-            export ANTHROPIC_API_KEY="$(cat ${config.sops.secrets."volc-coding/api_key".path} | xargs)"
-          fi
-          if [ -f ${config.sops.secrets."volc-coding/model".path} ]; then
-            export ANTHROPIC_MODEL="$(cat ${config.sops.secrets."volc-coding/model".path} | xargs)"
-          fi
-        ''}
-
-        export API_TIMEOUT_MS=3000000
-        export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+        if [ -f ${config.sops.templates."ai-provider.env".path} ]; then
+          set -a
+          . ${config.sops.templates."ai-provider.env".path}
+          set +a
+        fi
 
         if [ -f ${config.sops.secrets."woodpecker/server".path} ]; then
           export WOODPECKER_SERVER="$(cat ${config.sops.secrets."woodpecker/server".path} | xargs)"
