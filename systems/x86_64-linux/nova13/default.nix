@@ -223,6 +223,7 @@ in
   sops.secrets."anthropic/api_key".sopsFile = "${mysecrets}/secrets/env.yaml";
   sops.secrets."deepseek/api_key".sopsFile = "${mysecrets}/secrets/env.yaml";
   sops.secrets."zhipu/api_key".sopsFile = "${mysecrets}/secrets/env.yaml";
+  sops.secrets."alphavantage/api_key".sopsFile = "${mysecrets}/secrets/env.yaml";
   sops.templates."tradingagents.env" = {
     owner = "jojo";
     group = "users";
@@ -230,6 +231,7 @@ in
     content = ''
       DEEPSEEK_API_KEY=${config.sops.placeholder."deepseek/api_key"}
       ZHIPU_API_KEY=${config.sops.placeholder."zhipu/api_key"}
+      ALPHA_VANTAGE_API_KEY=${config.sops.placeholder."alphavantage/api_key"}
     '';
   };
 
