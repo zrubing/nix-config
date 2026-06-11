@@ -11,7 +11,16 @@ let
   hermesPackage = inputs.llm-agents.packages.${system}.hermes-agent;
   codexPackage = inputs.llm-agents.packages.${system}.codex;
   piPackage = inputs.llm-agents.packages.${system}.pi;
+  mysecrets = inputs.mysecrets;
   multicaPackage = pkgs.${namespace}.multica;
+  tradingagentsPackage = pkgs.${namespace}.tradingagents;
+  tradingagentsWrapped = pkgs.writeShellScriptBin "tradingagents" ''
+    set -a
+    . ${config.sops.templates."tradingagents.env".path}
+    set +a
+
+    exec ${lib.getExe tradingagentsPackage} "$@"
+  '';
   multicaK8s = import ./k8s/helm/multica {
     inherit pkgs;
     hostname = "nova13";
@@ -207,13 +216,26 @@ in
   sops.age.sshKeyPaths = [ "/home/jojo/.ssh/id_ed25519" ];
   sops.secrets."multica/JWT_SECRET".sopsFile = ./secrets/multica.yaml;
   sops.secrets."multica/POSTGRES_PASSWORD".sopsFile = ./secrets/multica.yaml;
+  sops.secrets."anthropic/base_url".sopsFile = "${mysecrets}/secrets/env.yaml";
+  sops.secrets."anthropic/api_key".sopsFile = "${mysecrets}/secrets/env.yaml";
+  sops.secrets."deepseek/api_key".sopsFile = "${mysecrets}/secrets/env.yaml";
+  sops.secrets."zhipu/api_key".sopsFile = "${mysecrets}/secrets/env.yaml";
+  sops.templates."tradingagents.env" = {
+    owner = "jojo";
+    group = "users";
+    mode = "0400";
+    content = ''
+      DEEPSEEK_API_KEY=${config.sops.placeholder."deepseek/api_key"}
+      ZHIPU_API_KEY=${config.sops.placeholder."zhipu/api_key"}
+    '';
+  };
 
   environment.systemPackages = [
     hermesPackage
     codexPackage
     piPackage
     multicaPackage
-    pkgs.${namespace}.tradingagents
+    tradingagentsWrapped
     pkgs.kubernetes-helm
     pkgs.kubectl
   ];

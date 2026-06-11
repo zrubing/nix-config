@@ -26,10 +26,6 @@ in
           fish_add_path $HOME/bin
           fish_add_path $HOME/.local/bin/
 
-          if test -f ${config.sops.templates."ai-provider.fish".path}
-            source ${config.sops.templates."ai-provider.fish".path}
-          end
-
           # kubectl with auto SSH tunnel
           function k
             if not nc -z localhost 6443 2>/dev/null
