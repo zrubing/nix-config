@@ -13,6 +13,13 @@ spec:
     spec:
       template:
         spec:
+          nodeSelector:
+            kubernetes.io/hostname: nova13
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: nova13
+              effect: NoSchedule
           restartPolicy: OnFailure
           containers:
             - name: rollup

@@ -28,9 +28,11 @@ let
 in
 {
   snowfallorg.users.jojo = {
-    home.config = {
-      home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
-      home.activation.configureMultica = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    home.config = lib.mkMerge [
+      config.${namespace}.home.extraOptions
+      {
+        home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
+        home.activation.configureMultica = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         config_file="$HOME/.multica/config.json"
         mkdir -p "$(dirname "$config_file")"
         tmp_file="$(mktemp "$HOME/.multica/config.json.XXXXXX")"
@@ -47,8 +49,9 @@ in
 
         chmod 600 "$tmp_file"
         mv -f "$tmp_file" "$config_file"
-      '';
-    };
+        '';
+      }
+    ];
   };
   snowfallorg.users.hiar = {
     home.config = config.${namespace}.home.extraOptions;
