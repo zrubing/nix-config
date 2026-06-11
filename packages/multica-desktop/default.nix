@@ -11,7 +11,7 @@ let
 
   src = fetchurl {
     url = "https://github.com/multica-ai/multica/releases/download/v${version}/multica-desktop-${version}-linux-x86_64.AppImage";
-    hash = "sha512-k1s9UW6Zb20llIuopUwbf3D38OP1F+Nkgf3wGWwsXPwoQfhuiR89+VF3Rrf7YF20fN3tG4/3jZSC3apiHbQ6NA==";
+    hash = "sha512-sMbOsoU2w6ABSMKKATX1FXkOtF0MQEiOZdzUB88t0iQS45+iKtfukIFu9NkWfQxClmO1tsec+U4xLfCOs5gZPQ==";
   };
 
   appimageContents = appimageTools.extractType2 {
