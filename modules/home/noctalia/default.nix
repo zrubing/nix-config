@@ -4,6 +4,7 @@
   inputs,
   namespace,
   lib,
+  options,
   ...
 }:
 with lib;
@@ -28,7 +29,7 @@ in
     enable = mkBoolOpt false "Enable noctalia";
   };
 
-  config = mkIf cfg.enable {
+  config = mkIf cfg.enable ({
 
     services.xwayland-satellite.enable = true;
 
@@ -450,6 +451,7 @@ in
 
     };
 
+  } // optionalAttrs (hasAttrByPath [ "programs" "noctalia-shell" ] options) {
     # configure options
     programs.noctalia-shell = {
       enable = true;
@@ -520,5 +522,5 @@ in
       # but in this case must include *all* settings.
     };
 
-  };
+  });
 }
