@@ -132,15 +132,15 @@ in
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-nova13.age";
     nix-ld.enable = false;
-    gpui-shell.enable = lib.mkForce true;
+    gpui-shell.enable = lib.mkForce false;
     noctalia.enable = lib.mkForce false;
     #builder.enable = true;
-    desktop.niri.enable = lib.mkForce true;
+    desktop.niri.enable = lib.mkForce false;
 
     home.extraOptions = {
       ${namespace} = {
         ccr-router.enable = lib.mkForce false;
-        desktop.niri.enable = lib.mkForce true;
+        desktop.niri.enable = lib.mkForce false;
         emacs.enable = lib.mkForce false;
         devpackages.treeSitter.enable = lib.mkForce false;
         devpackages.vscodeTools.enable = lib.mkForce false;
@@ -153,7 +153,7 @@ in
         ghostty.enable = lib.mkForce false;
         modules.fcitx5.enable = lib.mkForce false;
         programs.wechat.enable = lib.mkForce false;
-        gpui-shell.enable = lib.mkForce true;
+        gpui-shell.enable = lib.mkForce false;
         noctalia.enable = lib.mkForce false;
       };
 
