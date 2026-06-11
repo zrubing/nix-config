@@ -45,12 +45,6 @@ in
           export PATH="$JAVA_HOME/bin:$PATH"
         fi
 
-        if [ -f ${config.sops.templates."ai-provider.env".path} ]; then
-          set -a
-          . ${config.sops.templates."ai-provider.env".path}
-          set +a
-        fi
-
         if [ -f ${config.sops.secrets."woodpecker/server".path} ]; then
           export WOODPECKER_SERVER="$(cat ${config.sops.secrets."woodpecker/server".path} | xargs)"
           export WOODPECKER_TOKEN="$(cat ${config.sops.secrets."woodpecker/token".path} | xargs)"

@@ -52,6 +52,11 @@ in
       default = false;
       description = "Enable packages provided by the llm-agents flake.";
     };
+    tools.ai.ollama.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Enable Ollama client packages.";
+    };
     tools.network.enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -142,7 +147,6 @@ in
       devbox
       mprocs
     ] ++ lib.optionals cfg.tools.ai.enable [
-      ollama-rocm
       # for aider（暂时停用，避免无用编译）
       # python312Packages.playwright
       pkgs-unstable.tdlib
@@ -151,6 +155,8 @@ in
       # pkgs-unstable.aider-chat
       # pkgs-unstable.claude-code
       pkgs.${namespace}.zli
+    ] ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.ollama.enable) [
+      ollama-rocm
     ] ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.llmAgents.enable) [
       pkgs.${namespace}.claude-code
       pkgs-nix-ai.claude-code-router
