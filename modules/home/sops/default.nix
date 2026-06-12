@@ -70,6 +70,10 @@ in
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
 
+    sops.secrets."deepseek/api_key" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+
     sops.secrets."anysearch/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
@@ -84,15 +88,15 @@ in
     sops.templates."tradingagents.env" = {
       path = "/home/${username}/.config/tradingagents/.env";
       content = ''
+        # --- LLM Provider ---
+        export TRADINGAGENTS_LLM_PROVIDER=deepseek
+
+        # --- DeepSeek (sops-managed) ---
+        export DEEPSEEK_API_KEY="${config.sops.placeholder."deepseek/api_key"}"
+
         # --- Anthropic-compatible (Zhipu via sops) ---
         export ANTHROPIC_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
         export ANTHROPIC_BASE_URL="${config.sops.placeholder."anthropic/base_url"}"
-
-        # --- DeepSeek ---
-        # export DEEPSEEK_API_KEY="sk-..."
-
-        # --- LLM Provider ---
-        export TRADINGAGENTS_LLM_PROVIDER=anthropic
 
         # --- Optional overrides ---
         # export TRADINGAGENTS_DEEP_THINK_LLM=deepseek-chat
