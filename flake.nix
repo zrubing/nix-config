@@ -205,9 +205,9 @@
             if [ -f .env ]; then
               echo "[trading] loading .env from $(pwd)"
               set -a && source .env && set +a
-            elif [ -f "$HOME/.config/trading/.env" ]; then
+            elif [ -f "$HOME/.config/tradingagents/.env" ]; then
               echo "[trading] loading sops template"
-              set -a && source "$HOME/.config/trading/.env" && set +a
+              set -a && source "$HOME/.config/tradingagents/.env" && set +a
             else
               echo "[trading] no .env or template found, skipping"
             fi
