@@ -99,9 +99,27 @@ in
     home.file.".pi/agent/skills/zli".source = ../../../.pi/skill-sources/zli;
     home.file.".pi/agent/skills/sealed-secrets".source = ../../../.pi/skill-sources/sealed-secrets;
 
-    # Caveman skills
+    # Pi skills
     home.file.".pi/agent/skills/caveman".source = "${inputs.caveman-skills}/skills/caveman";
+    home.file.".pi/agent/skills/brainstorming".source = "${inputs.superpowers}/skills/brainstorming";
+    home.file.".pi/agent/skills/anysearch" = {
+      source = "${inputs.anysearch-skill}";
+      recursive = true;
+    };
     home.file.".pi/agent/extensions/guardrails.json".source = ../../../.pi/extensions/guardrails.json;
+
+    home.activation.migrateAnysearchSkillDirectory = config.lib.dag.entryBefore [ "linkGeneration" ] ''
+      target="$HOME/.pi/agent/skills/anysearch"
+
+      if [ -L "$target" ]; then
+        linkTarget="$(readlink "$target")"
+        case "$linkTarget" in
+          /nix/store/*-home-manager-files/.pi/agent/skills/anysearch)
+            rm "$target"
+            ;;
+        esac
+      fi
+    '';
 
     # home.activation.configurePiGuardrailsFork = config.lib.dag.entryAfter [ "writeBoundary" ] ''
     #   settings_file="$HOME/.pi/agent/settings.json"

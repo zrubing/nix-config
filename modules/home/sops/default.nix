@@ -69,5 +69,16 @@ in
     sops.secrets."zot/password" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
+
+    sops.secrets."anysearch/api_key" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+
+    sops.templates."anysearch-env" = {
+      path = "/home/${username}/.pi/agent/skills/anysearch/.env";
+      content = ''
+        export ANYSEARCH_API_KEY="${config.sops.placeholder."anysearch/api_key"}"
+      '';
+    };
   };
 }
