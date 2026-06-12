@@ -148,50 +148,60 @@
         src = ./.;
       };
     in
-    # specialArgs = {
-    #   pkgs-unstable = import inputs.nixpkgs-unstable {
-    #     # To use chrome, we need to allow the installation of non-free software
-    #     config.allowUnfree = true;
-    #   };
-    # };
-    lib.mkFlake {
+    let
+      snowfall = lib.mkFlake {
 
-      # Add modules to all NixOS systems.
-      systems.modules.nixos = with inputs; [
-        agenix.nixosModules.default
-        sops-nix.nixosModules.sops
-        fast-nix-gc.nixosModules.default
-        k0s-nix.nixosModules.default
-      ];
-
-      systems.modules.darwin = with inputs; [ ];
-
-      homes.modules = with inputs; [
-        noctalia.homeModules.default
-        niri.homeModules.niri
-        #niri.nixosModules.niri
-        agenix.homeManagerModules.default
-        sops-nix.homeManagerModules.sops
-      ];
-
-      # The attribute set specified here will be passed directly to NixPkgs when
-      # instantiating the package set.
-      channels-config = {
-        # Allow unfree packages.
-        allowUnfree = true;
-        doCheckByDefault = false;
-        permittedInsecurePackages = [
-          "electron-38.8.4"
-          "nodejs-slim-20.20.2"
-          "nodejs-20.20.2"
+        # Add modules to all NixOS systems.
+        systems.modules.nixos = with inputs; [
+          agenix.nixosModules.default
+          sops-nix.nixosModules.sops
+          fast-nix-gc.nixosModules.default
+          k0s-nix.nixosModules.default
         ];
-        overlays = [
-          inputs.k0s-nix.overlays.default
-          inputs.process-compose.overlays.default
+
+        systems.modules.darwin = with inputs; [ ];
+
+        homes.modules = with inputs; [
+          noctalia.homeModules.default
+          niri.homeModules.niri
+          #niri.nixosModules.niri
+          agenix.homeManagerModules.default
+          sops-nix.homeManagerModules.sops
         ];
+
+        # The attribute set specified here will be passed directly to NixPkgs when
+        # instantiating the package set.
+        channels-config = {
+          # Allow unfree packages.
+          allowUnfree = true;
+          doCheckByDefault = false;
+          permittedInsecurePackages = [
+            "electron-38.8.4"
+            "nodejs-slim-20.20.2"
+            "nodejs-20.20.2"
+          ];
+          overlays = [
+            inputs.k0s-nix.overlays.default
+            inputs.process-compose.overlays.default
+          ];
+
+        };
 
       };
-
+    in
+    snowfall // {
+      devShells.x86_64-linux.trading =
+        let pkgs = import inputs.nixpkgs {
+          system = "x86_64-linux";
+          config.allowUnfree = true;
+        };
+        in pkgs.mkShell {
+          packages = [
+            (pkgs.python312.withPackages (ps: [
+              snowfall.packages.x86_64-linux.tradingagents
+            ]))
+          ];
+        };
     };
 
 }
