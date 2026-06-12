@@ -42,6 +42,23 @@
         "type": "github"
       }
     },
+    "anysearch-skill": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1780460184,
+        "narHash": "sha256-MxvrLBeN9LDTwFYl3nk8w0wcnU3HseJ1Y2ECvhTVBnc=",
+        "owner": "anysearch-ai",
+        "repo": "anysearch-skill",
+        "rev": "db3d76e5597aec7261257be5322dd211c9d9bb87",
+        "type": "github"
+      },
+      "original": {
+        "owner": "anysearch-ai",
+        "repo": "anysearch-skill",
+        "rev": "db3d76e5597aec7261257be5322dd211c9d9bb87",
+        "type": "github"
+      }
+    },
     "blueprint": {
       "inputs": {
         "nixpkgs": [
@@ -588,11 +605,11 @@
     "mysecrets": {
       "flake": false,
       "locked": {
-        "lastModified": 1781177323,
-        "narHash": "sha256-Pw46cI93JFXo5oJoSNYpvpdGNPX3M3gNhlHfiv0bntg=",
+        "lastModified": 1781250168,
+        "narHash": "sha256-lHbb1XKImry2kOwNQ5FodBpZKnU2peD428iJVwv/fW8=",
         "ref": "main",
-        "rev": "02414e5e5b4c4406a79c9c714cc8be7e6f6043a8",
-        "revCount": 314,
+        "rev": "09a61280b4d9b7d97e501b274ee306de7c26317f",
+        "revCount": 315,
         "type": "git",
         "url": "ssh://git@github.com/zrubing/nix-secrets.git"
       },
@@ -924,6 +941,7 @@
       "inputs": {
         "agenix": "agenix",
         "antigravity-nix": "antigravity-nix",
+        "anysearch-skill": "anysearch-skill",
         "catppuccin-bat": "catppuccin-bat",
         "caveman-skills": "caveman-skills",
         "claude-code": "claude-code",
@@ -948,6 +966,7 @@
         "rime-3gram": "rime-3gram",
         "snowfall-lib": "snowfall-lib",
         "sops-nix": "sops-nix",
+        "superpowers": "superpowers",
         "tree-sitter-grammars": "tree-sitter-grammars"
       }
     },
@@ -1011,6 +1030,23 @@
       "original": {
         "owner": "Mic92",
         "repo": "sops-nix",
+        "type": "github"
+      }
+    },
+    "superpowers": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1780085125,
+        "narHash": "sha256-P/FD8HTQO+QzvMe3A/B2v2vjs8T6ZmIYH3MPp79dSzo=",
+        "owner": "obra",
+        "repo": "superpowers",
+        "rev": "6fd4507659784c351abbd2bc264c7162cfd386dc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "obra",
+        "repo": "superpowers",
+        "rev": "6fd4507659784c351abbd2bc264c7162cfd386dc",
         "type": "github"
       }
     },

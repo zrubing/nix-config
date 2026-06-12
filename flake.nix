@@ -116,6 +116,16 @@
       flake = false;
     };
 
+    anysearch-skill = {
+      url = "github:anysearch-ai/anysearch-skill?rev=db3d76e5597aec7261257be5322dd211c9d9bb87";
+      flake = false;
+    };
+
+    superpowers = {
+      url = "github:obra/superpowers?rev=6fd4507659784c351abbd2bc264c7162cfd386dc";
+      flake = false;
+    };
+
     process-compose = {
       url = "github:F1bonacc1/process-compose";
       inputs.nixpkgs.follows = "nixpkgs-unstable";

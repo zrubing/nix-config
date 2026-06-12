@@ -55,6 +55,10 @@ in
           export ZOT_REGISTRY_PASSWORD="$(cat ${config.sops.secrets."zot/password".path} | xargs)"
         fi
 
+        if [ -f ${config.sops.templates."anysearch-env".path} ]; then
+          source ${config.sops.templates."anysearch-env".path}
+        fi
+
 
 
         # Enable bash completion if available
