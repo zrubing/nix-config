@@ -41,7 +41,7 @@ let
     doCheck = false;
   };
 in
-python312Packages.buildPythonApplication rec {
+python312Packages.buildPythonPackage rec {
   pname = "tradingagents";
   version = "0.2.5";
   pyproject = true;
@@ -82,15 +82,12 @@ python312Packages.buildPythonApplication rec {
 
   pythonRelaxDeps = true;
 
-  pythonImportsCheck = [
-    "cli.main"
-    "tradingagents"
-  ];
+  pythonImportsCheck = [ "tradingagents" ];
 
-  meta = {
+  meta = with lib; {
     description = "Multi-agent LLM financial trading framework";
     homepage = "https://github.com/tauricresearch/tradingagents";
-    license = lib.licenses.asl20;
+    license = licenses.asl20;
     mainProgram = "tradingagents";
   };
 }
