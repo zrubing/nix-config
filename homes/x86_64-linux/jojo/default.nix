@@ -5,12 +5,7 @@
 
   home.packages = [
     pkgs.${namespace}."pv-inspect"
-    pkgs.${namespace}.tradingagents
   ];
-
-  home.sessionVariables = {
-    PYTHONPATH = "${pkgs.${namespace}.tradingagents}/lib/python3.12/site-packages";
-  };
 
   programs.k9s = {
     enable = true;
