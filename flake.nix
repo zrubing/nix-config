@@ -200,13 +200,19 @@
             (pkgs.python312.withPackages (ps: [
               snowfall.packages.x86_64-linux.tradingagents
             ]))
+            pkgs.sops
           ];
           shellHook = ''
+            export SOPS_AGE_KEY_FILE="$HOME/.ssh/id_ed25519"
+
             if [ -f .env ]; then
               echo "[trading] loading .env from $(pwd)"
               set -a && source .env && set +a
+            elif [ -f .env.sops ]; then
+              echo "[trading] decrypting .env.sops from $(pwd)"
+              set -a && source <(${pkgs.sops}/bin/sops -d .env.sops) && set +a
             else
-              echo "[trading] no .env found in $(pwd), skipping"
+              echo "[trading] no .env or .env.sops found in $(pwd), skipping"
             fi
           '';
         };
