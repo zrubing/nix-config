@@ -16,26 +16,7 @@ in
   snowfallorg.users.jojo = {
     home.config = {
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
-      home.packages = [
-        pkgs.${namespace}.multica
-        pkgs.${namespace}.multica-desktop
-      ];
-      home.file.".multica/config.json" = {
-        force = true;
-        text = builtins.toJSON {
-          server_url = "http://multica-api.local";
-          app_url = "http://multica.local";
-        };
-      };
-      home.file.".multica/desktop.json" = {
-        force = true;
-        text = builtins.toJSON {
-          schemaVersion = 1;
-          apiUrl = "http://multica-api.local";
-          wsUrl = "ws://multica-api.local/ws";
-          appUrl = "http://multica.local";
-        };
-      };
+          internal.modules.multica.enable = true;
       internal.observabilityPortForward.enable = true;
     };
   };
