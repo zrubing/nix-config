@@ -201,6 +201,14 @@
               snowfall.packages.x86_64-linux.tradingagents
             ]))
           ];
+          shellHook = ''
+            if [ -f .env ]; then
+              echo "[trading] loading .env from $(pwd)"
+              set -a && source .env && set +a
+            else
+              echo "[trading] no .env found in $(pwd), skipping"
+            fi
+          '';
         };
     };
 
