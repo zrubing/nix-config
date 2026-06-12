@@ -81,26 +81,22 @@ in
       '';
     };
 
-    sops.templates."trading-env" = {
-      path = "/home/${username}/.config/trading/.env";
+    sops.templates."tradingagents.env" = {
+      path = "/home/${username}/.config/tradingagents/.env";
       content = ''
-        # --- LLM Provider (required) ---
-        # Provider keys: openai | anthropic | google | azure | xai | deepseek | qwen
-        export TRADINGAGENTS_LLM_PROVIDER=anthropic
-
-        # --- Anthropic (sops-managed) ---
+        # --- Anthropic-compatible (Zhipu via sops) ---
         export ANTHROPIC_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
         export ANTHROPIC_BASE_URL="${config.sops.placeholder."anthropic/base_url"}"
 
-        # --- Other providers (uncomment & fill) ---
-        # export OPENAI_API_KEY="sk-..."
-        # export GOOGLE_API_KEY="..."
-        # export DASHSCOPE_API_KEY="..."
-        # export DEEPSEEK_API_KEY="..."
+        # --- DeepSeek ---
+        # export DEEPSEEK_API_KEY="sk-..."
+
+        # --- LLM Provider ---
+        export TRADINGAGENTS_LLM_PROVIDER=anthropic
 
         # --- Optional overrides ---
-        # export TRADINGAGENTS_DEEP_THINK_LLM=claude-sonnet-4-20250514
-        # export TRADINGAGENTS_QUICK_THINK_LLM=claude-sonnet-4-20250514
+        # export TRADINGAGENTS_DEEP_THINK_LLM=deepseek-chat
+        # export TRADINGAGENTS_QUICK_THINK_LLM=deepseek-chat
         # export TRADINGAGENTS_OUTPUT_LANGUAGE=Chinese
       '';
     };
