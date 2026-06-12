@@ -13,7 +13,7 @@ in
 {
   options.${namespace}.noctalia.enable = lib.mkOption {
     type = lib.types.bool;
-    default = true;
+    default = false;
     description = "Whether to install noctalia-shell package on NixOS.";
   };
 
