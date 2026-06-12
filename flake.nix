@@ -179,6 +179,7 @@
       channels-config = {
         # Allow unfree packages.
         allowUnfree = true;
+        doCheckByDefault = false;
         permittedInsecurePackages = [
           "electron-38.8.4"
           "nodejs-slim-20.20.2"
