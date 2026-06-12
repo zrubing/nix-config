@@ -9,6 +9,13 @@
 }:
 let
   hermesPackage = inputs.llm-agents.packages.${system}.hermes-agent;
+  hermesWrapped = pkgs.writeShellScriptBin "hermes" ''
+    set -a
+    . ${config.sops.templates."hermes-agent.env".path}
+    set +a
+
+    exec ${lib.getExe hermesPackage} "$@"
+  '';
   codexPackage = inputs.llm-agents.packages.${system}.codex;
   piPackage = inputs.llm-agents.packages.${system}.pi;
   mysecrets = inputs.mysecrets;
@@ -235,8 +242,18 @@ in
     '';
   };
 
+  sops.templates."hermes-agent.env" = {
+    owner = "hermes-agent";
+    group = "users";
+    mode = "0440";
+    content = ''
+      DEEPSEEK_API_KEY=${config.sops.placeholder."deepseek/api_key"}
+      GLM_API_KEY=${config.sops.placeholder."zhipu/api_key"}
+    '';
+  };
+
   environment.systemPackages = [
-    hermesPackage
+    hermesWrapped
     codexPackage
     piPackage
     multicaPackage
@@ -468,7 +485,7 @@ in
         "PYTHONPATH=${pkgs.python3Packages.python-telegram-bot}/${pkgs.python3.sitePackages}"
       ];
       EnvironmentFile = "-/home/hermes-agent/.hermes/.env";
-      ExecStart = "${hermesPackage}/bin/hermes gateway run";
+      ExecStart = "${hermesWrapped}/bin/hermes gateway run";
       Restart = "always";
       RestartSec = 5;
       UMask = "0077";
