@@ -80,5 +80,17 @@ in
         export ANYSEARCH_API_KEY="${config.sops.placeholder."anysearch/api_key"}"
       '';
     };
+
+    sops.templates."trading-env" = {
+      path = "/home/${username}/.config/trading/.env";
+      content = ''
+        export ANTHROPIC_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
+        export ANTHROPIC_BASE_URL="${config.sops.placeholder."anthropic/base_url"}"
+        # Override provider via env: export TRADINGAGENTS_LLM_PROVIDER=anthropic
+        # Add more keys below as needed:
+        # export OPENAI_API_KEY="..."
+        # export GOOGLE_API_KEY="..."
+      '';
+    };
   };
 }
