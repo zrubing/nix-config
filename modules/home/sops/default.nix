@@ -84,12 +84,24 @@ in
     sops.templates."trading-env" = {
       path = "/home/${username}/.config/trading/.env";
       content = ''
+        # --- LLM Provider (required) ---
+        # Provider keys: openai | anthropic | google | azure | xai | deepseek | qwen
+        export TRADINGAGENTS_LLM_PROVIDER=anthropic
+
+        # --- Anthropic (sops-managed) ---
         export ANTHROPIC_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
         export ANTHROPIC_BASE_URL="${config.sops.placeholder."anthropic/base_url"}"
-        # Override provider via env: export TRADINGAGENTS_LLM_PROVIDER=anthropic
-        # Add more keys below as needed:
-        # export OPENAI_API_KEY="..."
+
+        # --- Other providers (uncomment & fill) ---
+        # export OPENAI_API_KEY="sk-..."
         # export GOOGLE_API_KEY="..."
+        # export DASHSCOPE_API_KEY="..."
+        # export DEEPSEEK_API_KEY="..."
+
+        # --- Optional overrides ---
+        # export TRADINGAGENTS_DEEP_THINK_LLM=claude-sonnet-4-20250514
+        # export TRADINGAGENTS_QUICK_THINK_LLM=claude-sonnet-4-20250514
+        # export TRADINGAGENTS_OUTPUT_LANGUAGE=Chinese
       '';
     };
   };
