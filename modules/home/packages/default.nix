@@ -98,6 +98,10 @@ in
     home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skill-sources/woodpecker-ci;
     home.file.".pi/agent/skills/zli".source = ../../../.pi/skill-sources/zli;
     home.file.".pi/agent/skills/sealed-secrets".source = ../../../.pi/skill-sources/sealed-secrets;
+    home.file.".pi/agent/skills/tradingagents" = {
+      source = ../../../.pi/skill-sources/tradingagents;
+      recursive = true;
+    };
 
     # Pi skills
     home.file.".pi/agent/skills/caveman".source = "${inputs.caveman-skills}/skills/caveman";
