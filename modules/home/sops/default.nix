@@ -74,6 +74,10 @@ in
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
 
+    sops.secrets."alphavantage/api_key" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+
     sops.secrets."anysearch/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
@@ -97,6 +101,9 @@ in
         # --- Anthropic-compatible (Zhipu via sops) ---
         export ANTHROPIC_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
         export ANTHROPIC_BASE_URL="${config.sops.placeholder."anthropic/base_url"}"
+
+        # --- Alpha Vantage (sops-managed) ---
+        export ALPHA_VANTAGE_API_KEY="${config.sops.placeholder."alphavantage/api_key"}"
 
         # --- Optional overrides ---
         # export TRADINGAGENTS_DEEP_THINK_LLM=deepseek-chat
