@@ -168,16 +168,42 @@ in
       enable = proxysqlEnabled;
       configFile = lib.mkIf proxysqlEnabled config.sops.templates."proxysql.cnf".path;
     };
-    mysql-proxy = {
+    # 通用 TCP 转发模块（替代旧的 mysql-proxy）：direct 用 socat，
+    # ssh-tunnel 用 ssh -L，上游真实地址全部走 sops，hosts 自动生成。
+    tcp-forward = {
       enable = true;
-      proxies = {
-        test = {
+      forwards = {
+        test-mysql = {
           listenIp = "127.0.0.2";
-          targetHostSecret = "mysql_proxy/test/target_host";
+          listenPort = 3306;
+          upstreamHostSecret = "mysql_proxy/test/target_host";
+          upstreamPort = 3306;
+          hostnames = [ "test.mysql.local" ];
         };
-        prod = {
+        prod-mysql = {
           listenIp = "127.0.0.3";
-          targetHostSecret = "mysql_proxy/prod/target_host";
+          listenPort = 3306;
+          upstreamHostSecret = "mysql_proxy/prod/target_host";
+          upstreamPort = 3306;
+          hostnames = [ "prod.mysql.local" ];
+        };
+        # 经跳板机访问内网 PG：真实跳板机/目标地址由 sops 渲染进 ssh config，
+        # nix 仓库与 ps 里只看到别名 tcp-forward-sg-postgres。
+        # 需在 nix-secrets 添加 tcp_forward/sg_postgres/{jump_host,target_host}。
+        postgres-forward1 = {
+          listenIp = "127.0.0.4";
+          listenPort = 5432;
+          mode = "ssh-tunnel";
+          ssh = {
+            jumpHostSecret = "tcp_forward/postgres1/jump_host";
+            jumpUser = "ubuntu";
+            targetHostSecret = "tcp_forward/postgres1/target_host";
+            targetPort = 5432;
+            identityFile = "/home/jojo/.ssh/id_ed25519";
+            # 跨公网跳板机，启用 autossh 主动探活，检测半开连接。
+            monitoringPort = 0;
+          };
+          hostnames = [ "jkt.postgres.prod.local" ];
         };
       };
     };
@@ -223,11 +249,6 @@ in
   networking.networkmanager.enable = true;
   networking.hosts = {
     "127.0.0.1" = [ "redis.test.local" ];
-    "127.0.0.2" = [
-      "test.mysql.local"
-      "sg.postgres.local"
-    ];
-    "127.0.0.3" = [ "prod.mysql.local" ];
     "127.0.0.10" = [ "loki.local" ];
     "127.0.0.11" = [ "tempo.local" ];
     "10.144.200.3" = [
