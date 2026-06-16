@@ -173,7 +173,7 @@ in
       # python312Packages.playwright
       pkgs-unstable.tdlib
       # pkgs.${namespace}.aider
-      # pkgs.aider-chat
+      pkgs.aider-chat
       # pkgs-unstable.aider-chat
       # pkgs-unstable.claude-code
       pkgs.${namespace}.zli
