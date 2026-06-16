@@ -139,6 +139,28 @@ in
 
   ${namespace} = {
     user.name = "jojo";
+    # 复用 zen14 同一套 tcp-forward 定义：loopback IP / .local 名字跨机器一致。
+    # prod 写库默认不自启，需要时 systemctl start tcp-forward-prod-mysql。
+    tcp-forward = {
+      enable = true;
+      forwards = {
+        test-mysql = {
+          listenIp = "127.0.0.2";
+          listenPort = 3306;
+          upstreamHostSecret = "mysql_proxy/test/target_host";
+          upstreamPort = 3306;
+          hostnames = [ "test.mysql.local" ];
+        };
+        prod-mysql = {
+          listenIp = "127.0.0.3";
+          listenPort = 3306;
+          upstreamHostSecret = "mysql_proxy/prod/target_host";
+          upstreamPort = 3306;
+          hostnames = [ "prod.mysql.local" ];
+          autoStart = false;
+        };
+      };
+    };
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-nova13.age";
     nix-ld.enable = false;
