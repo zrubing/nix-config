@@ -6,24 +6,24 @@
 }:
 
 let
-  version = "0.3.21";
+  version = "0.3.26";
 
   binaries = {
     x86_64-linux = {
       artifact = "multica-cli-${version}-linux-amd64.tar.gz";
-      hash = "sha256-OOpezC5dj/aDcbM8wYANrl6kqrjxYwPbAoWoBG7PjFE=";
+      hash = "sha256-MDnD65K2JAJbA+/nwPdj6tmqfiaOdgm9G5F7o/YkYqg=";
     };
     aarch64-linux = {
       artifact = "multica-cli-${version}-linux-arm64.tar.gz";
-      hash = "sha256-DqeANYB+sfqTfO770S4ytQlBUo4bMd4rlioBDFiAhLY=";
+      hash = "sha256-2aD795voM6bafUkUytm7sR6S1d/MxPR5dk+9hFZTQzY=";
     };
     x86_64-darwin = {
       artifact = "multica-cli-${version}-darwin-amd64.tar.gz";
-      hash = "sha256-BDD8iIUmV9VRkckt9rsVcgBejScFXy/jm1qrAhxT/9U=";
+      hash = "sha256-3nhfDXjv8RnO1/2O39fa+pdxKhOQIzE5Md63C/CnFq8=";
     };
     aarch64-darwin = {
       artifact = "multica-cli-${version}-darwin-arm64.tar.gz";
-      hash = "sha256-gqFY+v88c8/BdGF037wNN2YjdiwP+H8SP/31eUzvqkg=";
+      hash = "sha256-ZG6LuCyi2+mfDwd/wmNuz5jx7t5idTUPlmLsCx8QYyE=";
     };
   };
 
