@@ -190,7 +190,7 @@ in
       pkgs-nix-ai.beads
       pkgs-nix-ai.catnip
       pkgs-nix-ai.opencode
-      #(lib.hiPrio pkgs-nix-ai.agent-browser)
+      pkgs-nix-ai.agent-browser
       #pkgs-nix-ai.coding-agent-search
       pkgs-nix-ai.gemini-cli
       #pkgs-nix-ai.claude-code-acp
