@@ -124,6 +124,10 @@ in
             [ -n "$EAT_SHELL_INTEGRATION_DIR" ] && \
                       source "$EAT_SHELL_INTEGRATION_DIR/zsh"
 
+            if [ -f ${config.sops.templates."default-env".path} ]; then
+              source ${config.sops.templates."default-env".path}
+            fi
+
     '';
     shellAliases = {
       g = "git";

@@ -59,6 +59,10 @@ in
           source ${config.sops.templates."anysearch-env".path}
         fi
 
+        if [ -f ${config.sops.templates."default-env".path} ]; then
+          source ${config.sops.templates."default-env".path}
+        fi
+
 
 
         # Enable bash completion if available

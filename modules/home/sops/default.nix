@@ -82,6 +82,10 @@ in
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
 
+    sops.secrets."opencode/api_key" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+
     sops.templates."anysearch-env" = {
       path = "/home/${username}/.pi/agent/skills/anysearch/.env";
       content = ''
@@ -109,6 +113,14 @@ in
         # export TRADINGAGENTS_DEEP_THINK_LLM=deepseek-chat
         # export TRADINGAGENTS_QUICK_THINK_LLM=deepseek-chat
         # export TRADINGAGENTS_OUTPUT_LANGUAGE=Chinese
+      '';
+    };
+
+    sops.templates."default-env" = {
+      path = "/home/${username}/.config/default.env";
+      content = ''
+        export OPENCODE_API_KEY="${config.sops.placeholder."opencode/api_key"}"
+        export ZAI_CODING_CN_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
       '';
     };
   };
