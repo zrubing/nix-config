@@ -120,6 +120,7 @@ in
       path = "/home/${username}/.config/default.env";
       content = ''
         export OPENCODE_API_KEY="${config.sops.placeholder."opencode/api_key"}"
+        export DEEPSEEK_API_KEY="${config.sops.placeholder."deepseek/api_key"}"
         export ZAI_CODING_CN_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
       '';
     };
