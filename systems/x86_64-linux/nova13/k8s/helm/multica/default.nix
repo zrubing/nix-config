@@ -11,7 +11,7 @@ let
         owner = "multica-ai";
         repo = "multica";
         rev = "v0.3.31";
-        sha256 = "sha256-+dvnamJVFayYcfOTuh7pOSyJhfjPwtHCpVQ833DaRPg=";
+        sha256 = "sha256-cFl/RQeOq2R6KTY2ITSCxI4EshVFXJqMF230oUNnXPs=";
       };
     in
     pkgs.runCommand "multica-chart" { inherit src; } ''
