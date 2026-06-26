@@ -41,12 +41,24 @@
     ];
   };
 
+  # --- Hibernate 配置（挂起到磁盘）---
+  # 本机用 systemd initrd（boot.initrd.systemd.enable=true），resume 机制由
+  # systemd-hibernate-resume-generator 全自动完成：它在早期启动时用 FIEMAP
+  # ioctl 自己探测 swapfile 的 device + offset，写入 /sys/power/resume(_offset)
+  # 并触发 resume。所以只需两样：
+  #   1) swap >= RAM（本机 RAM 27G，扩到 36G 留压缩镜像 + 余量）
+  #   2) boot.resumeDevice —— 设了它，NixOS 自动生成 resume= 内核参数
+  # 不需要手动写 resume_offset=（generator 自动测），也不用手动加 resume=。
+  # swapfile 重建（扩容）后 offset 变化对自动检测透明，无需重新填值。
   swapDevices = [
     {
       device = "/var/lib/swapfile";
-      size = 16 * 1024;
+      size = 36 * 1024;
     }
   ];
+
+  # swapfile 所在分区（=根分区）。用 by-label 更可读、重装不易变。
+  boot.resumeDevice = "/dev/disk/by-label/NIXROOT";
 
   # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
   # (the default) this is the recommended approach. When using systemd-networkd it's

@@ -246,6 +246,20 @@ in
 
   };
 
+  # 电池管理：未接电源（电池放电中）且电量降到 percentageAction 时，
+  # upower 自动执行 criticalPowerAction。三个百分比必须严格降序，否则
+  # upower 会回退到默认值。
+  # 选 Hibernate（挂起到磁盘、完全断电）：依赖 hardware/zen14.nix 里的
+  # swap(36G) + resumeDevice + resume_offset 配置。断电后不耗电，
+  # 唤醒后恢复所有状态。
+  services.upower = {
+    enable = true;
+    percentageLow = 15;
+    percentageCritical = 12;
+    percentageAction = 10;
+    criticalPowerAction = "Hibernate";
+  };
+
   networking.networkmanager.enable = true;
   networking.hosts = {
     "127.0.0.1" = [ "redis.test.local" ];
