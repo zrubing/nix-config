@@ -27,6 +27,13 @@
   boot.kernelModules = [ "kvm-amd" ];
   boot.extraModulePackages = [ ];
 
+  # systemd initrd 比传统 bash initrd 更现代、更快：
+  # - 自动组装 MD/LVM/LUKS（systemd 原生驱动）
+  # - systemd-hibernate-resume-generator 可自动探测 swapfile 偏移
+  #   省掉 resume_offset 的手动维护（当前仍需显式写偏移做兜底）
+  # - 如果用 Plymouth，图形化 LUKS 密码输入需要 systemd initrd
+  boot.initrd.systemd.enable = true;
+
   fileSystems."/" = {
     device = "/dev/disk/by-label/NIXROOT";
     fsType = "ext4";
@@ -41,15 +48,34 @@
     ];
   };
 
+  # --- Zram 交换（内存压缩 swap）---
+  # 日常桌面使用时优先走 zram（内存内压缩，比磁盘 swap 快）；
+  # hibernate 时内核只写入真实 swapfile，不碰 zram。
+  # 注意：zram 不能存休眠镜像，下方 /var/lib/swapfile 必须保留。
+  zramSwap = {
+    enable = true;
+    algorithm = "zstd";
+    memoryPercent = 50;
+  };
+
   # --- Hibernate 配置（挂起到磁盘）---
-  # 本机用 systemd initrd（boot.initrd.systemd.enable=true），resume 机制由
-  # systemd-hibernate-resume-generator 全自动完成：它在早期启动时用 FIEMAP
-  # ioctl 自己探测 swapfile 的 device + offset，写入 /sys/power/resume(_offset)
-  # 并触发 resume。所以只需两样：
+  # 三样缺一不可：
   #   1) swap >= RAM（本机 RAM 27G，扩到 36G 留压缩镜像 + 余量）
   #   2) boot.resumeDevice —— 设了它，NixOS 自动生成 resume= 内核参数
-  # 不需要手动写 resume_offset=（generator 自动测），也不用手动加 resume=。
-  # swapfile 重建（扩容）后 offset 变化对自动检测透明，无需重新填值。
+  #   3) boot.kernelParams 里的 resume_offset= —— swapfile 在磁盘上的物理偏移（页面）
+  # 已启用 boot.initrd.systemd，systemd-hibernate-resume-generator 理论可
+  # 用 FIEMAP 自动探测偏移，但当前 nixpkgs 没打该 generator 进 initrd，
+  # 所以显式 resume_offset 仍然必要（做兜底）。
+  #
+  # ⚠️  swapfile 一旦重建（扩容/移动/碎片重排），物理偏移会变，
+  # 必须重新计算并更新下面的 resume_offset：
+  #   sudo filefrag -v /var/lib/swapfile | python3 -c '
+  #   import sys,re
+  #   for l in sys.stdin:
+  #     m=re.match(r"\s*\d+:\s+\d+\.\.\s*\d+:\s+(\d+)\.\.\s*\d+:\s+\d+",l)
+  #     if m: print(int(m.group(1))); break'
+  #   输出直接就是 resume_offset（单位是 4K 页面，不需要 ×8）。
+  #   运行 schedule-resume-offset-check.service 可在下次 hibernate 前自动校验。
   swapDevices = [
     {
       device = "/var/lib/swapfile";
@@ -59,6 +85,65 @@
 
   # swapfile 所在分区（=根分区）。用 by-label 更可读、重装不易变。
   boot.resumeDevice = "/dev/disk/by-label/NIXROOT";
+  # resume_offset 单位是页面（PAGE_SIZE=4096B），刚好等于 ext4 的 4K 块号。
+  # swapfile 第一 extent 在 4K 块 18720768，所以 resume_offset=18720768。
+  # 注意：绝不要 ×8 转 512B 扇区！内核期望的是页面数。
+  #
+  # swapfile 一旦重建，重新计算：
+  #   sudo filefrag -v /var/lib/swapfile | python3 -c '
+  #   import sys,re
+  #   for l in sys.stdin:
+  #     m=re.match(r"\s*\d+:\s+\d+\.\.\s*\d+:\s+(\d+)\.\.\s*\d+:\s+\d+",l)
+  #     if m: print(int(m.group(1))); break'
+  #   输出直接就是 resume_offset（不需要再 ×8）。
+  boot.kernelParams = [ "resume_offset=18720768" ];
+
+  # 让内核只保存必须恢复的页面，压缩 hibernate 镜像到最小。
+  # 代价是恢复稍慢，但对桌面机器影响不大。
+  systemd.tmpfiles.rules = [ "w /sys/power/image_size - - - - 0" ];
+
+  # 每次启动时校验 swapfile 的物理偏移是否与配置的 resume_offset 一致。
+  # 如果 swapfile 被重建/移动过，偏移会漂移——这个 service 会在 journal
+  # 里告警，避免你到 hibernate 失败后才发现。
+  systemd.services.resume-offset-check = {
+    description = "Verify swapfile physical offset matches configured resume_offset";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "local-fs.target" ];
+    path = with pkgs; [ util-linux python3 ];
+    serviceConfig.Type = "oneshot";
+    script = ''
+      set -euo pipefail
+      swapfile="/var/lib/swapfile"
+      if [ ! -f "$swapfile" ]; then
+        echo "swapfile not found: $swapfile" >&2
+        exit 0
+      fi
+      configured=$(cat /sys/power/resume_offset 2>/dev/null || echo 0)
+      actual=$(filefrag -v "$swapfile" 2>/dev/null | \
+        ${pkgs.python3}/bin/python3 -c "
+import sys, re
+for l in sys.stdin:
+    m = re.match(r'\s*\d+:\s+\d+\.\.\s*\d+:\s+(\d+)\.\.\s*\d+:\s+\d+', l)
+    if m:
+        print(int(m.group(1)))
+        break
+")
+      if [ "$configured" -eq 0 ]; then
+        echo "WARNING: /sys/power/resume_offset is 0, hibernate will fail" >&2
+        exit 0
+      fi
+      if [ "$configured" != "$actual" ]; then
+        echo "CRITICAL: resume_offset mismatch!" >&2
+        echo "  configured (kernel cmdline): $configured" >&2
+        echo "  actual    (from filefrag):   $actual" >&2
+        echo "  Run: sudo filefrag -v $swapfile" >&2
+        echo "  The swapfile may have been recreated/moved." >&2
+        echo "  Update resume_offset in hardware/zen14.nix and rebuild." >&2
+        exit 1
+      fi
+      echo "resume_offset OK: $actual"
+    '';
+  };
 
   # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
   # (the default) this is the recommended approach. When using systemd-networkd it's
