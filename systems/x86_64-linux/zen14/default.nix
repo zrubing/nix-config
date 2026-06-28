@@ -260,6 +260,10 @@ in
     criticalPowerAction = "Hibernate";
   };
 
+  # 按电源键直接休眠到磁盘（台式机无合盖，电源键是最自然的触发方式）。
+  # 如需弹菜单，可改为 "poweroff" 或删除此行（走 DE 默认行为）。
+  services.logind.settings.Login.HandlePowerKey = "hibernate";
+
   networking.networkmanager.enable = true;
   networking.hosts = {
     "127.0.0.1" = [ "redis.test.local" ];
