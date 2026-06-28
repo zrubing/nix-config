@@ -109,7 +109,7 @@
     description = "Verify swapfile physical offset matches configured resume_offset";
     wantedBy = [ "multi-user.target" ];
     after = [ "local-fs.target" ];
-    path = with pkgs; [ util-linux python3 ];
+    path = with pkgs; [ e2fsprogs python3 util-linux ];
     serviceConfig.Type = "oneshot";
     script = ''
       set -euo pipefail
