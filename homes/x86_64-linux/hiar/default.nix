@@ -18,7 +18,8 @@ in
 
   internal = {
     desktop.niri.enable = true;
-    gpui-shell.enable = true;
+    gpui-shell.enable = false;
+    wayle.enable = true;
     noctalia.enable = false;
 
     emacs = {

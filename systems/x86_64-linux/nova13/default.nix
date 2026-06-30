@@ -165,6 +165,7 @@ in
     tailscale.headscaleAuthkeyFile = "headscale-authkey-nova13.age";
     nix-ld.enable = false;
     gpui-shell.enable = lib.mkForce false;
+    wayle.enable = lib.mkForce false;
     noctalia.enable = lib.mkForce false;
     #builder.enable = true;
     desktop.niri.enable = lib.mkForce false;
@@ -186,6 +187,7 @@ in
         modules.fcitx5.enable = lib.mkForce false;
         programs.wechat.enable = lib.mkForce false;
         gpui-shell.enable = lib.mkForce false;
+        wayle.enable = lib.mkForce false;
         noctalia.enable = lib.mkForce false;
       };
 

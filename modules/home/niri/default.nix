@@ -24,7 +24,8 @@ in
 
     ${namespace} = {
       #rgbar.enable = true;
-      gpui-shell.enable = true;
+      gpui-shell.enable = false;
+      wayle.enable = true;
       noctalia.enable = false;
       #copyq.enable = true;
       yazi.enable = true;
