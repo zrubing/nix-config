@@ -1,0 +1,91 @@
+diff --git a/src/server/event.rs b/src/server/event.rs
+index a97076d..d4c2755 100644
+--- a/src/server/event.rs
++++ b/src/server/event.rs
+@@ -1197,6 +1197,24 @@ fn update_output_offset(
+             return;
+         }
+ 
++        // Scale output position when using mixed-scale max scale,
++        // so that X11 layout matches the scaled mode dimensions.
++        let (x, y) = if state.mixed_scale {
++            if let Some(gs) = state.global_scale {
++                let os = state
++                    .world
++                    .get::<&OutputScaleFactor>(output)
++                    .map(|s| s.get())
++                    .unwrap_or(gs);
++                let ratio = gs / os;
++                ((x as f64 * ratio).round() as i32, (y as f64 * ratio).round() as i32)
++            } else {
++                (x, y)
++            }
++        } else {
++            (x, y)
++        };
++
+         let global_offset = &mut state.global_output_offset;
+         let mut maybe_update_dimension = |value, dim: &mut GlobalOutputOffsetDimension| {
+             if value < dim.value {
+@@ -1420,6 +1438,15 @@ impl OutputEvent {
+                 height,
+                 refresh,
+             } => {
++                // Read mixed_scale, global_scale, and output_scale before mutable borrow
++                let mixed_scale = state.mixed_scale;
++                let global_scale = state.global_scale;
++                let output_scale = state
++                    .world
++                    .get::<&OutputScaleFactor>(target)
++                    .map(|s| s.get())
++                    .ok();
++
+                 let Ok((output, dimensions)) = state
+                     .world
+                     .query_one_mut::<(&WlOutput, &mut OutputDimensions)>(target)
+@@ -1427,15 +1454,41 @@ impl OutputEvent {
+                     return;
+                 };
+ 
++                // Scale output mode dimensions when using mixed-scale max scale,
++                // so that X11 screen coordinates match the global scale.
++                let (scaled_width, scaled_height) = if mixed_scale {
++                    if let Some(gs) = global_scale {
++                        let os = output_scale.unwrap_or(gs);
++                        let ratio = gs / os;
++                        (
++                            (width as f64 * ratio).round() as i32,
++                            (height as f64 * ratio).round() as i32,
++                        )
++                    } else {
++                        (width, height)
++                    }
++                } else {
++                    (width, height)
++                };
++
+                 if flags
+                     .into_result()
+                     .is_ok_and(|f| f.contains(client::wl_output::Mode::Current))
+                 {
+-                    dimensions.width = width;
+-                    dimensions.height = height;
+-                    debug!("{} dimensions: {width}x{height}", output.id());
++                    dimensions.width = scaled_width;
++                    dimensions.height = scaled_height;
++                    if scaled_width != width || scaled_height != height {
++                        let ratio = global_scale.unwrap_or(1.0)
++                            / output_scale.unwrap_or(1.0);
++                        debug!(
++                            "{} dimensions: {width}x{height} -> {scaled_width}x{scaled_height} (mixed_scale ratio={ratio:.2})",
++                            output.id(),
++                        );
++                    } else {
++                        debug!("{} dimensions: {scaled_width}x{scaled_height}", output.id());
++                    }
+                 }
+-                output.mode(convert_wenum(flags), width, height, refresh);
++                output.mode(convert_wenum(flags), scaled_width, scaled_height, refresh);
+             }
+             Event::Scale { factor } => {
+                 debug!(

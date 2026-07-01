@@ -1,24 +1,121 @@
+diff --git a/src/server/event.rs b/src/server/event.rs
+index 7a0e338..e9a8892 100644
+--- a/src/server/event.rs
++++ b/src/server/event.rs
+@@ -95,10 +95,23 @@ impl Event for SurfaceEvents {
+                 wp_fractional_scale_v1::Event::PreferredScale { scale } => {
+                     let state = state.deref_mut();
+                     let entity = state.world.entity(target).unwrap();
+-                    let factor = scale as f64 / 120.0;
++                    let factor = {
++                        let raw = scale as f64 / 120.0;
++                        let mut max_scale = raw;
++                        for (_, s) in state.world.query::<&OutputScaleFactor>().iter() {
++                            max_scale = max_scale.max(s.get());
++                        }
++                        if max_scale != raw || state.mixed_scale {
++                            max_scale
++                        } else {
++                            raw
++                        }
++                    };
+                     debug!(
+-                        "{} scale factor: {}",
++                        "{} fractional scale: raw={} mixed={} final={}",
+                         entity.get::<&WlSurface>().unwrap().id(),
++                        scale as f64 / 120.0,
++                        state.mixed_scale,
+                         factor
+                     );
+ 
+@@ -231,7 +244,22 @@ impl SurfaceEvents {
+ 
+                     if state.fractional_scale.is_none() {
+                         let output_scale = output_data.get::<&OutputScaleFactor>().unwrap().get();
+-                        data.get::<&mut SurfaceScaleFactor>().unwrap().0 = output_scale;
++                        let scale = {
++                            let mut max_scale = output_scale;
++                            for (_, s) in state.world.query::<&OutputScaleFactor>().iter() {
++                                max_scale = max_scale.max(s.get());
++                            }
++                            if max_scale != output_scale || state.mixed_scale {
++                                max_scale
++                            } else {
++                                output_scale
++                            }
++                        };
++                        debug!(
++                            "{} entered output {}: output_scale={} mixed={} final_scale={}",
++                            surface.id(), output.id(), output_scale, state.mixed_scale, scale
++                        );
++                        data.get::<&mut SurfaceScaleFactor>().unwrap().0 = scale;
+                         drop(query);
+                         update_surface_viewport(
+                             &state.world,
+@@ -651,11 +679,16 @@ impl Event for client::wl_pointer::Event {
+                 };
+ 
+                 let server = state.world.get::<&WlPointer>(target).unwrap();
++                trace!("pointer enter: copying surface_scale={} to ptr entity", scale.0);
+                 cmd.insert(target, (*scale,));
+ 
+                 let surface_is_popup = matches!(role, SurfaceRole::Popup(_));
+                 let mut do_enter = || {
+-                    debug!("pointer entering {} ({serial} {})", surface.id(), scale.0);
++                    debug!(
++                        "pointer entering {} serial={} scale={} x11=({},{})",
++                        surface.id(), serial, scale.0,
++                        surface_x * scale.0, surface_y * scale.0
++                    );
+                     server.enter(serial, surface, surface_x * scale.0, surface_y * scale.0);
+                     connection.raise_to_top(*window);
+                     if !surface_is_popup {
+@@ -742,9 +775,9 @@ impl Event for client::wl_pointer::Event {
+                     .unwrap();
+                 trace!(
+                     target: "pointer_position",
+-                    "pointer motion {} {}",
+-                    surface_x * scale.0,
+-                    surface_y * scale.0
++                    "pointer motion surface=({},{}) ptr_scale={} x11=({},{})",
++                    surface_x, surface_y, scale.0,
++                    surface_x * scale.0, surface_y * scale.0
+                 );
+                 server.motion(time, surface_x * scale.0, surface_y * scale.0);
+             }
+@@ -754,6 +787,9 @@ impl Event for client::wl_pointer::Event {
+                 button,
+                 state: button_state,
+             } => {
++                debug!(
++                    "pointer button: serial={serial} button={button} state={button_state:?}"
++                );
+                 if !handle_pending_enter(target, state, "click") {
+                     return;
+                 }
 diff --git a/src/server/mod.rs b/src/server/mod.rs
-index 3e597f8..c95ca08 100644
+index 3e597f8..baf46b6 100644
 --- a/src/server/mod.rs
 +++ b/src/server/mod.rs
-@@ -483,6 +483,7 @@ pub struct InnerServerState<S: X11Selection> {
+@@ -483,6 +483,8 @@ pub struct InnerServerState<S: X11Selection> {
      global_offset_updated: bool,
      updated_outputs: Vec<Entity>,
      new_scale: Option<f64>,
 +    mixed_scale: bool,
++    global_scale: Option<f64>,
  }
  
  impl<S: X11Selection> ServerState<NoConnection<S>> {
-@@ -591,6 +592,7 @@ impl<S: X11Selection> ServerState<NoConnection<S>> {
+@@ -591,6 +593,8 @@ impl<S: X11Selection> ServerState<NoConnection<S>> {
              global_offset_updated: false,
              updated_outputs: Vec::new(),
              new_scale: None,
 +            mixed_scale: false,
++            global_scale: None,
              decoration_manager,
              world,
          };
-@@ -717,18 +719,43 @@ impl<C: XConnection> ServerState<C> {
+@@ -717,13 +721,18 @@ impl<C: XConnection> ServerState<C> {
                  for (_, output_scale) in outputs {
                      if output_scale.get() != scale {
                          mixed_scale = true;
@@ -28,6 +125,9 @@ index 3e597f8..c95ca08 100644
                  }
  
 +                self.mixed_scale = mixed_scale;
++                if mixed_scale {
++                    self.global_scale = Some(scale);
++                }
 +
                  if mixed_scale {
                      warn!(
@@ -36,30 +136,76 @@ index 3e597f8..c95ca08 100644
                      );
                  }
  
-                 debug!("Using new scale {scale}");
-                 self.new_scale = Some(scale);
-+
-+                // When mixed_scale is active, override ALL surfaces to use the global (max) scale
-+                // so viewport destination is calculated correctly on every output.
-+                if mixed_scale {
-+                    let mut surface_query = self
-+                        .world
-+                        .query::<&mut SurfaceScaleFactor>()
-+                        .with::<(&WindowData, &WlSurface)>();
-+
-+                    let mut surfaces = vec![];
-+                    for (surface, surface_scale) in surface_query.iter() {
-+                        surface_scale.0 = scale;
-+                        surfaces.push(surface);
-+                    }
-+
-+                    drop(surface_query);
-+                    for surface in surfaces {
-+                        update_surface_viewport(
-+                            &self.world,
-+                            self.world.query_one(surface).unwrap(),
-+                        );
-+                    }
-+                }
+@@ -1115,9 +1124,14 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+                     ((event.x() as i32 - win.output_offset.x) as f64 / scale_factor.0) as i32,
+                     ((event.y() as i32 - win.output_offset.y) as f64 / scale_factor.0) as i32,
+                 );
++                debug!(
++                    "popup reconfigure: x={} y={} w={} h={} scale={} output_offset=({},{})",
++                    event.x(), event.y(), event.width(), event.height(),
++                    scale_factor.0, win.output_offset.x, win.output_offset.y
++                );
+                 popup.positioner.set_size(
+-                    1.max((event.width() as f64 / scale_factor.0) as i32),
+-                    1.max((event.height() as f64 / scale_factor.0) as i32),
++                    1.max((event.width() as f64 / scale_factor.0).ceil() as i32),
++                    1.max((event.height() as f64 / scale_factor.0).ceil() as i32),
+                 );
+                 popup.popup.reposition(&popup.positioner, 0);
              }
-         }
+@@ -1587,32 +1601,45 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+             .unwrap();
+         let (parent_window, parent_scale, parent_role) = parent_query.get().unwrap();
+         let parent_dims = parent_window.attrs.dims;
+-        let initial_scale = parent_scale.0;
++        let parent_scale_val = parent_scale.0;
+         *scale = *parent_scale;
+ 
++        let use_scale = {
++            let mut max_scale = parent_scale_val;
++            for (_, s) in self.world.query::<&OutputScaleFactor>().iter() {
++                max_scale = max_scale.max(s.get());
++            }
++            if max_scale != parent_scale_val || self.mixed_scale {
++                *scale = SurfaceScaleFactor(max_scale);
++            }
++            max_scale
++        };
++
+         debug!(
+-            "creating popup ({:?}) {:?} {:?} {:?} {entity:?} (scale: {initial_scale})",
++            "creating popup ({:?}) parent={:?} parent_scale={} mixed={} use_scale={} dims={:?}",
+             *self.world.get::<&x::Window>(entity).unwrap(),
+             parent,
+-            window.attrs.dims,
+-            xdg.id()
++            parent_scale_val,
++            self.mixed_scale,
++            use_scale,
++            window.attrs.dims
+         );
+ 
+         let positioner = self.xdg_wm_base.create_positioner(&self.qh, ());
+         positioner.set_size(
+-            1.max((window.attrs.dims.width as f64 / initial_scale) as i32),
+-            1.max((window.attrs.dims.height as f64 / initial_scale) as i32),
++            1.max((window.attrs.dims.width as f64 / use_scale).ceil() as i32),
++            1.max((window.attrs.dims.height as f64 / use_scale).ceil() as i32),
+         );
+-        let x = ((window.attrs.dims.x - parent_dims.x) as f64 / initial_scale) as i32;
+-        let y = ((window.attrs.dims.y - parent_dims.y) as f64 / initial_scale) as i32;
++        let x = ((window.attrs.dims.x - parent_dims.x) as f64 / use_scale) as i32;
++        let y = ((window.attrs.dims.y - parent_dims.y) as f64 / use_scale) as i32;
+         positioner.set_offset(x, y);
+         positioner.set_anchor(Anchor::TopLeft);
+         positioner.set_gravity(Gravity::BottomRight);
+         positioner.set_anchor_rect(
+             0,
+             0,
+-            (parent_window.attrs.dims.width as f64 / initial_scale) as i32,
+-            (parent_window.attrs.dims.height as f64 / initial_scale) as i32,
++            (parent_window.attrs.dims.width as f64 / use_scale).ceil() as i32,
++            (parent_window.attrs.dims.height as f64 / use_scale).ceil() as i32,
+         );
+         positioner
+             .set_constraint_adjustment(ConstraintAdjustment::SlideX | ConstraintAdjustment::SlideY);

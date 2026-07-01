@@ -1,0 +1,171 @@
+--- a/src/server/event.rs
++++ b/src/server/event.rs
+@@ -221,13 +221,20 @@
+                 surface.enter(&output);
+                 let on_output = OnOutput(output_entity);
+ 
+-                debug!("{} entered {}", surface.id(), output.id());
+-
+                 let mut query = data.query::<(&x::Window, &mut WindowData)>();
+                 if let Some((window, win_data)) = query.get() {
+                     let Some(dimensions) = output_data.get::<&OutputDimensions>() else {
+                         return;
+                     };
++                    debug!(
++                        "{} entered {} dims=({},{}) global_offset=({},{})",
++                        surface.id(),
++                        output.id(),
++                        dimensions.x,
++                        dimensions.y,
++                        state.global_output_offset.x.value,
++                        state.global_output_offset.y.value,
++                    );
+                     win_data.update_output_offset(
+                         *window,
+                         WindowOutputOffset {
+@@ -582,6 +589,7 @@
+ }
+ 
+ struct PendingEnter(client::wl_pointer::Event);
++#[derive(Debug)]
+ enum CurrentSurface {
+     Xwayland(Entity),
+     Decoration(Entity),
+@@ -628,7 +636,7 @@
+                     .copied()
+                     .is_some_and(|key| state.world.contains(key))
+                 {
+-                    trace!("resending enter ({serial}) before {}", event_str);
++                    debug!("resending enter ({serial}) before {event_str}");
+                     let enter_event = client::wl_pointer::Event::Enter {
+                         serial: *serial,
+                         surface: surface.clone(),
+@@ -652,6 +660,13 @@
+                 surface_x,
+                 surface_y,
+             } => {
++                debug!(
++                    "wl_pointer.enter: serial={} surface={} raw=({},{})",
++                    serial,
++                    surface.id(),
++                    surface_x,
++                    surface_y,
++                );
+                 let connection = &mut state.connection;
+                 let state = &mut state.inner;
+                 let mut cmd = CommandBuffer::new();
+@@ -660,10 +675,17 @@
+                 let mut query = surface_entity.and_then(|e| {
+                     state
+                         .world
+-                        .query_one::<(&WlSurface, &SurfaceRole, &SurfaceScaleFactor, &x::Window)>(e)
++                        .query_one::<(
++                            &WlSurface,
++                            &SurfaceRole,
++                            &SurfaceScaleFactor,
++                            &x::Window,
++                            &WindowData,
++                        )>(e)
+                         .ok()
+                 });
+-                let Some((surface, role, scale, window)) = query.as_mut().and_then(|q| q.get())
++                let Some((surface, role, scale, window, window_data)) =
++                    query.as_mut().and_then(|q| q.get())
+                 else {
+                     if let Some(&DecorationMarker { parent }) = surface.data() {
+                         drop(query);
+@@ -684,12 +706,24 @@
+ 
+                 let surface_is_popup = matches!(role, SurfaceRole::Popup(_));
+                 let mut do_enter = || {
++                    let scaled_x = surface_x * scale.0;
++                    let scaled_y = surface_y * scale.0;
+                     debug!(
+-                        "pointer entering {} serial={} scale={} x11=({},{})",
+-                        surface.id(), serial, scale.0,
+-                        surface_x * scale.0, surface_y * scale.0
++                        "pointer entering {} win={:?} serial={} raw=({},{}) scale={:.2} scaled=({:.2},{:.2}) win_pos=({},{}) output_offset=({},{})",
++                        surface.id(),
++                        window,
++                        serial,
++                        surface_x,
++                        surface_y,
++                        scale.0,
++                        scaled_x,
++                        scaled_y,
++                        window_data.attrs.dims.x,
++                        window_data.attrs.dims.y,
++                        window_data.output_offset.x,
++                        window_data.output_offset.y,
+                     );
+-                    server.enter(serial, surface, surface_x * scale.0, surface_y * scale.0);
++                    server.enter(serial, surface, scaled_x, scaled_y);
+                     connection.raise_to_top(*window);
+                     if !surface_is_popup {
+                         state.last_hovered = Some(*window);
+@@ -830,6 +864,28 @@
+                     }
+                 }
+ 
++                {
++                    let clicked = if button_state == WEnum::Value(client::wl_pointer::ButtonState::Pressed) {
++                        "pressed"
++                    } else {
++                        "released"
++                    };
++                    if let Ok(mut surface_entity) = state.world.query_one::<(
++                        &CurrentSurface,
++                        &SurfaceScaleFactor,
++                    )>(target)
++                    {
++                        let (current_surface, scale) = surface_entity.get().unwrap();
++                        debug!(
++                            "pointer button {} btn={} serial={} surface={:?} scale={:.2}",
++                            clicked,
++                            button,
++                            serial,
++                            current_surface,
++                            scale.0
++                        );
++                    }
++                }
+                 server.button(serial, time, button, convert_wenum(button_state));
+                 drop(query);
+                 cmd.run_on(&mut state.world);
+@@ -1185,6 +1241,14 @@
+     let Ok(dimensions) = world.get::<&OutputDimensions>(output) else {
+         return;
+     };
++    debug!(
++        "update_window_output_offsets: output({}) dims=({},{}) global_offset=({},{})",
++        output.id(),
++        dimensions.x,
++        dimensions.y,
++        global_output_offset.x.value,
++        global_output_offset.y.value,
++    );
+     let mut query = world.query::<(&x::Window, &mut WindowData, &OnOutput)>();
+ 
+     for (_, (window, data, _)) in query
+--- a/src/server/mod.rs
++++ b/src/server/mod.rs
+@@ -152,7 +152,7 @@
+         offset: WindowOutputOffset,
+         connection: &mut C,
+     ) {
+-        log::trace!(target: "output_offset", "offset: {offset:?}");
++        log::debug!(target: "output_offset", "offset: {offset:?} window: {window:?}");
+         if offset == self.output_offset {
+             return;
+         }
+@@ -1398,6 +1398,10 @@
+                 }
+             }
+         }
++        debug!(
++            "calc_global_output_offset: ({}, {})",
++            self.global_output_offset.x.value, self.global_output_offset.y.value
++        );
+     }
+ 
+     /// Creates the appropriate xdg role (toplevel or popup) for the given window.
