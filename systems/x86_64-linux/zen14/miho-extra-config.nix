@@ -13,6 +13,10 @@
   };
 
   dns = {
+    fake-ip-filter = [
+      "+.svc.cluster.local"
+      "+.cluster.local"
+    ];
     nameserver-policy = {
       "+.svc.cluster.local" = [ "10.96.0.10" ];
       "+.cluster.local" = [ "10.96.0.10" ];
