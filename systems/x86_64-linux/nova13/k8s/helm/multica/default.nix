@@ -10,8 +10,8 @@ let
       src = pkgs.fetchFromGitHub {
         owner = "multica-ai";
         repo = "multica";
-        rev = "v0.3.37";
-        sha256 = "sha256-jkSzG3SDw8Y+lrcy0oG7rXci9aaE5sQMHP02BPdt0pE=";
+        rev = "v0.3.38";
+        sha256 = "sha256-K6wgGxQbYaA5kwfoKH88WOqUSCsGcsJaw0IbWOWNbGI=";
       };
     in
     pkgs.runCommand "multica-chart" { inherit src; } ''
