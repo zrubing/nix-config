@@ -7,11 +7,11 @@
 
 let
   pname = "multica-desktop";
-  version = "0.3.37";
+  version = "0.3.38";
 
   src = fetchurl {
     url = "https://github.com/multica-ai/multica/releases/download/v${version}/multica-desktop-${version}-linux-x86_64.AppImage";
-    hash = "sha256-60HCq57GzHOT4+F2ht0jV9PVmTPyUnCRh3fYRxa22B0=";
+    hash = "sha256-yDH3qxoz5Kxl6h3mx/ejdbbIQvdR2wl0eGGRYZAz4Ds=";
   };
 
   appimageContents = appimageTools.extractType2 {
