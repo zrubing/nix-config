@@ -11,18 +11,10 @@ in
 
 {
 
-  # easytier peer SSH config template
-  sops.templates."ssh-easytier".content = ''
-    Host easytier-peer
-      HostName 10.144.200.1
-      User root
-  '';
-
   home.file.".ssh/config".text = ''
     Include ${lib.replaceStrings [ "$\{XDG_RUNTIME_DIR}" ] [ "/run/user/1000" ] config.age.secrets."ssh/topsap-config".path}
     Include ${lib.replaceStrings [ "$\{XDG_RUNTIME_DIR}" ] [ "/run/user/1000" ] config.age.secrets."ssh/work-config".path}
     Include ${lib.replaceStrings [ "$\{XDG_RUNTIME_DIR}" ] [ "/run/user/1000" ] config.age.secrets."ssh/default-config".path}
-    Include ${config.sops.templates."ssh-easytier".path}
 
     Host *
       ForwardAgent no
@@ -49,20 +41,5 @@ in
     mkdir -p ~/.ssh/sockets
     chmod 700 ~/.ssh/sockets
   '';
-
-  systemd.user.services.zot-registry-tunnel = {
-    Unit = {
-      Description = "SSH tunnel for zot.zot.svc.cluster.local:5000";
-      After = [ "network.target" ];
-    };
-
-    Service = {
-      ExecStart = "${pkgs.openssh}/bin/ssh -N -o ExitOnForwardFailure=yes -L 5000:10.144.200.1:30000 easytier-peer";
-      Restart = "always";
-      RestartSec = 5;
-    };
-
-    Install.WantedBy = [ "default.target" ];
-  };
 
 }
