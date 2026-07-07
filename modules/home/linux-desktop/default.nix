@@ -65,10 +65,6 @@ in
       mimeApps = {
         enable = true;
         defaultApplications = {
-          "inode/directory" = [
-            "nnn.desktop"
-            "yazi.desktop"
-          ];
           "application/pdf" = [ "sioyek.desktop" ];
           "image/bmp" = [ "imv-dir.desktop" ];
           "image/gif" = [ "imv-dir.desktop" ];

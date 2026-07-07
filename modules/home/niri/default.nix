@@ -29,6 +29,7 @@ in
       noctalia.enable = false;
       #copyq.enable = true;
       yazi.enable = true;
+      fileManager.program = "thunar";
       #xdg-portal.enable = true;
       linux.desktop = {
         enable = true;

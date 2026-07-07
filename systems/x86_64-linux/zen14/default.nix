@@ -162,6 +162,26 @@ in
     };
   };
 
+  # thunar file manager related options
+  programs.thunar = {
+    enable = true;
+    plugins = with pkgs; [
+      thunar-archive-plugin
+      thunar-volman
+    ];
+  };
+  services.gvfs.enable = true; # Mount, trash, and other functionalities
+  services.tumbler.enable = true; # Thumbnail support for images
+
+  # 上游 programs.niri 默认用 Nautilus 做 xdg-desktop-portal-gnome 的文件选择器。
+  # 关掉后 portal 文件选择器回退到 GTK，同时不再把 Nautilus 拉进 dbus.packages。
+  # 注意：portal 进程常驻、缓存了启动时的路由，改这个开关后必须重启才生效：
+  #   systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-gnome.service xdg-desktop-portal-gtk.service
+  # 否则旧 portal 仍会去找 Nautilus，报 "Delegated FileChooser call failed"。
+  programs.niri.useNautilus = false;
+
+
+
   ${namespace} = {
     user.name = "jojo";
     proxysql = {

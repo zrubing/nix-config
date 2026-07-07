@@ -202,7 +202,6 @@ in
       imv
       grim
       satty
-      nautilus
       pkgs.unstable.cherry-studio
       feishu
       vscode
