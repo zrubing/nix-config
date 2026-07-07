@@ -8,10 +8,6 @@
   ...
 }:
 let
-  pkgs-unstable = import inputs.nixpkgs-unstable {
-    system = system;
-    config.allowUnfree = true;
-  };
   cfg = config.${namespace}.devpackages;
 in
 {
@@ -169,7 +165,7 @@ in
         ])
 
         (lib.optionals cfg.infra.enable [
-          pnpm
+          pkgs.unstable.pnpm
           postgresql
           flyway
 
@@ -214,7 +210,7 @@ in
         (lib.optionals cfg.doc.enable [
           glow
           pandoc
-          pkgs-unstable.hugo
+          pkgs.unstable.hugo
         ])
 
         (lib.optionals cfg.cCpp.enable [
@@ -228,7 +224,7 @@ in
         ])
 
         (lib.optionals cfg.python.enable [
-          pkgs-unstable.ty
+          pkgs.unstable.ty
           (python312.withPackages (
             ps: with ps; [
               # paddleocr 先停用，避免拉入 pdf2docx/pymupdf/mupdf 重依赖链
@@ -272,8 +268,8 @@ in
         ])
 
         (lib.optionals cfg.rust.enable [
-          pkgs-unstable.rustc
-          pkgs-unstable.rustup
+          pkgs.unstable.rustc
+          pkgs.unstable.rustup
         ])
 
         (lib.optionals cfg.go.enable [
@@ -336,24 +332,24 @@ in
           pyright
           gopls
           lemminx
-          pkgs-unstable.jdt-language-server
+          pkgs.unstable.jdt-language-server
           intelephense
           zls
           lua-language-server
           bash-language-server
           #pkgs.${namespace}.vue-language-server
-          vue-language-server
-          pkgs-unstable.typescript-language-server
+          pkgs.unstable.vue-language-server
+          pkgs.unstable.typescript-language-server
           tailwindcss-language-server
           emmet-ls
-          (if pkgs.stdenv.isDarwin then pkgs.emptyDirectory else pkgs-unstable.akkuPackages.scheme-langserver)
+          (if pkgs.stdenv.isDarwin then pkgs.emptyDirectory else pkgs.unstable.akkuPackages.scheme-langserver)
         ])
 
         (lib.optionals cfg.gui.enable [
           pkgs.catfish
           firefox
           obs-studio
-          pkgs-unstable.google-chrome
+          pkgs.unstable.google-chrome
         ])
       ];
   };

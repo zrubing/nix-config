@@ -149,6 +149,14 @@
       };
     in
     let
+      permittedInsecureList = [
+        "electron-38.8.4"
+        "nodejs-slim-20.20.2"
+        "nodejs-20.20.2"
+        "pnpm-10.29.2"
+      ];
+    in
+    let
       snowfall = lib.mkFlake {
 
         # Add modules to all NixOS systems.
@@ -175,27 +183,35 @@
           # Allow unfree packages.
           allowUnfree = true;
           doCheckByDefault = false;
-          permittedInsecurePackages = [
-            "electron-38.8.4"
-            "nodejs-slim-20.20.2"
-            "nodejs-20.20.2"
-          ];
+          permittedInsecurePackages = permittedInsecureList;
           overlays = [
             inputs.k0s-nix.overlays.default
             inputs.process-compose.overlays.default
+            (final: prev: {
+              unstable = import inputs.nixpkgs-unstable {
+                system = prev.stdenv.hostPlatform.system;
+                config = {
+                  allowUnfree = true;
+                  permittedInsecurePackages = permittedInsecureList;
+                };
+              };
+            })
           ];
 
         };
 
       };
     in
-    snowfall // {
+    snowfall
+    // {
       devShells.x86_64-linux.trading =
-        let pkgs = import inputs.nixpkgs {
-          system = "x86_64-linux";
-          config.allowUnfree = true;
-        };
-        in pkgs.mkShell {
+        let
+          pkgs = import inputs.nixpkgs {
+            system = "x86_64-linux";
+            config.allowUnfree = true;
+          };
+        in
+        pkgs.mkShell {
           packages = [
             (pkgs.python312.withPackages (ps: [
               snowfall.packages.x86_64-linux.tradingagents
