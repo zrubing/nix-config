@@ -9,7 +9,6 @@
 }:
 let
 
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
 in
 {
   # environment.systemPackages = [ pkgs.docker-compose ];

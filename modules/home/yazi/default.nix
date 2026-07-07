@@ -10,7 +10,6 @@
 with lib;
 let
   cfg = config.${namespace}.yazi;
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
 in
 {
   options.${namespace}.yazi = with lib; {

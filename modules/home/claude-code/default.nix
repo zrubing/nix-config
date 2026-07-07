@@ -7,10 +7,6 @@
 }:
 let
   username = config.snowfallorg.user.name;
-  pkgs-unstable = import inputs.nixpkgs-unstable {
-    inherit system;
-    config.allowUnfree = true;
-  };
 
   # 合并后的 settings.json
   mergedSettings = pkgs.runCommand "claude-settings.json" {
@@ -18,7 +14,7 @@ let
   } ''
     # 添加 chrome-devtools 配置
     ${pkgs.jq}/bin/jq \
-      --arg chrome "${pkgs-unstable.google-chrome}/bin/google-chrome-stable" \
+      --arg chrome "${pkgs.unstable.google-chrome}/bin/google-chrome-stable" \
       '.mcpServers["chrome-devtools"] = {
         "command": "npx",
         "args": [

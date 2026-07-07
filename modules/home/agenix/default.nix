@@ -8,10 +8,6 @@
 let
   username = config.snowfallorg.user.name;
   mysecrets = inputs.mysecrets;
-  pkgs-unstable = import inputs.nixpkgs-unstable {
-    system = system;
-    config.allowUnfree = true;
-  };
   mystuff = pkgs.writeShellScriptBin "echo-secret" ''
     set -euo pipefail
 

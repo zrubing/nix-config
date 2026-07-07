@@ -10,10 +10,6 @@
 
 let
   cfg = config.${namespace}.programs.wechat;
-  pkgs-unstable = import inputs.nixpkgs-unstable {
-    system = system;
-    config.allowUnfree = true;
-  };
 
   wechat-wrapper = pkgs.writeShellScriptBin "wechat-wrapper" ''
     export QT_QPA_PLATFORM=xcb
@@ -24,7 +20,7 @@ let
     export GTK_IM_MODULE=fcitx
     export XMODIFIERS="@im=fcitx"
 
-    exec ${pkgs-unstable.wechat}/bin/wechat "$@"
+    exec ${pkgs.unstable.wechat}/bin/wechat "$@"
   '';
 in
 {

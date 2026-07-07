@@ -3,12 +3,12 @@
   inputs,
   system,
   config,
+  pkgs,
   namespace,
   ...
 }:
 let
   mysecrets = inputs.mysecrets;
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
 
   cfg = config.${namespace}.tailscale;
 in
@@ -31,7 +31,7 @@ in
         "--accept-dns=true"
       ];
       authKeyFile = config.age.secrets.headscale-authkey.path;
-      package = pkgs-unstable.tailscale;
+      package = pkgs.unstable.tailscale;
 
     };
   };
