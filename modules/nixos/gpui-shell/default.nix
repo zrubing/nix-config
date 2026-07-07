@@ -13,7 +13,7 @@ in
 {
   options.${namespace}.gpui-shell.enable = lib.mkOption {
     type = lib.types.bool;
-    default = true;
+    default = false;
     description = "Whether to install gpuishell package on NixOS.";
   };
 
