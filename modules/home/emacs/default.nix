@@ -9,7 +9,6 @@
 }:
 with lib;
 let
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
   cfg = config.${namespace}.emacs;
   hm = config.lib;
   desktopCfg = config.${namespace}.desktop;
@@ -19,11 +18,11 @@ let
   rime-data-dir = "${config.xdg.dataHome}/rime-data";
 
   # tdlib's transitive shared library dependencies
-  tdlib-pkg = pkgs-unstable.tdlib;
+  tdlib-pkg = pkgs.unstable.tdlib;
   tdlib-so-deps = [
-    (lib.getLib pkgs-unstable.openssl)
-    (lib.getLib pkgs-unstable.zlib)
-    (lib.getLib pkgs-unstable.stdenv.cc.cc.lib)
+    (lib.getLib pkgs.unstable.openssl)
+    (lib.getLib pkgs.unstable.zlib)
+    (lib.getLib pkgs.unstable.stdenv.cc.cc.lib)
   ];
 
   doom-repo = "${config.xdg.configHome}/emacs.doom/.local/straight/repos";

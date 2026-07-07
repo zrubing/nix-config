@@ -8,15 +8,6 @@
   ...
 }:
 let
-  pkgs-unstable = import inputs.nixpkgs-unstable {
-    inherit system;
-    config = {
-      allowUnfree = true;
-      permittedInsecurePackages = [
-        "electron-38.8.4"
-      ];
-    };
-  };
 
   pkgs-nix-ai = inputs.llm-agents.packages.${system};
 
@@ -163,7 +154,7 @@ in
       pkgs.${namespace}.emacs-lsp-proxy
     ] ++ lib.optionals cfg.tools.dev.enable [
       conda
-      pkgs-unstable.mise
+      pkgs.unstable.mise
       devenv
       devpod
       devbox
@@ -171,11 +162,11 @@ in
     ] ++ lib.optionals cfg.tools.ai.enable [
       # for aider（暂时停用，避免无用编译）
       # python312Packages.playwright
-      pkgs-unstable.tdlib
+      pkgs.unstable.tdlib
       # pkgs.${namespace}.aider
       pkgs.aider-chat
-      # pkgs-unstable.aider-chat
-      # pkgs-unstable.claude-code
+      # pkgs.unstable.aider-chat
+      # pkgs.unstable.claude-code
       pkgs.${namespace}.zli
     ] ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.ollama.enable) [
       ollama-rocm
@@ -199,7 +190,7 @@ in
       #pkgs.${namespace}.trojan-go
       pkgs-nix-ai.eca
     ] ++ lib.optionals cfg.tools.network.enable [
-      pkgs-unstable.tailscale
+      pkgs.unstable.tailscale
       sshuttle
     ] ++ lib.optionals cfg.tools.database.enable [
       mysql84
@@ -212,22 +203,22 @@ in
       grim
       satty
       nautilus
-      pkgs-unstable.cherry-studio
+      pkgs.unstable.cherry-studio
       feishu
       vscode
       code-cursor
       wireshark
-      pkgs-unstable.localsend
+      pkgs.unstable.localsend
       sioyek
-      pkgs-unstable.zed-editor
+      pkgs.unstable.zed-editor
       libnotify
     ] ++ lib.optionals cfg.tools.database.enable [
       # redisinsight 先停用，避免本地编译 redisinsight/nodejs-slim
       mongodb-compass
-      pkgs-unstable.dbeaver-bin
+      pkgs.unstable.dbeaver-bin
     ] ++ lib.optionals cfg.tools.office.enable [
       libreoffice
-      pkgs-unstable.wpsoffice
+      pkgs.unstable.wpsoffice
     ]);
 
     programs = {

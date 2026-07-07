@@ -9,7 +9,6 @@
 }:
 let
   cfg = config.${namespace}.desktop-programs;
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
   mysecrets = inputs.mysecrets;
 in
 {
@@ -24,13 +23,13 @@ in
       mpv
 
       # support 64-bit only
-      (pkgs-unstable.wine.override { wineBuild = "wine64"; })
-      #pkgs-unstable.wineWowPackages.stagingFull
-      #pkgs-unstable.wineWowPackages.stable
+      (pkgs.unstable.wine.override { wineBuild = "wine64"; })
+      #pkgs.unstable.wineWowPackages.stagingFull
+      #pkgs.unstable.wineWowPackages.stable
       # winetricks (all versions)
-      pkgs-unstable.winetricks
+      pkgs.unstable.winetricks
       # native wayland support (unstable)
-      #pkgs-unstable.wineWowPackages.waylandFull
+      #pkgs.unstable.wineWowPackages.waylandFull
     ];
 
   };

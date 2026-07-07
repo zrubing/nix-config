@@ -9,7 +9,6 @@
 }:
 let
   mysecrets = inputs.mysecrets;
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
   cfg = config.${namespace}.ollama;
 in
 {
@@ -22,7 +21,7 @@ in
 
     services.ollama = {
       enable = true;
-      package = pkgs-unstable.ollama-vulkan;
+      package = pkgs.unstable.ollama-vulkan;
       acceleration = "vulkan";
     };
   };

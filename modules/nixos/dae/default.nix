@@ -9,7 +9,6 @@
 }:
 let
   cfg = config.${namespace}.dae;
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
   mysecrets = inputs.mysecrets;
 in
 {
@@ -22,7 +21,7 @@ in
     age.secrets."dae-conf.dae".file = "${mysecrets}/dae-conf.dae.age";
 
     environment.systemPackages = with pkgs; [
-      pkgs-unstable.dae
+      pkgs.unstable.dae
     ];
 
     services.dae = {

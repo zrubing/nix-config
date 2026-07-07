@@ -10,7 +10,6 @@
 with lib;
 with lib.${namespace};
 let
-  pkgs-unstable = inputs.nixpkgs-unstable.legacyPackages.${system};
   cfg = config.${namespace}.xdg-portal;
 in
 {
@@ -28,7 +27,7 @@ in
         xdg-desktop-portal-gtk
         xdg-desktop-portal-gnome
         gnome-keyring
-        pkgs-unstable.xdg-desktop-portal-termfilechooser
+        pkgs.unstable.xdg-desktop-portal-termfilechooser
       ];
       config = {
         common.default = "*";
@@ -55,7 +54,7 @@ in
       ### $XDG_CONFIG_HOME/xdg-desktop-portal-termfilechooser/config ###
 
       [filechooser]
-      cmd=${pkgs-unstable.xdg-desktop-portal-termfilechooser}/share/xdg-desktop-portal-termfilechooser/yazi-wrapper.sh
+      cmd=${pkgs.unstable.xdg-desktop-portal-termfilechooser}/share/xdg-desktop-portal-termfilechooser/yazi-wrapper.sh
       default_dir=$HOME
       env=TERMCMD=${pkgs.foot}/bin/foot -T "terminal-filechooser"
     '';
