@@ -24,6 +24,11 @@ in
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
 
+    sops.secrets."openrouter/api_key" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+
+
     sops.secrets."anthropic/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
@@ -54,7 +59,6 @@ in
     sops.secrets."qwen/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
-
 
     sops.secrets."woodpecker/token" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
@@ -119,6 +123,8 @@ in
     sops.templates."default-env" = {
       path = "/home/${username}/.config/default.env";
       content = ''
+
+        export OPENROUTER_API_KEY="${config.sops.placeholder."openrouter/api_key"}"
         export OPENCODE_API_KEY="${config.sops.placeholder."opencode/api_key"}"
         export DEEPSEEK_API_KEY="${config.sops.placeholder."deepseek/api_key"}"
         export ZAI_CODING_CN_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
