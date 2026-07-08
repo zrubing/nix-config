@@ -171,15 +171,15 @@ in
     ] ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.ollama.enable) [
       ollama-rocm
     ] ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.llmAgents.enable) [
-      pkgs.${namespace}.claude-code
-      pkgs-nix-ai.claude-code-router
+      #pkgs.${namespace}.claude-code
+      #pkgs-nix-ai.claude-code-router
       pkgs-nix-ai.pi
       pkgs-nix-ai.omp
       pkgs-nix-ai.codex
       pkgs-nix-ai.semble
       pkgs-nix-ai.workmux
       pkgs-nix-ai.openskills
-      pkgs-nix-ai.beads
+      #pkgs-nix-ai.beads
       pkgs-nix-ai.catnip
       pkgs-nix-ai.opencode
       pkgs-nix-ai.agent-browser
