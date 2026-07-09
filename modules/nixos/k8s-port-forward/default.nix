@@ -62,6 +62,7 @@ in
         Group = "users";
         Restart = "always";
         RestartSec = 10;
+        SuccessExitStatus = [ 0 1 ];
       };
 
       path = with pkgs; [ kubectl bash coreutils ];
