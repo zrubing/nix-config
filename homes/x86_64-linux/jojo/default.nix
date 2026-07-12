@@ -61,7 +61,10 @@
     modules = {
       fcitx5.enable = true;
       fuzzel.enable = true;
-      packages.enable = true;
+      packages = {
+        enable = true;
+        superpowers.enable = false;
+      };
       prettier = {
         enable = true;
         nginxPlugin = true;

@@ -79,6 +79,11 @@ in
       default = true;
       description = "Enable OCR tools in package set.";
     };
+    superpowers.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable superpowers skills (brainstorming, etc.) in pi agent.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -96,7 +101,9 @@ in
 
     # Pi skills
     home.file.".pi/agent/skills/caveman".source = "${inputs.caveman-skills}/skills/caveman";
-    home.file.".pi/agent/skills/brainstorming".source = "${inputs.superpowers}/skills/brainstorming";
+    home.file.".pi/agent/skills/brainstorming" = lib.mkIf cfg.superpowers.enable {
+      source = "${inputs.superpowers}/skills/brainstorming";
+    };
     home.file.".pi/agent/skills/anysearch" = {
       source = "${inputs.anysearch-skill}";
       recursive = true;
