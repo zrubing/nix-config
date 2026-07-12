@@ -98,10 +98,6 @@
   #   输出直接就是 resume_offset（不需要再 ×8）。
   boot.kernelParams = [ "resume_offset=18720768" ];
 
-  # 让内核只保存必须恢复的页面，压缩 hibernate 镜像到最小。
-  # 代价是恢复稍慢，但对桌面机器影响不大。
-  systemd.tmpfiles.rules = [ "w /sys/power/image_size - - - - 0" ];
-
   # 每次启动时校验 swapfile 的物理偏移是否与配置的 resume_offset 一致。
   # 如果 swapfile 被重建/移动过，偏移会漂移——这个 service 会在 journal
   # 里告警，避免你到 hibernate 失败后才发现。
