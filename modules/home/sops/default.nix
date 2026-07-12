@@ -89,6 +89,9 @@ in
     sops.secrets."opencode/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
+    sops.secrets."openai/api_key" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
 
     sops.templates."anysearch-env" = {
       path = "/home/${username}/.pi/agent/skills/anysearch/.env";
@@ -124,6 +127,7 @@ in
       path = "/home/${username}/.config/default.env";
       content = ''
 
+        export OPENAI_API_KEY="${config.sops.placeholder."openai/api_key"}"
         export OPENROUTER_API_KEY="${config.sops.placeholder."openrouter/api_key"}"
         export OPENCODE_API_KEY="${config.sops.placeholder."opencode/api_key"}"
         export DEEPSEEK_API_KEY="${config.sops.placeholder."deepseek/api_key"}"
