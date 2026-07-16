@@ -20,6 +20,7 @@ let
   piSettings = builtins.toJSON {
     packages = [
       "npm:pi-mcp-adapter@2.8.0"
+      "npm:@howaboua/pi-codex-conversion@2.2.7"
     ];
   };
 in
