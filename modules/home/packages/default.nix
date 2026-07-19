@@ -10,6 +10,12 @@
 let
 
   pkgs-nix-ai = inputs.llm-agents.packages.${system};
+  agent-browser = pkgs-nix-ai.agent-browser.override {
+    # llm-agents 5c73869 pins an outdated pnpm dependency hash for 0.31.2.
+    fetchPnpmDeps = args: pkgs.fetchPnpmDeps (args // {
+      hash = "sha256-YYNPc4xMJ8MF5YuO3y60VagK00vHN96staEUaJzVQcs=";
+    });
+  };
 
   cfg = config.${namespace}.modules.packages;
 in
@@ -105,6 +111,8 @@ in
     home.file.".pi/agent/skills/brainstorming" = lib.mkIf cfg.superpowers.enable {
       source = "${inputs.superpowers}/skills/brainstorming";
     };
+    home.file.".pi/agent/skills/grill-me".source = "${inputs.mattpocock-skills}/skills/productivity/grill-me";
+    home.file.".pi/agent/skills/grilling".source = "${inputs.mattpocock-skills}/skills/productivity/grilling";
     home.file.".pi/agent/skills/anysearch" = {
       source = "${inputs.anysearch-skill}";
       recursive = true;
@@ -190,7 +198,7 @@ in
       #pkgs-nix-ai.beads
       pkgs-nix-ai.catnip
       pkgs-nix-ai.opencode
-      pkgs-nix-ai.agent-browser
+      agent-browser
       #pkgs-nix-ai.coding-agent-search
       #pkgs-nix-ai.claude-code-acp
       pkgs-nix-ai.openspec
