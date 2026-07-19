@@ -20,7 +20,7 @@ description: 用于升级 nova13 上的 Multica，包括 CLI、Helm chart、Kube
 
 ## 当前基线
 
-当前仓库基线版本：`v0.3.17`。
+当前仓库基线版本：`v0.4.4`。
 
 已知 nova13 部署参数：
 
@@ -124,7 +124,7 @@ nix build .#nixosConfigurations.nova13.config.system.build.toplevel
 检查所有版本引用是否一致：
 
 ```bash
-rg -n "multica|v0\\.3\\.|version = \"0\\.3\." \
+rg -n 'multica|v[0-9]+\.[0-9]+\.[0-9]+|version = "[0-9]+\.[0-9]+\.[0-9]+"' \
   packages/multica \
   systems/x86_64-linux/nova13/k8s/helm/multica \
   systems/x86_64-linux/nova13/default.nix
