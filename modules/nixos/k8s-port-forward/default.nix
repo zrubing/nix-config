@@ -50,6 +50,7 @@ in
     systemd.services.k8s-port-forwards = {
       description = "K8s port-forward rules (from SOPS)";
       wantedBy = [ "multi-user.target" ];
+      wants = [ "network-online.target" ];
       after = [
         "network-online.target"
         "run-secrets.d.mount"

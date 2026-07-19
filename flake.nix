@@ -126,6 +126,11 @@
       flake = false;
     };
 
+    mattpocock-skills = {
+      url = "github:mattpocock/skills?rev=9603c1cc8118d08bc1b3bf34cf714f62178dea3b";
+      flake = false;
+    };
+
     process-compose = {
       url = "github:F1bonacc1/process-compose";
       inputs.nixpkgs.follows = "nixpkgs-unstable";

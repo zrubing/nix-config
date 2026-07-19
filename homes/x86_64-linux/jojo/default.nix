@@ -31,7 +31,7 @@
 
   internal = {
 
-    ccr-router.enable = true;
+    ccr-router.enable = false;
 
     #desktop.kde.enable = true;
     desktop.niri.enable = true;
