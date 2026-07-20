@@ -256,6 +256,10 @@ in
     askpass.enable = true; # sudo 时弹出 GUI 密码输入
 
     home.extraOptions = {
+      # Niri 默认接管电源键并只执行 suspend；交还给 logind，统一走下方的
+      # suspend-then-hibernate 策略。该设置需覆盖本机所有 Niri 用户会话。
+      programs.niri.settings.input.power-key-handling.enable = false;
+
       ${namespace} = {
         # devpackages.web.enable = lib.mkForce false;
         # devpackages.infra.enable = lib.mkForce false;
@@ -280,9 +284,14 @@ in
     criticalPowerAction = "Hibernate";
   };
 
-  # 按电源键直接休眠到磁盘（台式机无合盖，电源键是最自然的触发方式）。
-  # 如需弹菜单，可改为 "poweroff" 或删除此行（走 DE 默认行为）。
-  services.logind.settings.Login.HandlePowerKey = "hibernate";
+  # 日常操作（电源键/合盖）先走 suspend (s2idle) 秒级恢复，
+  # 电池供电 30 分钟后自动切 hibernate 写盘，避免长时间耗电。
+  # 低电量兜底仍走纯 Hibernate（见下方 upower）。
+  services.logind.settings.Login = {
+    HandlePowerKey = "suspend-then-hibernate";
+    HandleLidSwitch = "suspend-then-hibernate";
+  };
+  systemd.sleep.settings.Sleep.HibernateDelaySec = "30min";
 
   networking.networkmanager.enable = true;
   networking.hosts = {
