@@ -69,10 +69,10 @@ in
           on-timeout = if grep -q "discharging" /sys/class/power_supply/BAT*/status 2>/dev/null; then ${lockCmd}; fi
       }
 
-      # 挂起 (仅在电池模式)
+      # 先挂起，并由 systemd 在 HibernateDelaySec 后休眠到磁盘（仅电池模式）。
       listener {
           timeout = ${toString cfg.battery.suspendTime}
-          on-timeout = if grep -q "discharging" /sys/class/power_supply/BAT*/status 2>/dev/null; then systemctl suspend; fi
+          on-timeout = if grep -q "discharging" /sys/class/power_supply/BAT*/status 2>/dev/null; then systemctl suspend-then-hibernate; fi
       }
     '';
 
