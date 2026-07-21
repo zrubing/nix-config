@@ -9,6 +9,10 @@
       "10.244.0.0/16"
       # EasyTier / cluster overlay addresses.
       "10.144.0.0/16"
+      # Telepresence VIF subnet must bypass mihomo TUN.
+      # Telepresence uses this range for tunnel endpoints;
+      # mihomo table 2022 would otherwise hijack return traffic.
+      "10.245.0.0/24"
     ];
   };
 
@@ -18,8 +22,10 @@
       "+.cluster.local"
     ];
     nameserver-policy = {
-      "+.svc.cluster.local" = [ "10.96.0.10" ];
-      "+.cluster.local" = [ "10.96.0.10" ];
+      # .cluster.local queries handled by system resolver (telepresence when connected).
+      # Must NOT be forwarded to 10.96.0.10 — that bypasses telepresence DNS and
+      # causes intermittent resolution failures.
+      "+.cluster.local" = [ "system" ];
     };
   };
 }
