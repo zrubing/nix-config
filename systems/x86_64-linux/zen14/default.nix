@@ -284,14 +284,17 @@ in
     criticalPowerAction = "Hibernate";
   };
 
-  # 日常操作（电源键/合盖）先走 suspend (s2idle) 秒级恢复，
-  # 电池供电 30 分钟后自动切 hibernate 写盘，避免长时间耗电。
+  # 日常操作（电源键/合盖）先走 suspend (s2idle) 秒级恢复。
+  # 仅未接电源时，挂起 30 分钟后自动切 hibernate 写盘，避免长时间耗电。
   # 低电量兜底仍走纯 Hibernate（见下方 upower）。
   services.logind.settings.Login = {
     HandlePowerKey = "suspend-then-hibernate";
     HandleLidSwitch = "suspend-then-hibernate";
   };
-  systemd.sleep.settings.Sleep.HibernateDelaySec = "30min";
+  systemd.sleep.settings.Sleep = {
+    HibernateDelaySec = "30min";
+    HibernateOnACPower = false;
+  };
 
   networking.networkmanager.enable = true;
   networking.hosts = {
