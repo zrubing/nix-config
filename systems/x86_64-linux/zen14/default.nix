@@ -292,7 +292,7 @@ in
     HandleLidSwitch = "suspend-then-hibernate";
   };
   systemd.sleep.settings.Sleep = {
-    HibernateDelaySec = "30min";
+    HibernateDelaySec = "2min";
     HibernateOnACPower = false;
   };
 

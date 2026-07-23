@@ -30,8 +30,14 @@
     };
 
     # doom-emacs is a configuration framework for GNU Emacs.
+    # Doom Emacs v3: core framework + external modules.
     doomemacs = {
-      url = "github:doomemacs/doomemacs";
+      url = "github:doomemacs/core";
+      flake = false;
+    };
+
+    doom-modules = {
+      url = "github:doomemacs/modules/28f09d8afe81fa47ab83020b072f0dfa2f79dbdb";
       flake = false;
     };
 
