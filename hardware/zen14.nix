@@ -59,23 +59,15 @@
   };
 
   # --- Hibernate 配置（挂起到磁盘）---
-  # 三样缺一不可：
+  # 三要素：
   #   1) swap >= RAM（本机 RAM 27G，扩到 36G 留压缩镜像 + 余量）
   #   2) boot.resumeDevice —— 设了它，NixOS 自动生成 resume= 内核参数
-  #   3) boot.kernelParams 里的 resume_offset= —— swapfile 在磁盘上的物理偏移（页面）
-  # 已启用 boot.initrd.systemd，systemd-hibernate-resume-generator 理论可
-  # 用 FIEMAP 自动探测偏移，但当前 nixpkgs 没打该 generator 进 initrd，
-  # 所以显式 resume_offset 仍然必要（做兜底）。
+  #   3) systemd-hibernate-resume（systemd >= 254 支持 FIEMAP 自动探测
+  #      swapfile 物理偏移，无需手动维护 resume_offset=）
   #
-  # ⚠️  swapfile 一旦重建（扩容/移动/碎片重排），物理偏移会变，
-  # 必须重新计算并更新下面的 resume_offset：
-  #   sudo filefrag -v /var/lib/swapfile | python3 -c '
-  #   import sys,re
-  #   for l in sys.stdin:
-  #     m=re.match(r"\s*\d+:\s+\d+\.\.\s*\d+:\s+(\d+)\.\.\s*\d+:\s+\d+",l)
-  #     if m: print(int(m.group(1))); break'
-  #   输出直接就是 resume_offset（单位是 4K 页面，不需要 ×8）。
-  #   运行 schedule-resume-offset-check.service 可在下次 hibernate 前自动校验。
+  # 当前环境：boot.initrd.systemd.enable=true，initrd 中已含
+  # systemd-hibernate-resume-generator（systemd 260），内核命令行只需
+  # resume= 即可，systemd 自动用 FIEMAP 在休眠/恢复两条路径上定位偏移。
   swapDevices = [
     {
       device = "/var/lib/swapfile";
@@ -84,20 +76,14 @@
   ];
 
   # swapfile 所在分区（=根分区）。用 by-label 更可读、重装不易变。
+  # systemd-hibernate-resume 通过 FIEMAP 自动探测 swapfile 偏移，
+  # 不再需要 resume_offset= 内核参数。
   boot.resumeDevice = "/dev/disk/by-label/NIXROOT";
-  # resume_offset 单位是页面（PAGE_SIZE=4096B），刚好等于 ext4 的 4K 块号。
-  # swapfile 第一 extent 在 4K 块 18720768，所以 resume_offset=18720768。
-  # 注意：绝不要 ×8 转 512B 扇区！内核期望的是页面数。
-  #
-  # 如果 ensure-contiguous-swapfile 重建了 swapfile（大小变更/初次创建），
-  # resume-offset-check 会在启动时检测偏移漂移并打印新值。
-  # 到时把输出的 actual 值填到下面 resume_offset= 即可。
-  #
+
   # amdgpu.ip_block_mask=0xfffff7ff：禁用 VPE IP 块，修复 AMD Phoenix 平台
   # （7840HS/Radeon 780M）休眠在 kernel >= 6.6.92 上卡死/写盘失败的问题。
   # 见 nixpkgs#413932、drm/amd#4178、Framework 社区相关讨论。
   boot.kernelParams = [
-    "resume_offset=39057408"
     "amdgpu.ip_block_mask=0xfffff7ff"
   ];
 
@@ -137,14 +123,14 @@
     '';
   };
 
-  # 每次启动时校验 swapfile 的健康状态：
-  # 1) resume_offset 是否与内核 cmdline 一致
-  # 2) extent 数量是否过高（碎片严重会导致休眠写盘失败）
-  systemd.services.resume-offset-check = {
-    description = "Verify swapfile resume_offset and fragmentation";
+  # 每次启动时检查 swapfile extent 数量是否过高。
+  # resume_offset 已由 systemd-hibernate-resume（FIEMAP）自动探测，
+  # 不再需要偏移比对。
+  systemd.services.swapfile-frag-check = {
+    description = "Check swapfile fragmentation";
     wantedBy = [ "multi-user.target" ];
-    after = [ "local-fs.target" ];
-    path = with pkgs; [ e2fsprogs python3 util-linux ];
+    after = [ "var-lib-swapfile.swap" ];
+    path = with pkgs; [ e2fsprogs util-linux ];
     serviceConfig.Type = "oneshot";
     script = ''
       set -euo pipefail
@@ -153,51 +139,23 @@
         echo "swapfile not found: $swapfile" >&2
         exit 0
       fi
-      configured=$(cat /sys/power/resume_offset 2>/dev/null || echo 0)
-      actual=$(filefrag -v "$swapfile" 2>/dev/null | \
-        ${pkgs.python3}/bin/python3 -c "
-import sys, re
-for l in sys.stdin:
-    m = re.match(r'\s*\d+:\s+\d+\.\.\s*\d+:\s+(\d+)\.\.\s*\d+:\s+\d+', l)
-    if m:
-        print(int(m.group(1)))
-        break
-")
-      if [ "$configured" -eq 0 ]; then
-        echo "WARNING: /sys/power/resume_offset is 0, hibernate will fail" >&2
-        exit 0
-      fi
-      if [ "$configured" != "$actual" ]; then
-        echo "" >&2
-        echo "============================================" >&2
-        echo "  CRITICAL: resume_offset mismatch!" >&2
-        echo "  configured (kernel cmdline): $configured" >&2
-        echo "  actual    (from filefrag):   $actual" >&2
-        echo "" >&2
-        echo "  Action: update resume_offset in hardware/zen14.nix:" >&2
-        echo "    boot.kernelParams = [ ... resume_offset=$actual ... ]" >&2
-        echo "  Then: sudo nixos-rebuild switch && sudo reboot" >&2
-        echo "============================================" >&2
-        echo "" >&2
-      fi
-      extent_count=$(filefrag -v "$swapfile" 2>/dev/null | grep -c '^\s*[0-9]' || echo 0)
+      extent_count=$(filefrag -v "$swapfile" 2>/dev/null | grep -cE '^[[:space:]]*[0-9]+:' || echo 0)
       if [ "$extent_count" -gt 1000 ]; then
         echo "" >&2
         echo "============================================" >&2
         echo "  WARNING: swapfile has $extent_count extents — severely fragmented!" >&2
         echo "  Hibernation may fail or be extremely slow." >&2
-        echo "  Action: sudo systemctl stop ensure-contiguous-swapfile" >&2
-        echo "          sudo swapoff /var/lib/swapfile" >&2
+        echo "  Action: sudo swapoff /var/lib/swapfile" >&2
         echo "          sudo rm /var/lib/swapfile" >&2
         echo "          sudo systemctl start ensure-contiguous-swapfile" >&2
         echo "          sudo swapon /var/lib/swapfile" >&2
-        echo "          Update resume_offset and rebuild if the offset changed." >&2
         echo "============================================" >&2
         echo "" >&2
       elif [ "$extent_count" -gt 100 ]; then
         echo "NOTE: swapfile has $extent_count extents (moderate fragmentation)"
+      else
+        echo "swapfile OK: $extent_count extents"
       fi
-      echo "resume_offset OK: $actual (extents: $extent_count)"
     '';
   };
 
