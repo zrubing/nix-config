@@ -89,20 +89,59 @@
   # swapfile 第一 extent 在 4K 块 18720768，所以 resume_offset=18720768。
   # 注意：绝不要 ×8 转 512B 扇区！内核期望的是页面数。
   #
-  # swapfile 一旦重建，重新计算：
-  #   sudo filefrag -v /var/lib/swapfile | python3 -c '
-  #   import sys,re
-  #   for l in sys.stdin:
-  #     m=re.match(r"\s*\d+:\s+\d+\.\.\s*\d+:\s+(\d+)\.\.\s*\d+:\s+\d+",l)
-  #     if m: print(int(m.group(1))); break'
-  #   输出直接就是 resume_offset（不需要再 ×8）。
-  boot.kernelParams = [ "resume_offset=18720768" ];
+  # 如果 ensure-contiguous-swapfile 重建了 swapfile（大小变更/初次创建），
+  # resume-offset-check 会在启动时检测偏移漂移并打印新值。
+  # 到时把输出的 actual 值填到下面 resume_offset= 即可。
+  #
+  # amdgpu.ip_block_mask=0xfffff7ff：禁用 VPE IP 块，修复 AMD Phoenix 平台
+  # （7840HS/Radeon 780M）休眠在 kernel >= 6.6.92 上卡死/写盘失败的问题。
+  # 见 nixpkgs#413932、drm/amd#4178、Framework 社区相关讨论。
+  boot.kernelParams = [
+    "resume_offset=39057408"
+    "amdgpu.ip_block_mask=0xfffff7ff"
+  ];
 
-  # 每次启动时校验 swapfile 的物理偏移是否与配置的 resume_offset 一致。
-  # 如果 swapfile 被重建/移动过，偏移会漂移——这个 service 会在 journal
-  # 里告警，避免你到 hibernate 失败后才发现。
+  # --- 用 fallocate 代替 dd 创建 swapfile，确保块连续 ---
+  # NixOS 默认用 dd 写全零再 mkswap，在磁盘接近满时会产生严重碎片
+  # （当前 ~15K extent）。此 service 抢先于 NixOS 内置 mkswap 执行，
+  # 用 fallocate 一次分配连续空间。内置服务随后发现文件已存在且大小
+  # 正确，直接跳过 dd 阶段，只负责后续 swapon。
+  systemd.services.ensure-contiguous-swapfile = {
+    description = "Pre-create swapfile with fallocate for contiguous extents";
+    wantedBy = [ "var-lib-swapfile.swap" ];
+    before = [ "mkswap-var-lib-swapfile.service" ];
+    after = [ "local-fs.target" ];
+    path = with pkgs; [ util-linux ];
+    serviceConfig.Type = "oneshot";
+    script = ''
+      set -euo pipefail
+      f=/var/lib/swapfile
+      want_mb=36864
+      if [ -f "$f" ]; then
+        cur_mb=$(( $(stat -c "%s" "$f" 2>/dev/null || echo 0) / 1024 / 1024 ))
+        if [ "$cur_mb" -eq "$want_mb" ]; then
+          echo "swapfile already exists with correct size ($want_mb MB), nothing to do"
+          exit 0
+        fi
+        echo "swapfile size mismatch (want $want_mb MB, got $cur_mb MB), recreating..."
+        swapoff "$f" 2>/dev/null || true
+        rm -f "$f"
+      fi
+      mkdir -p "$(dirname "$f")"
+      echo "Creating $want_mb MB swapfile with fallocate..."
+      fallocate -l ''${want_mb}M "$f"
+      chmod 0600 "$f"
+      mkswap "$f"
+      echo "swapfile created, extents:"
+      filefrag -v "$f" | head -5 || true
+    '';
+  };
+
+  # 每次启动时校验 swapfile 的健康状态：
+  # 1) resume_offset 是否与内核 cmdline 一致
+  # 2) extent 数量是否过高（碎片严重会导致休眠写盘失败）
   systemd.services.resume-offset-check = {
-    description = "Verify swapfile physical offset matches configured resume_offset";
+    description = "Verify swapfile resume_offset and fragmentation";
     wantedBy = [ "multi-user.target" ];
     after = [ "local-fs.target" ];
     path = with pkgs; [ e2fsprogs python3 util-linux ];
@@ -129,15 +168,36 @@ for l in sys.stdin:
         exit 0
       fi
       if [ "$configured" != "$actual" ]; then
-        echo "CRITICAL: resume_offset mismatch!" >&2
+        echo "" >&2
+        echo "============================================" >&2
+        echo "  CRITICAL: resume_offset mismatch!" >&2
         echo "  configured (kernel cmdline): $configured" >&2
         echo "  actual    (from filefrag):   $actual" >&2
-        echo "  Run: sudo filefrag -v $swapfile" >&2
-        echo "  The swapfile may have been recreated/moved." >&2
-        echo "  Update resume_offset in hardware/zen14.nix and rebuild." >&2
-        exit 1
+        echo "" >&2
+        echo "  Action: update resume_offset in hardware/zen14.nix:" >&2
+        echo "    boot.kernelParams = [ ... resume_offset=$actual ... ]" >&2
+        echo "  Then: sudo nixos-rebuild switch && sudo reboot" >&2
+        echo "============================================" >&2
+        echo "" >&2
       fi
-      echo "resume_offset OK: $actual"
+      extent_count=$(filefrag -v "$swapfile" 2>/dev/null | grep -c '^\s*[0-9]' || echo 0)
+      if [ "$extent_count" -gt 1000 ]; then
+        echo "" >&2
+        echo "============================================" >&2
+        echo "  WARNING: swapfile has $extent_count extents — severely fragmented!" >&2
+        echo "  Hibernation may fail or be extremely slow." >&2
+        echo "  Action: sudo systemctl stop ensure-contiguous-swapfile" >&2
+        echo "          sudo swapoff /var/lib/swapfile" >&2
+        echo "          sudo rm /var/lib/swapfile" >&2
+        echo "          sudo systemctl start ensure-contiguous-swapfile" >&2
+        echo "          sudo swapon /var/lib/swapfile" >&2
+        echo "          Update resume_offset and rebuild if the offset changed." >&2
+        echo "============================================" >&2
+        echo "" >&2
+      elif [ "$extent_count" -gt 100 ]; then
+        echo "NOTE: swapfile has $extent_count extents (moderate fragmentation)"
+      fi
+      echo "resume_offset OK: $actual (extents: $extent_count)"
     '';
   };
 
