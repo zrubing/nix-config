@@ -7,16 +7,16 @@
 }:
 
 let
-  version = "26.5.9";
+  version = "26.7.11";
 
   binaries = {
     x86_64-linux = {
       artifact = "Xray-linux-64.zip";
-      hash = "sha256-9WwQa3wBWa04a8zTQPqlu/Vf1cFYIeyeY+amuhHT0cc=";
+      hash = "sha256-qhHDaFxx2g/8ceUR21BARgnn6WO7kUsEj1mmoAr4kw4=";
     };
     aarch64-linux = {
       artifact = "Xray-linux-arm64-v8a.zip";
-      hash = "sha256-e8HaYG4m5KwteDEYF0W7O89Nyg/Xgl9BOIrgMuEkfRU=";
+      hash = "sha256-ic/gFnTXyfaEe33ZOJU3vprLO53Dxsuf3rqHo+Tlf8E=";
     };
   };
 
