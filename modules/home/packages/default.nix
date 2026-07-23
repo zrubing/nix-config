@@ -208,6 +208,7 @@ in
     ] ++ lib.optionals cfg.tools.network.enable [
       pkgs.unstable.tailscale
       sshuttle
+      mirrord
     ] ++ lib.optionals cfg.tools.database.enable [
       mysql84
     ] ++ lib.optionals cfg.ocr.enable [
