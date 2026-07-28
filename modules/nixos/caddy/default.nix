@@ -18,7 +18,7 @@ in
       plugins = [
         "github.com/mholt/caddy-l4@v0.1.0"
       ];
-      hash = "sha256-V0L5QdeZfbRkLriGMdqFK/p3iHyGRiAAYYqcSMZ5E04=";
+      hash = "sha256-+XzV0RM43oqK4thXsJhDPA0uc2oTONG8T2RfccYzzi0=";
     };
     configFile = cfgFile;
   };
