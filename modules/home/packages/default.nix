@@ -11,9 +11,9 @@ let
 
   pkgs-nix-ai = inputs.llm-agents.packages.${system};
   agent-browser = pkgs-nix-ai.agent-browser.override {
-    # llm-agents 5c73869 pins an outdated pnpm dependency hash for 0.31.2.
+    # Override llm-agents' stale pnpm dependency hash.
     fetchPnpmDeps = args: pkgs.fetchPnpmDeps (args // {
-      hash = "sha256-YYNPc4xMJ8MF5YuO3y60VagK00vHN96staEUaJzVQcs=";
+      hash = "sha256-tkEhkGO5/JTkzySDEsTmjr5+SEXzk8V0217iQhFhfCw=";
     });
   };
 
