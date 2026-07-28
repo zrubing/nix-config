@@ -16,7 +16,6 @@ let
 
     exec ${lib.getExe hermesPackage} "$@"
   '';
-  codexPackage = inputs.llm-agents.packages.${system}.codex;
   piPackage = inputs.llm-agents.packages.${system}.pi;
   mysecrets = inputs.mysecrets;
   multicaPackage = pkgs.${namespace}.multica;
@@ -278,7 +277,6 @@ in
 
   environment.systemPackages = [
     hermesWrapped
-    codexPackage
     piPackage
     multicaPackage
     tradingagentsWrapped
@@ -494,7 +492,6 @@ in
     wants = [ "network-online.target" ];
     after = [ "network-online.target" ];
     path = [
-      codexPackage
       piPackage
     ];
     serviceConfig = {
