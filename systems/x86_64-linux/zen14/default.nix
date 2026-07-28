@@ -214,12 +214,12 @@ in
     k8s-port-forward.enable = true;
     kubefwd = {
       enable = true;
-      context = "ctx-a";
       forwards = {
         "db.postgres.prod.local" = {
           ip = "127.0.0.4";
           service = "postgres";
           namespace = "beauty";
+          context = "ctx-a";
         };
       };
     };
