@@ -207,28 +207,22 @@ in
           upstreamPort = 3306;
           hostnames = [ "prod.mysql.local" ];
         };
-        # 经跳板机访问内网 PG：真实跳板机/目标地址由 sops 渲染进 ssh config，
-        # nix 仓库与 ps 里只看到别名 tcp-forward-sg-postgres。
-        # 需在 nix-secrets 添加 tcp_forward/sg_postgres/{jump_host,target_host}。
-        postgres-forward1 = {
-          listenIp = "127.0.0.4";
-          listenPort = 5432;
-          mode = "ssh-tunnel";
-          ssh = {
-            jumpHostSecret = "tcp_forward/postgres1/jump_host";
-            jumpUser = "ubuntu";
-            targetHostSecret = "tcp_forward/postgres1/target_host";
-            targetPort = 5432;
-            identityFile = "/home/jojo/.ssh/id_ed25519";
-            # 跨公网跳板机，启用 autossh 主动探活，检测半开连接。
-            monitoringPort = 0;
-          };
-          hostnames = [ "jkt.postgres.prod.local" ];
-        };
+
       };
     };
     # 暂时关闭，避免 sops secret k8s_port_forward/commands 缺失导致系统构建失败。
     k8s-port-forward.enable = true;
+    kubefwd = {
+      enable = true;
+      context = "hebe-jkt";
+      forwards = {
+        "jkt.postgres.prod.local" = {
+          ip = "127.0.0.4";
+          service = "postgres";
+          namespace = "beauty";
+        };
+      };
+    };
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-zen14.age";
     #builder.enable = true;
