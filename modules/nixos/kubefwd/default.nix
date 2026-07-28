@@ -16,12 +16,18 @@ let
     lib.mapAttrsToList (_: f: f.namespace) enabledForwards
   );
 
-  # 生成 kubefwd IP 预留配置文件（JSON 是 YAML 子集，Go yaml 库可解析）
-  # 格式参考：https://github.com/txn2/kubefwd/blob/master/example.fwdconf.yml
+  # 从各 forward 的 context 字段收集所有 context，不再需要笛卡尔搜索
+  allContexts = lib.unique (
+    lib.mapAttrsToList (_: f: f.context) enabledForwards
+  );
+
+  # kubefwd IP 预留配置文件
+  # name 格式：service.namespace.context，每个 forward 精确指定目标集群
+  # 参考：https://github.com/txn2/kubefwd/blob/master/example.fwdconf.yml
   fwdConfYaml =
     let
       serviceConfigurations = lib.mapAttrsToList (_host: f: {
-        name = "${f.service}.${f.namespace}";
+        name = "${f.service}.${f.namespace}.${f.context}";
         ip = f.ip;
       }) enabledForwards;
     in
@@ -35,13 +41,6 @@ in
 {
   options.${namespace}.kubefwd = {
     enable = lib.mkEnableOption "kubefwd Kubernetes service port-forwarding daemon";
-
-    context = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      example = "hebe-jkt";
-      description = "Kubernetes context to use (--context). Defaults to current-context.";
-    };
 
     user = lib.mkOption {
       type = lib.types.str;
@@ -81,6 +80,16 @@ in
               example = "beauty";
               description = "Kubernetes namespace containing the Service.";
             };
+
+            context = lib.mkOption {
+              type = lib.types.str;
+              example = "hebe-jkt";
+              description = ''
+                Kubernetes context for this forward.
+                kubefwd will only search this context for the service
+                (rendered as service.namespace.context in the config).
+              '';
+            };
           };
         }
       );
@@ -118,7 +127,7 @@ in
             [ "${pkgs.kubefwd}/bin/kubefwd" "svc" ]
             ++ [ "-n ${lib.concatStringsSep "," allNamespaces}" ]
             ++ [ "-z ${fwdConfYaml}" ]
-            ++ lib.optional (cfg.context != null) "-x ${cfg.context}"
+            ++ lib.concatMap (ctx: [ "-x" ctx ]) allContexts
             ++ [ "--hosts-path" "/run/kubefwd/hosts" "-a" ]
           );
           Restart = "always";
