@@ -128,6 +128,32 @@ in
               source ${config.sops.templates."default-env".path}
             fi
 
+            function restore-roam() {
+              local snapshot="''${1:-latest}"
+              local target="/tmp/restic-roam-restore"
+
+              sudo rm -rf -- "$target" &&
+                sudo env \
+                  RCLONE_CONFIG=/run/agenix/rclone.conf \
+                  RESTIC_PASSWORD_FILE=/run/agenix/restic-password \
+                  restic -r rclone:ali:org-roam-backup \
+                  restore "$snapshot" --target "$target" &&
+                print "恢复完成，请检查：$target/home/jojo/org-roam-dir"
+            }
+
+            function restore-pass() {
+              local snapshot="''${1:-latest}"
+              local target="/tmp/restic-pass-restore"
+
+              sudo rm -rf -- "$target" &&
+                sudo env \
+                  RCLONE_CONFIG=/run/agenix/rclone.conf \
+                  RESTIC_PASSWORD_FILE=/run/agenix/restic-password \
+                  restic -r rclone:ali:password-store \
+                  restore "$snapshot" --target "$target" &&
+                print "恢复完成，请检查：$target/home/jojo/.local/share/password-store"
+            }
+
     '';
     shellAliases = {
       g = "git";
@@ -138,9 +164,6 @@ in
       md = "mkdir -p";
       ppc = "powerprofilesctl";
       pf = "powerprofilesctl launch -p performance";
-
-      restore-roam = "echo \"restic -r rclone:ali:org-roam-backup restore latest --target ~/org-roam-dir \"";
-      restore-pass = "echo \"restic -r rclone:ali:password-store restore latest --target ~/.local/share/password-store \"";
 
       us = "systemctl --user"; # mnemonic for user systemctl
       rs = "sudo systemctl"; # mnemonic for root systemctl
