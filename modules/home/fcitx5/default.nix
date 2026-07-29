@@ -45,8 +45,20 @@ in
 
   config = lib.mkIf cfg.enable {
 
-    # Disable user systemd services create by home-manager
-    systemd.user.services.fcitx5-daemon.Install.WantedBy = lib.mkForce [ ];
+    # WeChat runs through Xwayland and uses XIM. Start fcitx only after the
+    # X server is ready, otherwise its XIM connection may silently disappear
+    # and WeChat will keep accepting Chinese input without showing candidates.
+    systemd.user.services.fcitx5-daemon = {
+      Unit = {
+        After = lib.mkAfter [ "xwayland-satellite.service" ];
+        Wants = [ "xwayland-satellite.service" ];
+      };
+      Install.WantedBy = lib.mkForce [ "graphical-session.target" ];
+      Service = {
+        Environment = [ "DISPLAY=:0" ];
+        Restart = "on-failure";
+      };
+    };
 
 
 
@@ -106,7 +118,7 @@ in
       lib.optionalAttrs
         (config.${namespace}.desktop.kde.enable || config.${namespace}.desktop.niri.enable)
         {
-          GTK_IM_MODULE = lib.mkForce "fcitx5";
+          GTK_IM_MODULE = lib.mkForce "fcitx";
           QT_IM_MODULE = lib.mkForce "fcitx";
         };
 
