@@ -188,6 +188,11 @@ in
         gpui-shell.enable = lib.mkForce false;
         wayle.enable = lib.mkForce false;
         noctalia.enable = lib.mkForce false;
+
+        # 启用 multica home module：装 CLI + 把 daemon 作为 systemd user service 托管
+        # （见 modules/home/multica/default.nix）。配合下面的 linger，daemon 不再寄生在
+        # 某个 SSH session 里，且升级切二进制时 graceful drain 能真正生效。
+        modules.multica.enable = true;
       };
 
       # nova13 常通过 SSH 使用；不要继承桌面机的 `sudo -A` GUI askpass 习惯，
@@ -438,6 +443,9 @@ in
     "f /home/hermes-agent/.ssl-key.log 0600 hermes-agent users -"
     "d /var/log/hermes-gateway-hermes-agent 0700 hermes-agent users -"
     "f /var/log/hermes-gateway-hermes-agent/gateway.log 0600 hermes-agent users -"
+    # 开启 jojo 的 user lingering：user manager 常驻，multica-daemon 等 user service
+    # 才能开机自启、且不随 SSH session 断开而被清理。等价于 `loginctl enable-linger jojo`。
+    "f /var/lib/systemd/linger/jojo 0644 root root -"
   ];
 
   systemd.services.woodpecker-buildkit-cache-gc = {

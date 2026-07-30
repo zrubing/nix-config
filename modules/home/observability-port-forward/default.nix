@@ -7,7 +7,7 @@ in
     enable = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "Enable local user-level port-forwards for hinihao observability services.";
+      description = "Enable local user-level port-forwards for observability services.";
     };
 
     kubeconfig = lib.mkOption {
@@ -39,7 +39,7 @@ in
 
     systemd.user.services.observability-loki-port-forward = {
       Unit = {
-        Description = "Port-forward hinihao Loki to loki.local:3100";
+        Description = "Port-forward Loki to loki.local:3100";
         After = [ "network-online.target" ];
       };
 
@@ -54,7 +54,7 @@ in
 
     systemd.user.services.observability-tempo-port-forward = {
       Unit = {
-        Description = "Port-forward hinihao Tempo to tempo.local:3200";
+        Description = "Port-forward Tempo to tempo.local:3200";
         After = [ "network-online.target" ];
       };
 

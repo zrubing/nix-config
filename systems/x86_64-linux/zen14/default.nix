@@ -214,12 +214,19 @@ in
     k8s-port-forward.enable = true;
     kubefwd = {
       enable = true;
+      sopsFile = "${mysecrets}/secrets/env.yaml";
       forwards = {
+        "sg.postgres.test.local" = {
+          ip = "127.0.0.5";
+          service = "postgres";
+          namespace = "infra";
+          contextSecret = "kubefwd/contexts/sg";
+        };
         "jkt.postgres.prod.local" = {
           ip = "127.0.0.4";
           service = "postgres";
           namespace = "beauty";
-          context = "hebe-jkt";
+          contextSecret = "kubefwd/contexts/jkt";
         };
       };
     };
