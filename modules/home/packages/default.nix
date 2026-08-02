@@ -27,6 +27,7 @@ let
     packages = [
       "npm:pi-mcp-adapter@2.8.0"
       "npm:@howaboua/pi-codex-conversion@2.2.7"
+      "npm:pi-blackhole@0.4.3"
     ];
   };
 in
