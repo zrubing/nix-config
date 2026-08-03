@@ -30,6 +30,7 @@ let
       "npm:pi-blackhole@0.4.3"
       "npm:context-mode@1.0.169"
       "npm:@aliou/pi-processes@0.9.5"
+      "npm:pi-deepseek-search@1.0.15"
     ];
   };
 in
