@@ -122,7 +122,7 @@ in
               conf=/run/kubefwd/fwdconf.json
               ${lib.concatMapStringsSep "\n" (f: ''
                 context="$(${pkgs.coreutils}/bin/cat ${config.sops.secrets.${f.contextSecret}.path} | ${pkgs.coreutils}/bin/tr -d '[:space:]')"
-                ${pkgs.jq}/bin/jq -n --arg n "${f.service}.${f.namespace}.$${context}" --arg ip "${f.ip}" \
+                ${pkgs.jq}/bin/jq -n --arg n "${f.service}.${f.namespace}.$context" --arg ip "${f.ip}" \
                   '{name: $n, ip: $ip}' >> /run/kubefwd/entries.json
                 echo "$context" >> /run/kubefwd/contexts
               '') fwdStatic}
