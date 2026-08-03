@@ -25,9 +25,11 @@ let
   guardrailsPackage = "git:github.com/zrubing/pi-guardrails#${guardrailsRev}";
   piSettings = builtins.toJSON {
     packages = [
-      "npm:pi-mcp-adapter@2.8.0"
+      "npm:pi-mcp-adapter@2.18.0"
       "npm:@howaboua/pi-codex-conversion@2.2.7"
       "npm:pi-blackhole@0.4.3"
+      "npm:context-mode@1.0.169"
+      "npm:@aliou/pi-processes@0.9.5"
     ];
   };
 in
