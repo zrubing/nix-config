@@ -137,6 +137,9 @@ in
       fuzzel.enable = true;
       packages = {
         enable = true;
+      };
+      pi = {
+        enable = true;
         superpowers.enable = false;
       };
       prettier = {
