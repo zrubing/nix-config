@@ -1,135 +1,52 @@
 {
   config,
   pkgs,
-  inputs,
-  system,
   lib,
   namespace,
   ...
 }:
 let
   cfg = config.${namespace}.devpackages;
+
+  # 分组清单：各分组的 enable option 由此生成，新增分组只需在此加一行
+  groups = {
+    cli = "general CLI development and troubleshooting tools";
+    infra = "infrastructure / cloud / container related tools";
+    nix = "Nix development tools";
+    doc = "documentation and text processing tools";
+    cCpp = "C/C++ toolchain";
+    python = "Python development toolchain and libraries";
+    rust = "Rust development toolchain";
+    go = "Go development toolchain";
+    java = "Java development toolchain";
+    shell = "shell scripting tools";
+    web = "Node.js / TypeScript / web development tools";
+    lisp = "Lisp-family language tools";
+    miscLang = "assorted language-specific formatters / tools";
+    gui = "GUI applications in development package set";
+    treeSitter = "tree-sitter related dependencies in development package set";
+    vscodeTools = "VSCode-derived development tools";
+    languageServers = "language server packages in development package set";
+  };
+
+  mkEnable = desc: lib.mkOption {
+    type = lib.types.bool;
+    default = true;
+    description = "Enable ${desc}.";
+  };
 in
 {
   options.${namespace}.devpackages = {
-    enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable development package set.";
-    };
-
-    cli.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable general CLI development and troubleshooting tools.";
-    };
-
-    infra.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable infrastructure / cloud / container related tools.";
-    };
-
-    nix.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable Nix development tools.";
-    };
-
-    doc.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable documentation and text processing tools.";
-    };
-
-    cCpp.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable C/C++ toolchain.";
-    };
-
-    python.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable Python development toolchain and libraries.";
-    };
-
-    rust.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable Rust development toolchain.";
-    };
-
-    go.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable Go development toolchain.";
-    };
-
-    java.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable Java development toolchain.";
-    };
-
-    shell.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable shell scripting tools.";
-    };
-
-    web.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable Node.js / TypeScript / web development tools.";
-    };
-
-    lisp.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable Lisp-family language tools.";
-    };
-
-    miscLang.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable assorted language-specific formatters / tools.";
-    };
-
-    gui.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable GUI applications in development package set.";
-    };
-
-    treeSitter.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable tree-sitter related dependencies in development package set.";
-    };
-
-    vscodeTools.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable VSCode-derived development tools.";
-    };
-
-    languageServers.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable language server packages in development package set.";
-    };
-  };
+    enable = mkEnable "the development package set";
+  } // lib.mapAttrs' (name: desc: lib.nameValuePair name { enable = mkEnable desc; }) groups;
 
   config = lib.mkIf cfg.enable {
-    xdg.configFile = lib.mkMerge [
-      (lib.mkIf cfg.web.enable {
-        "lsp-bridge-lib/typescript-lib" = {
-          source = "${pkgs.typescript}/lib/node_modules/typescript/lib";
-          recursive = true;
-        };
-      })
-    ];
+    xdg.configFile = lib.mkIf cfg.web.enable {
+      "lsp-bridge-lib/typescript-lib" = {
+        source = "${pkgs.typescript}/lib/node_modules/typescript/lib";
+        recursive = true;
+      };
+    };
 
     home.sessionPath = lib.mkIf cfg.infra.enable [
       "$HOME/.krew/bin"
@@ -168,8 +85,6 @@ in
           pkgs.unstable.pnpm
           postgresql
           flyway
-
-          #inputs.process-compose.packages.${system}.process-compose
 
           woodpecker-cli
           kubeseal
@@ -256,12 +171,7 @@ in
               scipy
               # litellm 先停用，避免拉入 tokenizers/huggingface-hub/hf-xet
             ] ++ lib.optionals cfg.treeSitter.enable [
-              # 先停用 tree-sitter 扩展包，避免无用构建和依赖报错
-              # pkgs.${namespace}.grep-ast
-              # pkgs.${namespace}.tree-sitter-language-pack
-              # pkgs.${namespace}.tree-sitter-c-sharp
-              # pkgs.${namespace}.tree-sitter-embedded-template
-              # pkgs.${namespace}.tree-sitter-yaml
+              # 扩展包已停用（避免无用构建和依赖报错），仅保留本体
               tree-sitter
             ]
           ))
@@ -337,7 +247,6 @@ in
           zls
           lua-language-server
           bash-language-server
-          #pkgs.${namespace}.vue-language-server
           pkgs.unstable.vue-language-server
           pkgs.unstable.typescript-language-server
           tailwindcss-language-server
