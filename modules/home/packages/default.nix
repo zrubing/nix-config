@@ -6,36 +6,19 @@
   system,
   namespace,
   ...
-}:
-let
-
+}: let
   pkgs-nix-ai = inputs.llm-agents.packages.${system};
   agent-browser = pkgs-nix-ai.agent-browser.override {
     # Override llm-agents' stale pnpm dependency hash.
-    fetchPnpmDeps = args: pkgs.fetchPnpmDeps (args // {
-      hash = "sha256-tkEhkGO5/JTkzySDEsTmjr5+SEXzk8V0217iQhFhfCw=";
-    });
+    fetchPnpmDeps = args:
+      pkgs.fetchPnpmDeps (args
+        // {
+          hash = "sha256-tkEhkGO5/JTkzySDEsTmjr5+SEXzk8V0217iQhFhfCw=";
+        });
   };
 
   cfg = config.${namespace}.modules.packages;
-in
-let
-  flakeLock = builtins.fromJSON (builtins.readFile ../../../flake.lock);
-  guardrailsRev = flakeLock.nodes."pi-guardrails-src".locked.rev;
-  guardrailsPackage = "git:github.com/zrubing/pi-guardrails#${guardrailsRev}";
-  piSettings = builtins.toJSON {
-    packages = [
-      "npm:pi-mcp-adapter@2.18.0"
-      "npm:@howaboua/pi-codex-conversion@2.2.7"
-      "npm:pi-blackhole@0.4.3"
-      "npm:context-mode@1.0.169"
-      "npm:@aliou/pi-processes@0.9.5"
-      "npm:pi-deepseek-search@1.0.15"
-    ];
-  };
-in
-{
-
+in {
   options.${namespace}.modules.packages = {
     enable = lib.mkEnableOption "packages";
 
@@ -90,156 +73,101 @@ in
       default = true;
       description = "Enable OCR tools in package set.";
     };
-    superpowers.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Enable superpowers skills (brainstorming, etc.) in pi agent.";
-    };
   };
 
   config = lib.mkIf cfg.enable {
-    home.file.".pi/agent/settings.json" = {
-      text = piSettings;
-      force = true;
-    };
-    home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skill-sources/woodpecker-ci;
-    home.file.".pi/agent/skills/zli".source = ../../../.pi/skill-sources/zli;
-    home.file.".pi/agent/skills/sealed-secrets".source = ../../../.pi/skill-sources/sealed-secrets;
-    home.file.".pi/agent/skills/tradingagents" = {
-      source = ../../../.pi/skill-sources/tradingagents;
-      recursive = true;
-    };
+    home.packages = with pkgs;
+      [
+        # claude sandbox
+        socat
+        bubblewrap
 
-    # Pi skills
-    home.file.".pi/agent/skills/caveman".source = "${inputs.caveman-skills}/skills/caveman";
-    home.file.".pi/agent/skills/brainstorming" = lib.mkIf cfg.superpowers.enable {
-      source = "${inputs.superpowers}/skills/brainstorming";
-    };
-    home.file.".pi/agent/skills/grill-me".source = "${inputs.mattpocock-skills}/skills/productivity/grill-me";
-    home.file.".pi/agent/skills/grilling".source = "${inputs.mattpocock-skills}/skills/productivity/grilling";
-    home.file.".pi/agent/skills/anysearch" = {
-      source = "${inputs.anysearch-skill}";
-      recursive = true;
-    };
-    home.file.".pi/agent/extensions/guardrails.json".source = ../../../.pi/extensions/guardrails.json;
+        lsof
 
-    home.activation.migrateAnysearchSkillDirectory = config.lib.dag.entryBefore [ "linkGeneration" ] ''
-      target="$HOME/.pi/agent/skills/anysearch"
-
-      if [ -L "$target" ]; then
-        linkTarget="$(readlink "$target")"
-        case "$linkTarget" in
-          /nix/store/*-home-manager-files/.pi/agent/skills/anysearch)
-            rm "$target"
-            ;;
-        esac
-      fi
-    '';
-
-    # home.activation.configurePiGuardrailsFork = config.lib.dag.entryAfter [ "writeBoundary" ] ''
-    #   settings_file="$HOME/.pi/agent/settings.json"
-    #   ${pkgs.coreutils}/bin/mkdir -p "$HOME/.pi/agent"
-    #
-    #   if [ ! -f "$settings_file" ]; then
-    #     cat > "$settings_file" <<'EOF'
-    #   {
-    #     "packages": []
-    #   }
-    #   EOF
-    #   fi
-    #
-    #   ${pkgs.jq}/bin/jq \
-    #     --arg forkPkg '${guardrailsPackage}' \
-    #     '
-    #     .packages = (
-    #       ((.packages // [])
-    #         | map(select(. != "npm:@aliou/pi-guardrails" and (. | startswith("git:github.com/zrubing/pi-guardrails") | not))))
-    #       + [$forkPkg]
-    #       | unique
-    #     )
-    #     ' "$settings_file" > "$settings_file.tmp"
-    #
-    #   ${pkgs.coreutils}/bin/mv "$settings_file.tmp" "$settings_file"
-    # '';
-
-    home.packages = with pkgs; [
-      # claude sandbox
-      socat
-      bubblewrap
-
-      lsof
-
-      jujutsu
-    ] ++ lib.optionals cfg.emacsTools.enable [
-      pkgs.${namespace}.emacs-lsp-proxy
-    ] ++ lib.optionals cfg.tools.dev.enable [
-      conda
-      pkgs.unstable.mise
-      devenv
-      devpod
-      devbox
-      mprocs
-    ] ++ lib.optionals cfg.tools.ai.enable [
-      # for aider（暂时停用，避免无用编译）
-      # python312Packages.playwright
-      pkgs.unstable.tdlib
-      # pkgs.${namespace}.aider
-      pkgs.aider-chat
-      # pkgs.unstable.aider-chat
-      # pkgs.unstable.claude-code
-      pkgs.${namespace}.zli
-    ] ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.ollama.enable) [
-      ollama-rocm
-    ] ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.llmAgents.enable) [
-      #pkgs.${namespace}.claude-code
-      #pkgs-nix-ai.claude-code-router
-      pkgs-nix-ai.pi
-      pkgs-nix-ai.omp
-      pkgs-nix-ai.codex
-      pkgs-nix-ai.semble
-      pkgs-nix-ai.workmux
-      pkgs-nix-ai.openskills
-      #pkgs-nix-ai.beads
-      pkgs-nix-ai.catnip
-      pkgs-nix-ai.opencode
-      agent-browser
-      #pkgs-nix-ai.coding-agent-search
-      #pkgs-nix-ai.claude-code-acp
-      pkgs-nix-ai.openspec
-      pkgs-nix-ai.cc-switch-cli
-      #pkgs.${namespace}.trojan-go
-      pkgs-nix-ai.eca
-    ] ++ lib.optionals cfg.tools.network.enable [
-      pkgs.unstable.tailscale
-      sshuttle
-      mirrord
-    ] ++ lib.optionals cfg.tools.database.enable [
-      mysql84
-    ] ++ lib.optionals cfg.ocr.enable [
-      pkgs.${namespace}.wl-ocr
-      tesseract
-    ] ++ lib.optionals cfg.gui.enable (with pkgs; [
-      # view image
-      imv
-      grim
-      satty
-      pkgs.unstable.cherry-studio
-      feishu
-      vscode
-      code-cursor
-      wireshark
-      pkgs.unstable.localsend
-      sioyek
-      pkgs.unstable.zed-editor
-      libnotify
-    ] ++ lib.optionals cfg.tools.database.enable [
-      # redisinsight 先停用，避免本地编译 redisinsight/nodejs-slim
-      mongodb-compass
-      pkgs.unstable.dbeaver-bin
-    ] ++ lib.optionals cfg.tools.office.enable [
-      libreoffice
-      pkgs.unstable.wpsoffice
-    ]);
+        jujutsu
+      ]
+      ++ lib.optionals cfg.emacsTools.enable [
+        pkgs.${namespace}.emacs-lsp-proxy
+      ]
+      ++ lib.optionals cfg.tools.dev.enable [
+        conda
+        pkgs.unstable.mise
+        devenv
+        devpod
+        devbox
+        mprocs
+      ]
+      ++ lib.optionals cfg.tools.ai.enable [
+        # for aider（暂时停用，避免无用编译）
+        # python312Packages.playwright
+        pkgs.unstable.tdlib
+        # pkgs.${namespace}.aider
+        pkgs.aider-chat
+        # pkgs.unstable.aider-chat
+        # pkgs.unstable.claude-code
+        pkgs.${namespace}.zli
+        pkgs.${namespace}.chrome-devtools-mcp
+      ]
+      ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.ollama.enable) [
+        ollama-rocm
+      ]
+      ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.llmAgents.enable) [
+        #pkgs.${namespace}.claude-code
+        #pkgs-nix-ai.claude-code-router
+        pkgs-nix-ai.pi
+        pkgs-nix-ai.omp
+        pkgs-nix-ai.codex
+        pkgs-nix-ai.semble
+        pkgs-nix-ai.workmux
+        pkgs-nix-ai.openskills
+        #pkgs-nix-ai.beads
+        pkgs-nix-ai.catnip
+        pkgs-nix-ai.opencode
+        agent-browser
+        #pkgs-nix-ai.coding-agent-search
+        #pkgs-nix-ai.claude-code-acp
+        pkgs-nix-ai.openspec
+        pkgs-nix-ai.cc-switch-cli
+        #pkgs.${namespace}.trojan-go
+        pkgs-nix-ai.eca
+      ]
+      ++ lib.optionals cfg.tools.network.enable [
+        pkgs.unstable.tailscale
+        sshuttle
+        mirrord
+      ]
+      ++ lib.optionals cfg.tools.database.enable [
+        mysql84
+      ]
+      ++ lib.optionals cfg.ocr.enable [
+        pkgs.${namespace}.wl-ocr
+        tesseract
+      ]
+      ++ lib.optionals cfg.gui.enable (with pkgs;
+        [
+          # view image
+          imv
+          grim
+          satty
+          pkgs.unstable.cherry-studio
+          feishu
+          vscode
+          code-cursor
+          wireshark
+          pkgs.unstable.localsend
+          sioyek
+          pkgs.unstable.zed-editor
+          libnotify
+        ]
+        ++ lib.optionals cfg.tools.database.enable [
+          # redisinsight 先停用，避免本地编译 redisinsight/nodejs-slim
+          mongodb-compass
+          pkgs.unstable.dbeaver-bin
+        ]
+        ++ lib.optionals cfg.tools.office.enable [
+          libreoffice
+          pkgs.unstable.wpsoffice
+        ]);
 
     programs = {
       direnv = {
@@ -264,7 +192,5 @@ in
         terminal = false;
       };
     };
-
   };
-
 }
