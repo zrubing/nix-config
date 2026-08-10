@@ -31,6 +31,10 @@ in
 
   time.timeZone = "Asia/Shanghai";
 
+  # 激活 nix 签名：nix copy --to <cache> 时用 zen14-1 私钥签名产物，
+  # 供目标机（hinihao-net 等）经 substituter 拉取时验证（trusted-public-keys 已配）。
+  nix.settings.secret-key-files = [ "/etc/nix/signing-key.sec" ];
+
   imports = [ ./hardware.nix ];
 
   system.stateVersion = "25.11";
