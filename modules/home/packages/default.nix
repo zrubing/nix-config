@@ -121,8 +121,9 @@ in {
         pkgs-nix-ai.workmux
         pkgs-nix-ai.openskills
         #pkgs-nix-ai.beads
-        pkgs-nix-ai.catnip
+        #pkgs-nix-ai.catnip
         pkgs-nix-ai.opencode
+        pkgs-nix-ai.but
         pkgs-nix-ai.agent-browser
         #pkgs-nix-ai.coding-agent-search
         #pkgs-nix-ai.claude-code-acp
