@@ -182,6 +182,7 @@ in
         modules.packages.emacsTools.enable = lib.mkForce false;
         modules.packages.ocr.enable = lib.mkForce false;
         modules.packages.tools.ai.llmAgents.enable = lib.mkForce false;
+        modules.packages.tools.ai.ollama.enable = lib.mkForce false;
         ghostty.enable = lib.mkForce false;
         modules.fcitx5.enable = lib.mkForce false;
         programs.wechat.enable = lib.mkForce false;
