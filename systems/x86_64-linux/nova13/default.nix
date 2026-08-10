@@ -211,6 +211,9 @@ in
       extraConfig = import ./miho-extra-config.nix;
     };
     desktop-programs.enable = false;
+    # nova13 是 k0s worker（build/proxy 角色），不需要桌面虚拟化栈（libvirtd/qemu/virt-manager）。
+    # virt 模块默认启用，这里显式关闭。
+    virt.enable = false;
 
     restic.enable = true;
   };
