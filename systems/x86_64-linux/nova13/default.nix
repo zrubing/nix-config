@@ -395,6 +395,15 @@ in
 
     [plugins."io.containerd.grpc.v1.cri".registry.configs."zot.zot.svc.cluster.local:5000".tls]
       insecure_skip_verify = true
+
+    # CI infra 镜像（kubectl-shell-runner / git-cache-clone-runner）统一走 bj upstream。
+    # 节点无法解析 cluster.local（mihomo DNS 链路过 cilium BPF 黑洞，见 miho-extra-config.nix 注释），
+    # 故直接 mirror 到本机 NodePort 30003（registry-bj-upstream DaemonSet 同机，internalTrafficPolicy Local）。
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry-bj-upstream.registry.svc.cluster.local:5000"]
+      endpoint = ["http://127.0.0.1:30003"]
+
+    [plugins."io.containerd.grpc.v1.cri".registry.configs."registry-bj-upstream.registry.svc.cluster.local:5000".tls]
+      insecure_skip_verify = true
   '';
 
   services.k0s = {
