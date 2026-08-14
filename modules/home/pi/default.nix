@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  pkgs,
   inputs,
   namespace,
   ...
@@ -30,6 +31,32 @@ let
       "npm:pi-deepseek-search@1.0.15"
     ];
   };
+  # OpenSpec skills：构建时用 openspec CLI 按全局 workflows 生成到 store，
+  # openspec 升级后自动重新生成（SKILL.md 带 generatedBy 版本标记），无需手动同步。
+  # 沙箱里无全局配置，先写一份与 ~/.config/openspec/config.json 一致的 config 再 init。
+  # 注意：nix 构建的 pty winsize 为 0x0（columns=0），ora 渲染会除零死循环，
+  # 必须把 stdout/stderr 重定向到文件（非 TTY）让 spinner 静默。
+  openspecSkills = pkgs.runCommand "openspec-skills" {
+    nativeBuildInputs = [ inputs.llm-agents.packages.${pkgs.system}.openspec ];
+  } ''
+    export HOME=$TMPDIR
+    # telemetry 上报在无网络沙箱里会挂起 init，构建期必须关闭
+    export OPENSPEC_TELEMETRY=0
+    mkdir -p $HOME/.config/openspec
+    cat > $HOME/.config/openspec/config.json <<'EOF'
+    {"profile":"custom","delivery":"both","workflows":["propose","explore","apply","archive"]}
+    EOF
+    mkdir -p $TMPDIR/proj
+    cd $TMPDIR/proj
+    # stdout/stderr 重定向到文件：否则 ora 在 pty（columns=0）下渲染死循环
+    timeout 60 openspec init --tools pi --no-animation --no-copilot-cloud . > $TMPDIR/init.log 2>&1 || {
+      echo "openspec init FAILED, log:" >&2
+      tail -30 $TMPDIR/init.log >&2
+      exit 1
+    }
+    mkdir -p $out
+    cp -r $TMPDIR/proj/.pi/skills/* $out/
+  '';
   # pi-blackhole 独立配置文件（不读 settings.json 的 observational-memory 块）
   # 阈值按 1M 上下文窗口调优：compactAfterTokens = 60% 窗口（官方建议 60-70%），
   # 其余按 high-context preset（~200k+）档位配置
@@ -75,6 +102,19 @@ in
       source = ../../../.pi/skill-sources/tradingagents;
       recursive = true;
     };
+    # GitButler skill：内容内嵌在 but 二进制，构建时用 `but skill install` 释放到 store，
+    # but 升级后自动重新生成，无需手动同步。但启动时会 mkdir $HOME，沙箱里需指向可写目录
+    home.file.".pi/agent/skills/gitbutler".source = pkgs.runCommand "gitbutler-skill" {
+      nativeBuildInputs = [ inputs.llm-agents.packages.${pkgs.system}.but ];
+    } ''
+      export HOME=$TMPDIR
+      but skill install --path $out >/dev/null
+    '';
+    # OpenSpec skills：构建时从 openspec 二进制生成，升级后自动重新生成
+    home.file.".pi/agent/skills/openspec-propose".source = "${openspecSkills}/openspec-propose";
+    home.file.".pi/agent/skills/openspec-explore".source = "${openspecSkills}/openspec-explore";
+    home.file.".pi/agent/skills/openspec-apply-change".source = "${openspecSkills}/openspec-apply-change";
+    home.file.".pi/agent/skills/openspec-archive-change".source = "${openspecSkills}/openspec-archive-change";
 
     # Pi skills
     home.file.".pi/agent/skills/caveman".source = "${inputs.caveman-skills}/skills/caveman";
@@ -88,6 +128,27 @@ in
       recursive = true;
     };
     home.file.".pi/agent/extensions/guardrails.json".source = ../../../.pi/extensions/guardrails.json;
+
+    home.activation.migrateGitbutlerSkillDirectory = config.lib.dag.entryBefore [ "checkLinkTargets" ] ''
+      target="$HOME/.pi/agent/skills/gitbutler"
+
+      # 旧版本是 but CLI 直接释放的真实目录，转为 nix 管理前先备份再删除
+      if [ -e "$target" ] && [ ! -L "$target" ]; then
+        rm -rf "$target.pre-nix.bak"
+        mv "$target" "$target.pre-nix.bak"
+      fi
+    '';
+
+    home.activation.migrateOpenspecSkillDirectories = config.lib.dag.entryBefore [ "checkLinkTargets" ] ''
+      # 旧版本是 openspec CLI 直接释放的真实目录，转为 nix 管理前先备份再删除
+      for skill in openspec-propose openspec-explore openspec-apply-change openspec-archive-change; do
+        target="$HOME/.pi/agent/skills/$skill"
+        if [ -e "$target" ] && [ ! -L "$target" ]; then
+          rm -rf "$target.pre-nix.bak"
+          mv "$target" "$target.pre-nix.bak"
+        fi
+      done
+    '';
 
     home.activation.migrateAnysearchSkillDirectory = config.lib.dag.entryBefore [ "linkGeneration" ] ''
       target="$HOME/.pi/agent/skills/anysearch"
