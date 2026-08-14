@@ -105,17 +105,30 @@ in
 
   modules.secrets.desktop.enable = true;
 
-  sops.secrets = lib.mkIf proxysqlEnabled {
-    "proxysql/admin_username".sopsFile = "${mysecrets}/secrets/env.yaml";
-    "proxysql/admin_password".sopsFile = "${mysecrets}/secrets/env.yaml";
-    "proxysql/monitor_username".sopsFile = "${mysecrets}/secrets/env.yaml";
-    "proxysql/monitor_password".sopsFile = "${mysecrets}/secrets/env.yaml";
-    "proxysql/frontend_username".sopsFile = "${mysecrets}/secrets/env.yaml";
-    "proxysql/frontend_password".sopsFile = "${mysecrets}/secrets/env.yaml";
-    "proxysql/backend_username".sopsFile = "${mysecrets}/secrets/env.yaml";
-    "proxysql/backend_password".sopsFile = "${mysecrets}/secrets/env.yaml";
-    "proxysql/backend_address".sopsFile = "${mysecrets}/secrets/env.yaml";
-  };
+  sops.secrets = lib.mkMerge [
+    (lib.mkIf proxysqlEnabled {
+      "proxysql/admin_username".sopsFile = "${mysecrets}/secrets/env.yaml";
+      "proxysql/admin_password".sopsFile = "${mysecrets}/secrets/env.yaml";
+      "proxysql/monitor_username".sopsFile = "${mysecrets}/secrets/env.yaml";
+      "proxysql/monitor_password".sopsFile = "${mysecrets}/secrets/env.yaml";
+      "proxysql/frontend_username".sopsFile = "${mysecrets}/secrets/env.yaml";
+      "proxysql/frontend_password".sopsFile = "${mysecrets}/secrets/env.yaml";
+      "proxysql/backend_username".sopsFile = "${mysecrets}/secrets/env.yaml";
+      "proxysql/backend_password".sopsFile = "${mysecrets}/secrets/env.yaml";
+      "proxysql/backend_address".sopsFile = "${mysecrets}/secrets/env.yaml";
+    })
+    # aliyun work AK/SK（clan vars 管理，加密文件由 clan vars set 生成）
+    {
+      "vars/aliyun-work/access-key-id" = {
+        sopsFile = ../../../vars/per-machine/zen14/aliyun-work/access-key-id/secret;
+        format = "binary";
+      };
+      "vars/aliyun-work/access-key-secret" = {
+        sopsFile = ../../../vars/per-machine/zen14/aliyun-work/access-key-secret/secret;
+        format = "binary";
+      };
+    }
+  ];
 
   sops.templates = lib.mkIf proxysqlEnabled {
     "proxysql.cnf" = {
@@ -164,6 +177,61 @@ in
         )
       '';
     };
+  };
+
+  # --- aliyun work AK/SK 渲染与 CLI 配置 ---
+
+  # 把两个 secret 值渲染为 aliyun CLI 的 credentials 文件（profile: work）。
+  # 必须等 sops-nix 解密完成（sops-nix.service）后再渲染。
+  systemd.services.aliyun-credentials = {
+    description = "Render aliyun CLI work credentials from sops secrets";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "sops-nix.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      install -d -o jojo -g users -m 700 /home/jojo/.aliyun
+      {
+        echo "[work]"
+        echo "access_key_id = $(cat ${config.sops.secrets."vars/aliyun-work/access-key-id".path})"
+        echo "access_key_secret = $(cat ${config.sops.secrets."vars/aliyun-work/access-key-secret".path})"
+      } > /home/jojo/.aliyun/credentials
+      chown jojo:users /home/jojo/.aliyun/credentials
+      chmod 600 /home/jojo/.aliyun/credentials
+
+      # aliyun CLI config.json：凭据直接写入（CLI 只认 config.json 里的字段），
+      # credentials 文件供 SDK/其他工具使用。region_id 仅为占位（OSS/RAM 用不到）。
+      AK_ID=$(cat ${config.sops.secrets."vars/aliyun-work/access-key-id".path})
+      AK_SECRET=$(cat ${config.sops.secrets."vars/aliyun-work/access-key-secret".path})
+      cat > /home/jojo/.aliyun/config.json <<JSON
+      {
+        "current": "work",
+        "profiles": [
+          {
+            "name": "default",
+            "mode": "AK",
+            "output_format": "json",
+            "language": "en"
+          },
+          {
+            "name": "work",
+            "mode": "AK",
+            "access_key_id": "$AK_ID",
+            "access_key_secret": "$AK_SECRET",
+            "region_id": "cn-hangzhou",
+            "output_format": "json",
+            "language": "en",
+            "site": "china"
+          }
+        ],
+        "meta_path": ""
+      }
+      JSON
+      chown jojo:users /home/jojo/.aliyun/config.json
+      chmod 600 /home/jojo/.aliyun/config.json
+    '';
   };
 
   # thunar file manager related options
@@ -314,6 +382,7 @@ in
 
   environment.systemPackages = [
     pkgs.grafana-loki
+    pkgs.aliyun-cli
 
     (pkgs.writeShellScriptBin "pi-as-agent" ''
       # 保存当前用户的 GUI 相关环境变量
@@ -334,11 +403,9 @@ in
     '')
   ];
 
-  # 本地通过 SSH 隧道推送到集群内 Zot（HTTP registry）
+  # 本地通过 SSH 隧道推送到集群内 registry（HTTP registry；zot 已退役 2026-08-14）
   virtualisation.containers.registries.insecure = [
     "localhost:5000"
-    "zot.zot.svc.cluster.local:5000"
-    "10.144.144.4:30000"
     "10.144.200.2:30002"
   ];
 
@@ -364,11 +431,7 @@ in
   ];
   environment.etc."k0s/k0s.yaml".enable = lib.mkForce false;
   environment.etc."k0s/containerd.d/mirrors.toml".text = ''
-    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."zot.zot.svc.cluster.local:5000"]
-      endpoint = ["http://10.144.144.4:30000", "http://10.144.144.1:30000"]
-
-    [plugins."io.containerd.grpc.v1.cri".registry.configs."zot.zot.svc.cluster.local:5000".tls]
-      insecure_skip_verify = true
+    # zot.zot mirror 已删（2026-08-14 zot 退役）
 
     # CI infra 镜像（kubectl-shell-runner / git-cache-clone-runner）统一走 bj upstream。
     # 节点无法解析 cluster.local（mihomo DNS 链路过 cilium BPF 黑洞，见 miho-extra-config.nix 注释），

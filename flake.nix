@@ -10,6 +10,8 @@
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
 
+    clan-core.url = "github:clan-lol/clan-core";
+
     claude-code.url = "github:sadjow/claude-code-nix";
 
     llm-agents.url = "github:numtide/llm-agents.nix";
@@ -152,7 +154,7 @@
 
   };
   outputs =
-    inputs:
+    { self, ... }@inputs:
     let
       lib = inputs.snowfall-lib.mkLib {
         inherit inputs;
@@ -214,8 +216,28 @@
 
       };
     in
+    let
+      # Clan 密钥管理：只声明 zen14 的 vars（generator），不接管系统构建。
+      # vars 加密文件存 vars/per-machine/zen14/，由 snowfall 侧 zen14 的 sops 消费。
+      # 注意：不能 inherit clan 的 nixosConfigurations——会覆盖 snowfall 的同名 zen14。
+      clanConfig = inputs.clan-core.lib.clan {
+        inherit self;
+        meta.name = "jojo-clan";
+        meta.domain = "local";
+        inventory.machines.zen14 = {
+          deploy.targetHost = "jojo@zen14";
+          tags = [ "nixos" ];
+        };
+        machines.zen14 = { ... }: {
+          imports = [ ./clan/zen14.nix ];
+        };
+      };
+    in
     snowfall
     // {
+      clan = clanConfig.config;
+      clanInternals = clanConfig.config.clanInternals;
+
       devShells.x86_64-linux.trading =
         let
           pkgs = import inputs.nixpkgs {

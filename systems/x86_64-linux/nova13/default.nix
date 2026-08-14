@@ -362,11 +362,9 @@ in
     '';
   };
 
-  # 本地通过 SSH 隧道推送到集群内 Zot（HTTP registry）。
+  # 本地通过 SSH 隧道推送到集群内 registry（HTTP registry；zot 已退役 2026-08-14）。
   virtualisation.containers.registries.insecure = [
     "localhost:5000"
-    "zot.zot.svc.cluster.local:5000"
-    "10.144.144.4:30000"
   ];
 
   # 让 nova13 作为集群的 k0s worker（build/proxy 角色），与 zen14 保持同类配置。
@@ -390,11 +388,7 @@ in
   ];
   environment.etc."k0s/k0s.yaml".enable = lib.mkForce false;
   environment.etc."k0s/containerd.d/mirrors.toml".text = ''
-    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."zot.zot.svc.cluster.local:5000"]
-      endpoint = ["http://10.144.144.4:30000", "http://10.144.144.1:30000"]
-
-    [plugins."io.containerd.grpc.v1.cri".registry.configs."zot.zot.svc.cluster.local:5000".tls]
-      insecure_skip_verify = true
+    # zot.zot mirror 已删（2026-08-14 zot 退役）
 
     # CI infra 镜像（kubectl-shell-runner / git-cache-clone-runner）统一走 bj upstream。
     # 节点无法解析 cluster.local（mihomo DNS 链路过 cilium BPF 黑洞，见 miho-extra-config.nix 注释），

@@ -1,4 +1,4 @@
-{ lib, config, pkgs, namespace, ... }:
+{ lib, config, pkgs, namespace, inputs, ... }:
 let
   lowBatteryScript = pkgs.writeShellApplication {
     name = "low-battery-notify";
@@ -61,6 +61,8 @@ in
 
   home.packages = [
     pkgs.${namespace}."pv-inspect"
+    pkgs.aliyun-cli
+    inputs.clan-core.packages.${pkgs.system}.clan-cli
   ];
 
   programs.k9s = {
