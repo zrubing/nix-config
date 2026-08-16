@@ -134,5 +134,19 @@ in
         export ZAI_CODING_CN_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
       '';
     };
+
+    # dsh-web 服务的环境文件（无 export 前缀，systemd EnvironmentFile 格式）。
+    # sops 激活时把 placeholder 替换为真实密钥，比直接写进 unit 的 Environment 可靠。
+    sops.templates."dsh.env" = {
+      path = "/home/${username}/.config/dsh.env";
+      mode = "0400";
+      content = ''
+        DEEPSEEK_API_KEY=${config.sops.placeholder."deepseek/api_key"}
+        OPENAI_API_KEY=${config.sops.placeholder."openai/api_key"}
+        OPENROUTER_API_KEY=${config.sops.placeholder."openrouter/api_key"}
+        OPENCODE_API_KEY=${config.sops.placeholder."opencode/api_key"}
+        ZAI_CODING_CN_API_KEY=${config.sops.placeholder."anthropic/api_key"}
+      '';
+    };
   };
 }

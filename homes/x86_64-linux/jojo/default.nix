@@ -144,14 +144,9 @@ in
       devconf.enable = true;
       dsh = {
         enable = true;
-        # 与 default.env 同一组 sops 密钥；systemd user service 环境极简，必须显式注入。
-        environment = {
-          DEEPSEEK_API_KEY = config.sops.placeholder."deepseek/api_key";
-          OPENAI_API_KEY = config.sops.placeholder."openai/api_key";
-          OPENROUTER_API_KEY = config.sops.placeholder."openrouter/api_key";
-          OPENCODE_API_KEY = config.sops.placeholder."opencode/api_key";
-          ZAI_CODING_CN_API_KEY = config.sops.placeholder."anthropic/api_key";
-        };
+        # 密钥走 sops.templates 生成 env 文件（激活时解密），dsh-web 服务用 EnvironmentFile 读入。
+        # 不能用 Environment=placeholder：那是求值期占位符，写入单元后不会被解密。
+        envFile = config.sops.templates."dsh.env".path;
       };
       pi = {
         enable = true;
