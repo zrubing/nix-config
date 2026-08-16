@@ -71,12 +71,14 @@ in
       description = "Extra authorities the /api browser-trust fence accepts (host or host:port). Needed when accessing via a .local name from another machine.";
     };
 
-    # 每个 provider 的 apiKeyEnv 引用的环境变量名 -> 值（通常来自 sops placeholder）。
     # systemd user service 环境极简，必须显式注入；shell 里 source 的 default.env 不会带进来。
-    environment = mkOption {
-      type = types.attrsOf types.str;
-      default = {};
-      description = "Environment variables injected into the dsh web service (API keys referenced by apiKeyEnv).";
+    # 注意：不能用 Environment = [ "KEY=${config.sops.placeholder...}" ] —— placeholder 是
+    # 求值期的占位符字符串，写入单元后不会被解密。必须走 sops.templates 生成 env 文件，
+    # 再由 EnvironmentFile 读入（激活时 sops-nix 把 placeholder 替换为真实值）。
+    envFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      description = "EnvironmentFile for the dsh web service (sops template output).";
     };
   };
 
@@ -109,9 +111,12 @@ in
             + (lib.concatMapStrings (h: " --trusted-host ${h}") cfg.web.trustedHosts);
           Environment = [
             "PATH=/run/current-system/sw/bin:/etc/profiles/per-user/%u/bin:%h/.local/bin"
-          ] ++ (lib.mapAttrsToList (name: value: "${name}=${value}") cfg.environment);
+          ];
           Restart = "on-failure";
           RestartSec = 5;
+        }
+        // lib.optionalAttrs (cfg.envFile != null) {
+          EnvironmentFile = cfg.envFile;
         };
       };
     })
