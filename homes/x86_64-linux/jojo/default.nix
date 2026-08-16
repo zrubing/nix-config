@@ -140,6 +140,17 @@ in
       packages = {
         enable = true;
       };
+      dsh = {
+        enable = true;
+        # 与 default.env 同一组 sops 密钥；systemd user service 环境极简，必须显式注入。
+        environment = {
+          DEEPSEEK_API_KEY = config.sops.placeholder."deepseek/api_key";
+          OPENAI_API_KEY = config.sops.placeholder."openai/api_key";
+          OPENROUTER_API_KEY = config.sops.placeholder."openrouter/api_key";
+          OPENCODE_API_KEY = config.sops.placeholder."opencode/api_key";
+          ZAI_CODING_CN_API_KEY = config.sops.placeholder."anthropic/api_key";
+        };
+      };
       pi = {
         enable = true;
         superpowers.enable = false;
