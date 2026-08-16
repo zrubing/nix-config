@@ -198,12 +198,11 @@ in
         # 某个 SSH session 里，且升级切二进制时 graceful drain 能真正生效。
         modules.multica.enable = true;
 
-        # dsh（DeepSeek Harness）在 jojo 共享 home 已启用；nova13 上允许跨机器访问
-        # dsh.local，故绑定 0.0.0.0 并声明 trusted-host（/api 浏览器信任栅栏）。
-        modules.dsh.web = {
-          host = "0.0.0.0";
-          trustedHosts = [ "dsh.local" ];
-        };
+        # dsh（DeepSeek Harness）在 jojo 共享 home 已启用；访问走 nova13 的 Caddy 反代
+        # （http://dsh.local → 127.0.0.1:3080）。注意：dsh 禁止 --host 0.0.0.0
+        # （“intentionally not supported yet for safety”，会暴露 RCE），必须保持回环绑定。
+        modules.dsh.web.trustedHosts = [ "dsh.local" ];
+        modules.dsh.web.host = lib.mkForce "127.0.0.1";
 
         # nova13 无桌面（无 dconf 服务），devconf 的 virt-manager dconf 设置会让
         # home-manager 激活在 dconfSettings 步骤失败（D-Bus 连不上 ca.desrt.dconf），
