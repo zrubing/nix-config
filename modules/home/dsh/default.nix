@@ -21,6 +21,11 @@ let
             apiKeyEnv: DEEPSEEK_API_KEY
           openai:
             apiKeyEnv: OPENAI_API_KEY
+          # opencode-go 是 pi-ai 内置 catalog 路由（OpenCode Zen Go 网关，
+          # 含 deepseek-v4-pro/flash、glm-5.2、kimi-k3、qwen3.7 等模型），
+          # 认证环境变量 OPENCODE_API_KEY 与 jojo home 注入一致。
+          opencode-go:
+            apiKeyEnv: OPENCODE_API_KEY
           # zai-coding-cn 是 pi-ai 内置 catalog 路由（端点 open.bigmodel.cn/api/coding/paas/v4，
           # thinkingFormat=zai），但 glm-5.3 不在 catalog（最新到 glm-5.2），
           # 故用 models 列表手工声明（与 pi 的 models.json 定义一致）。
