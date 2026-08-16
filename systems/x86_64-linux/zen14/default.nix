@@ -377,6 +377,7 @@ in
     "10.144.200.3" = [
       "multica.local"
       "multica-api.local"
+      "dsh.local"
     ];
   };
 

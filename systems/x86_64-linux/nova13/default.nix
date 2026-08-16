@@ -204,6 +204,11 @@ in
           host = "0.0.0.0";
           trustedHosts = [ "dsh.local" ];
         };
+
+        # nova13 无桌面（无 dconf 服务），devconf 的 virt-manager dconf 设置会让
+        # home-manager 激活在 dconfSettings 步骤失败（D-Bus 连不上 ca.desrt.dconf），
+        # 进而连带 dsh-web 等 user service 都无法生成。这里显式关闭。
+        modules.devconf.enable = lib.mkForce false;
       };
 
       # nova13 常通过 SSH 使用；不要继承桌面机的 `sudo -A` GUI askpass 习惯，

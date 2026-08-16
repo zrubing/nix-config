@@ -140,6 +140,8 @@ in
       packages = {
         enable = true;
       };
+      # virt-manager dconf 连接配置（桌面机用）；nova13 无桌面显式关闭。
+      devconf.enable = true;
       dsh = {
         enable = true;
         # 与 default.env 同一组 sops 密钥；systemd user service 环境极简，必须显式注入。

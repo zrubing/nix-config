@@ -48,6 +48,8 @@ in
     modules = {
       fcitx5.enable = true;
       fuzzel.enable = true;
+      # virt-manager dconf 连接配置（桌面机用）；nova13 无桌面显式关闭。
+      devconf.enable = true;
     };
 
     programs.wechat.enable = true;
