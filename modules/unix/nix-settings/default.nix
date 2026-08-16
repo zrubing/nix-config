@@ -79,4 +79,12 @@ in
     keepRecent = lib.mkDefault "1d";
     extraArgs = lib.mkDefault [ "--delete-old" ];
   };
+
+  # fast-nix-gc 以 root 跑，profile_dirs 默认只扫 /nix/var/nix/profiles。
+  # use-xdg-base-directories=true 使 jojo 的 home-manager profile 位于
+  # $XDG_STATE_HOME/nix/profiles，不指过去则旧代永远不会被清理
+  # （nova13 实测：home-manager 339 代堆积，system 仅 1 代）。
+  systemd.services.fast-nix-gc.serviceConfig.Environment = lib.mkIf isNixOS [
+    "XDG_STATE_HOME=/home/jojo/.local/state"
+  ];
 }

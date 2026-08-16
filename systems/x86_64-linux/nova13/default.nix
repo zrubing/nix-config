@@ -35,7 +35,9 @@ in
 {
   snowfallorg.users.jojo = {
     home.config = lib.mkMerge [
-      config.${namespace}.home.extraOptions
+      # 注意：${namespace}.home.extraOptions 已由 modules/nixos/home-manager 自动应用为
+      # jojo 的 home.config，这里不能再 merge 一次，否则列表选项（如 dsh.web.trustedHosts）
+      # 会被 concat 成双份（enable 等布尔幂等所以之前没暴露）。
       {
         home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
         home.activation.configureMultica = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
@@ -67,6 +69,7 @@ in
     "10.144.200.3" = [
       "multica.local"
       "multica-api.local"
+      "dsh.local"
     ];
   };
 
@@ -194,6 +197,13 @@ in
         # （见 modules/home/multica/default.nix）。配合下面的 linger，daemon 不再寄生在
         # 某个 SSH session 里，且升级切二进制时 graceful drain 能真正生效。
         modules.multica.enable = true;
+
+        # dsh（DeepSeek Harness）在 jojo 共享 home 已启用；nova13 上允许跨机器访问
+        # dsh.local，故绑定 0.0.0.0 并声明 trusted-host（/api 浏览器信任栅栏）。
+        modules.dsh.web = {
+          host = "0.0.0.0";
+          trustedHosts = [ "dsh.local" ];
+        };
       };
 
       # nova13 常通过 SSH 使用；不要继承桌面机的 `sudo -A` GUI askpass 习惯，
