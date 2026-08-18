@@ -17,6 +17,8 @@ in
     home.config = {
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
           internal.modules.multica.enable = true;
+          # 同 nova13：daemon 拉起 pi 需要 LLM API key（sops 渲染的 systemd EnvironmentFile）
+          internal.modules.multica.envFile = "/home/jojo/.config/dsh.env";
       internal.observabilityPortForward.enable = true;
     };
   };
