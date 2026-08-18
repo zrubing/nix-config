@@ -40,24 +40,10 @@ in
       # 会被 concat 成双份（enable 等布尔幂等所以之前没暴露）。
       {
         home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
-        home.activation.configureMultica = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        config_file="$HOME/.multica/config.json"
-        mkdir -p "$(dirname "$config_file")"
-        tmp_file="$(mktemp "$HOME/.multica/config.json.XXXXXX")"
-
-        if [ -f "$config_file" ]; then
-          if ! ${pkgs.jq}/bin/jq \
-            '. + {server_url: "http://multica-api.local", app_url: "http://multica.local"}' \
-            "$config_file" > "$tmp_file"; then
-            printf '{"server_url":"http://multica-api.local","app_url":"http://multica.local"}\n' > "$tmp_file"
-          fi
-        else
-          printf '{"server_url":"http://multica-api.local","app_url":"http://multica.local"}\n' > "$tmp_file"
-        fi
-
-        chmod 600 "$tmp_file"
-        mv -f "$tmp_file" "$config_file"
-        '';
+        # daemon 拉起的 pi 从环境变量读 LLM API key，systemd user service 不走 profile，
+        # 必须用 EnvironmentFile 注入（dsh.env 为 sops 渲染的 systemd 格式，无 export 前缀）。
+        # 缺了它 pi 报 "No API key found for deepseek"，task 全部 agent_error.process_failure。
+        internal.modules.multica.envFile = "/home/jojo/.config/dsh.env";
       }
     ];
   };

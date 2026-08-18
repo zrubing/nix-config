@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  inputs,
   namespace,
   ...
 }:
@@ -17,6 +18,14 @@ in
       default = false;
       description = "Enable Multica Desktop GUI (${namespace}.multica-desktop)";
     };
+
+    # daemon 拉起 pi/hermes 时，子进程继承 daemon 的环境；systemd user service 不走
+    # shell profile，LLM API key 必须用 EnvironmentFile 注入（dsh-web 同款模式，sops 渲染）。
+    envFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      description = "systemd EnvironmentFile for multica-daemon (no export prefix, sops-rendered).";
+    };
   };
 
   config = lib.mkMerge [
@@ -25,13 +34,28 @@ in
         pkgs.${namespace}.multica
       ];
 
-      home.file.".multica/config.json" = {
-        force = true;
-        text = builtins.toJSON {
-          server_url = "http://multica-api.local";
-          app_url = "http://multica.local";
-        };
-      };
+      # config.json 的 token 由 `multica login` 运行时写入，绝不能用 home.file 管理：
+      # force=true 会在每次 activation 把 token 抹掉，daemon 立刻陷入 "not authenticated"
+      # 崩溃循环（nova13/zen14 均实际发生过）。改用 activation 做 jq merge：
+      # 只强制 server_url/app_url，保留 token 等运行时字段。
+      home.activation.configureMultica = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        config_file="$HOME/.multica/config.json"
+        mkdir -p "$(dirname "$config_file")"
+        tmp_file="$(mktemp "$HOME/.multica/config.json.XXXXXX")"
+
+        if [ -f "$config_file" ]; then
+          if ! ${pkgs.jq}/bin/jq \
+            '. + {server_url: "http://multica-api.local", app_url: "http://multica.local"}' \
+            "$config_file" > "$tmp_file"; then
+            printf '{"server_url":"http://multica-api.local","app_url":"http://multica.local"}\n' > "$tmp_file"
+          fi
+        else
+          printf '{"server_url":"http://multica-api.local","app_url":"http://multica.local"}\n' > "$tmp_file"
+        fi
+
+        chmod 600 "$tmp_file"
+        mv -f "$tmp_file" "$config_file"
+      '';
 
       # 把 daemon 交给 systemd 托管，脱离 SSH session 生命周期（session 断开不再杀进程），
       # 也让“升级切二进制”时由 systemd 在 task 之外发 SIGTERM，graceful drain 才能真正生效。
@@ -55,6 +79,9 @@ in
           Restart = "on-failure";
           RestartSec = 5;
           TimeoutStopSec = "60s";
+        }
+        // lib.optionalAttrs (cfg.envFile != null) {
+          EnvironmentFile = cfg.envFile;
         };
       };
     })
