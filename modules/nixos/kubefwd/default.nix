@@ -111,7 +111,13 @@ in
         description = "kubefwd port-forwarding daemon";
         wantedBy = [ "multi-user.target" ];
         after = [ "network.target" ];
-        path = [ pkgs.iproute2 ];
+        # kubeconfig 的 user 是 exec 插件（kubectl oidc-login get-token），client-go 会
+        # 从 PATH 找 kubectl，kubectl 再找 kubectl-oidc_login（由 kubelogin-oidc 提供）。
+        path = [
+          pkgs.iproute2
+          pkgs.kubectl
+          pkgs.kubelogin-oidc
+        ];
         serviceConfig = {
           ExecStartPre = [
             "+${pkgs.bash}/bin/bash -c 'mkdir -p /run/kubefwd && rm -f /run/kubefwd/hosts /run/kubefwd/fwdconf.json /run/kubefwd/entries.json /run/kubefwd/contexts && touch /run/kubefwd/hosts /run/kubefwd/entries.json /run/kubefwd/contexts'"
@@ -136,7 +142,13 @@ in
           Restart = "always";
           RestartSec = 10;
           User = cfg.user;
-          Environment = "KUBECONFIG=/home/jojo/.kube/config-k0s.yml";
+          # KUBECONFIG/HOME 都指向 jojo：exec 插件的 OIDC token 缓存在
+          # $HOME/.kube/cache/oidc-login，root 下无缓存会触发交互式登录。
+          # kubelogin 对已存在的缓存文件是原地覆写，属主仍是 jojo。
+          Environment = [
+            "KUBECONFIG=/home/jojo/.kube/config-k0s.yml"
+            "HOME=/home/jojo"
+          ];
         };
       };
     }
