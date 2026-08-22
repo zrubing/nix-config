@@ -96,6 +96,8 @@ in {
         devpod
         devbox
         mprocs
+        # k8s SealedSecret 交互式编辑工具（封装 kubeseal）
+        pkgs.${namespace}.rkseal
       ]
       ++ lib.optionals cfg.tools.ai.enable [
         # for aider（暂时停用，避免无用编译）
@@ -163,7 +165,8 @@ in {
         ]
         ++ lib.optionals cfg.tools.database.enable [
           # redisinsight 先停用，避免本地编译 redisinsight/nodejs-slim
-          mongodb-compass
+          # mongodb-compass 先停用，避免本地编译
+          # mongodb-compass
           pkgs.unstable.dbeaver-bin
         ]
         ++ lib.optionals cfg.tools.office.enable [
@@ -180,19 +183,21 @@ in {
       };
     };
 
-    xdg.desktopEntries = lib.mkIf (cfg.gui.enable && cfg.tools.database.enable) {
-      # 创建自定义桌面项
-      mongodb-compass = {
-        name = "MongoDB Compass";
-        exec = "env XDG_CURRENT_DESKTOP=GNOME mongodb-compass --password-store=gnome-libsecret --ignore-additional-command-line-flags %U";
-        icon = "mongodb-compass";
-        comment = "MongoDB GUI";
-        categories = [
-          "Development"
-          "Database"
-        ];
-        terminal = false;
+    xdg.desktopEntries =
+      lib.mkIf (cfg.gui.enable && cfg.tools.database.enable) {
+        # mongodb-compass 先停用，避免本地编译
+        # 创建自定义桌面项
+        # mongodb-compass = {
+        #   name = "MongoDB Compass";
+        #   exec = "env XDG_CURRENT_DESKTOP=GNOME mongodb-compass --password-store=gnome-libsecret --ignore-additional-command-line-flags %U";
+        #   icon = "mongodb-compass";
+        #   comment = "MongoDB GUI";
+        #   categories = [
+        #     "Development"
+        #     "Database"
+        #   ];
+        #   terminal = false;
+        # };
       };
-    };
   };
 }

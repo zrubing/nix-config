@@ -11,6 +11,11 @@ let
   flakeLock = builtins.fromJSON (builtins.readFile ../../../flake.lock);
   guardrailsRev = flakeLock.nodes."pi-guardrails-src".locked.rev;
   guardrailsPackage = "git:github.com/zrubing/pi-guardrails#${guardrailsRev}";
+  # pi-runinfra-provider：RunInfra 网关 provider（DeepSeek V4 / Nemotron 3.5 / Qwen3.8）
+  # rev 由 flake input pi-runinfra-provider-src pin，flake.lock 更新时自动同步
+  # 注意：pi 的 git 包 pin ref 用 @ref 后缀（见 pi 文档 packages.md）
+  runinfraRev = flakeLock.nodes."pi-runinfra-provider-src".locked.rev;
+  runinfraPackage = "git:github.com/monotykamary/pi-runinfra-provider@${runinfraRev}";
   # pi-blackhole 三个 memory worker 共用的模型（deepseek-v4-flash 便宜快，适合后台任务）
   # contextWindow 显式声明 1M，OM pipeline 会在调用前检查输入是否放得下
   # 注意：provider 与 id 是分开的字段，id 只写模型名（不带 provider 前缀），
@@ -29,7 +34,23 @@ let
       "npm:context-mode@1.0.169"
       "npm:@aliou/pi-processes@0.9.5"
       "npm:pi-deepseek-search@1.0.15"
+      runinfraPackage
     ];
+    # —— settings.json 不支持 `providers` 键（pi 源码 Settings 接口无此字段），
+    #    modelOverrides 已移到下方 piModelsOverlayJson，经 agenix merge 进 models.json
+  };
+  # models.json overlay：非机密模型配置，与 agenix secrets(agents/pi/models.json) 深合并生成最终 models.json
+  #（merge 逻辑见 modules/home/agenix/default.nix）。settings.json 不能放 providers，只能放这里。
+  # runinfra 是扩展注册 provider，models.json 里没有，故经此 overlay 叠加：
+  # 仅改 deepseek-v4-flash 的 maxTokens，其余字段保留、未知 id 静默忽略。
+  piModelsOverlayJson = builtins.toJSON {
+    providers = {
+      runinfra = {
+        modelOverrides = {
+          "deepseek-v4-flash" = { maxTokens = 65536; };
+        };
+      };
+    };
   };
   # OpenSpec skills：构建时用 openspec CLI 按全局 workflows 生成到 store，
   # openspec 升级后自动重新生成（SKILL.md 带 generatedBy 版本标记），无需手动同步。
@@ -90,6 +111,9 @@ in
     home.file.".pi/agent/settings.json" = {
       text = piSettings;
       force = true;
+    };
+    home.file.".config/pi/models-overlay.json" = {
+      text = piModelsOverlayJson;
     };
     home.file.".pi/agent/pi-blackhole/pi-blackhole-config.json" = {
       text = blackholeConfig;

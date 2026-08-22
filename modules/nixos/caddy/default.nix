@@ -18,7 +18,7 @@ in
       plugins = [
         "github.com/mholt/caddy-l4@v0.1.0"
       ];
-      hash = "sha256-+XzV0RM43oqK4thXsJhDPA0uc2oTONG8T2RfccYzzi0=";
+      hash = "sha256-diLsbLP+1BKgNhEtpXVeGnrh7qT0RT+N8UA1dlh34Ow=";
     };
     configFile = cfgFile;
   };
@@ -28,6 +28,6 @@ in
   # Caddy 原生监听配置文件变化自动重载。
   systemd.services.caddy.serviceConfig.ExecStart = lib.mkForce [
     ""
-    "${pkgs.caddy}/bin/caddy run --config /etc/caddy/caddy_config --adapter caddyfile --watch"
+    "${config.services.caddy.package}/bin/caddy run --config ${cfgFile} --adapter caddyfile --watch"
   ];
 }

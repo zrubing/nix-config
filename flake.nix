@@ -21,6 +21,11 @@
       flake = false;
     };
 
+    pi-runinfra-provider-src = {
+      url = "github:monotykamary/pi-runinfra-provider?rev=42c8ff4db0d039499daf81a8806819068bf1789c";
+      flake = false;
+    };
+
     catppuccin-bat = {
       url = "github:catppuccin/bat";
       flake = false;
