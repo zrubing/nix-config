@@ -40,8 +40,23 @@ let
 
     if [ -r ${config.age.secrets."agents/pi/models.json".path} ]; then
       ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.pi/agent
-      ${pkgs.coreutils}/bin/cat ${config.age.secrets."agents/pi/models.json".path} > /home/${username}/.pi/agent/models.json
+      overlay=/home/${username}/.config/pi/models-overlay.json
+      if [ -f "$overlay" ]; then
+        # age 钶密（provider 主体/密钥）+ nix 声明的非钶密 overlay（如 modelOverrides）深合并，overlay 优先
+        ${pkgs.jq}/bin/jq -s '.[0] * .[1]' \
+          ${config.age.secrets."agents/pi/models.json".path} \
+          "$overlay" > /home/${username}/.pi/agent/models.json
+      else
+        # overlay 缺失时回退为原样拷贝，不破坏 age 内容
+        ${pkgs.coreutils}/bin/cat ${config.age.secrets."agents/pi/models.json".path} > /home/${username}/.pi/agent/models.json
+      fi
       ${pkgs.coreutils}/bin/chmod 0600 /home/${username}/.pi/agent/models.json
+    fi
+
+    if [ -r ${config.age.secrets."agents/pi/auth.json".path} ]; then
+      ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.pi/agent
+      ${pkgs.coreutils}/bin/cat ${config.age.secrets."agents/pi/auth.json".path} > /home/${username}/.pi/agent/auth.json
+      ${pkgs.coreutils}/bin/chmod 0600 /home/${username}/.pi/agent/auth.json
     fi
   '';
 in
@@ -68,6 +83,7 @@ in
 
     age.secrets."ccr.config.json".file = "${mysecrets}/ccr.config.age";
     age.secrets."agents/pi/models.json".file = "${mysecrets}/agents/pi/models.json.age";
+    age.secrets."agents/pi/auth.json".file = "${mysecrets}/agents/pi/auth.json.age";
 
     home.packages = [
       #inputs.agenix.packages.${system}.agenix

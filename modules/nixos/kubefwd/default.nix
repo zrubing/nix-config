@@ -12,17 +12,66 @@ let
 
   enabledForwards = lib.filterAttrs (_: f: f.enable) cfg.forwards;
 
-  # 收集所有需要转发的 namespace（去重）
-  allNamespaces = lib.unique (
-    lib.mapAttrsToList (_: f: f.namespace) enabledForwards
-  );
+  # systemd unit 名里的 slug：hostname 中的 "." 换成 "-"
+  slug = host: lib.replaceStrings [ "." ] [ "-" ] host;
 
-  # 从各 forward 的 context 字段收集所有 context，不再需要笛卡尔搜索
-  # The context is deliberately read from SOPS at runtime.  This keeps the
-  # (potentially identifying) kube context out of the Nix store and Git.
-  fwdStatic = lib.mapAttrsToList (_host: f: {
-    inherit (f) service namespace ip contextSecret;
-  }) enabledForwards;
+  # 每个 forward 条目一个 unit：精确限定 context + namespace + service，
+  # 避免单进程 -n/-x 笛卡尔积导致整个 namespace 的服务全被转发。
+  # 各 unit 使用独立的 fwdconf/hosts 文件：kubefwd 的 hosts 锁是进程内的，
+  # 多进程共享同一 hosts 文件会互相覆盖条目。
+  # context 仍从 SOPS 运行时读取，避免 kube context 进入 Nix store 和 Git。
+  mkForwardService =
+    host: f:
+    let
+      key = slug host;
+    in
+    {
+      description = "kubefwd port-forward for ${f.service}.${f.namespace} (${host}); hosts: /run/kubefwd/hosts-${key}";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" ];
+      # kubeconfig 的 user 是 exec 插件（kubectl oidc-login get-token），client-go 会
+      # 从 PATH 找 kubectl，kubectl 再找 kubectl-oidc_login（由 kubelogin-oidc 提供）。
+      path = [
+        pkgs.iproute2
+        pkgs.kubectl
+        pkgs.kubelogin-oidc
+      ];
+      serviceConfig = {
+        ExecStartPre = [
+          "+${pkgs.bash}/bin/bash -c 'mkdir -p /run/kubefwd && rm -f /run/kubefwd/fwdconf-${key}.json /run/kubefwd/hosts-${key} && touch /run/kubefwd/hosts-${key}'"
+        ];
+        ExecStart = let
+          runner = pkgs.writeShellScript "kubefwd-runner-${key}" ''
+            set -euo pipefail
+            key="${key}"
+            dir=/run/kubefwd
+            context="$(${pkgs.coreutils}/bin/cat ${config.sops.secrets.${f.contextSecret}.path} | ${pkgs.coreutils}/bin/tr -d '[:space:]')"
+            ${pkgs.jq}/bin/jq -n \
+              --arg n "${f.service}.${f.namespace}.$context" \
+              --arg ip "${f.ip}" \
+              '{baseUnreservedIP:"127.3.3.1",serviceConfigurations:[{name:$n,ip:$ip}]}' \
+              > "$dir/fwdconf-$key.json"
+            exec ${pkgs.kubefwd}/bin/kubefwd svc \
+              -n ${f.namespace} \
+              -x "$context" \
+              -f "metadata.name=${f.service}" \
+              -z "$dir/fwdconf-$key.json" \
+              --hosts-path "$dir/hosts-$key" \
+              -a
+          '';
+        in "+${runner}";
+        Restart = "always";
+        RestartSec = 10;
+        User = cfg.user;
+        # KUBECONFIG/HOME 都指向 jojo：exec 插件的 OIDC token 缓存在
+        # $HOME/.kube/cache/oidc-login，root 下无缓存会触发交互式登录。
+        # kubelogin 对已存在的缓存文件是原地覆写，属主仍是 jojo。
+        Environment = [
+          "KUBECONFIG=/home/jojo/.kube/config-k0s.yml"
+          "HOME=/home/jojo"
+        ];
+      };
+    };
 in
 {
   options.${namespace}.kubefwd = {
@@ -107,50 +156,9 @@ in
         "d /run/kubefwd 0755 root root -"
       ];
 
-      systemd.services.kubefwd = {
-        description = "kubefwd port-forwarding daemon";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" ];
-        # kubeconfig 的 user 是 exec 插件（kubectl oidc-login get-token），client-go 会
-        # 从 PATH 找 kubectl，kubectl 再找 kubectl-oidc_login（由 kubelogin-oidc 提供）。
-        path = [
-          pkgs.iproute2
-          pkgs.kubectl
-          pkgs.kubelogin-oidc
-        ];
-        serviceConfig = {
-          ExecStartPre = [
-            "+${pkgs.bash}/bin/bash -c 'mkdir -p /run/kubefwd && rm -f /run/kubefwd/hosts /run/kubefwd/fwdconf.json /run/kubefwd/entries.json /run/kubefwd/contexts && touch /run/kubefwd/hosts /run/kubefwd/entries.json /run/kubefwd/contexts'"
-          ];
-          ExecStart = let
-            runner = pkgs.writeShellScript "kubefwd-runner" ''
-              set -euo pipefail
-              conf=/run/kubefwd/fwdconf.json
-              ${lib.concatMapStringsSep "\n" (f: ''
-                context="$(${pkgs.coreutils}/bin/cat ${config.sops.secrets.${f.contextSecret}.path} | ${pkgs.coreutils}/bin/tr -d '[:space:]')"
-                ${pkgs.jq}/bin/jq -n --arg n "${f.service}.${f.namespace}.$context" --arg ip "${f.ip}" \
-                  '{name: $n, ip: $ip}' >> /run/kubefwd/entries.json
-                echo "$context" >> /run/kubefwd/contexts
-              '') fwdStatic}
-              ${pkgs.jq}/bin/jq -s '{baseUnreservedIP:"127.3.3.1",serviceConfigurations:.}' /run/kubefwd/entries.json > "$conf"
-              exec ${pkgs.kubefwd}/bin/kubefwd svc \
-                -n ${lib.concatStringsSep "," allNamespaces} \
-                -z "$conf" $(while read -r c; do printf '%s' "-x $c "; done < /run/kubefwd/contexts) \
-                --hosts-path /run/kubefwd/hosts -a
-            '';
-          in "+${runner}";
-          Restart = "always";
-          RestartSec = 10;
-          User = cfg.user;
-          # KUBECONFIG/HOME 都指向 jojo：exec 插件的 OIDC token 缓存在
-          # $HOME/.kube/cache/oidc-login，root 下无缓存会触发交互式登录。
-          # kubelogin 对已存在的缓存文件是原地覆写，属主仍是 jojo。
-          Environment = [
-            "KUBECONFIG=/home/jojo/.kube/config-k0s.yml"
-            "HOME=/home/jojo"
-          ];
-        };
-      };
+      systemd.services = lib.mapAttrs' (
+        host: f: lib.nameValuePair "kubefwd-${slug host}" (mkForwardService host f)
+      ) enabledForwards;
     }
   );
 }
