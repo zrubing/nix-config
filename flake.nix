@@ -206,6 +206,18 @@
           (final: _prev: {
             unstable = inputs.self.pkgs.${final.stdenv.hostPlatform.system}.nixpkgs-unstable;
           })
+          # curl-cffi 0.14.0 的 pytest 套件（uvicorn/websockets/高并发）在 nix 构建沙箱里
+          # SIGABRT（exit 134），导致 yfinance 1.3.0 → tradingagents 整条链构建失败。
+          # pytest-check-hook 挂在 preDistPhases，不受 doCheckByDefault=false 控制，
+          # 因此必须用 dontUsePytestCheck 关掉（doCheck=false 双保险）。
+          (final: prev: {
+            python312Packages = prev.python312Packages.overrideScope (self: super: {
+              curl-cffi = super.curl-cffi.overrideAttrs (old: {
+                doCheck = false;
+                dontUsePytestCheck = true;
+              });
+            });
+          })
         ];
 
         # channels-config 只用于设置 nixpkgs 的 config（allowUnfree /
