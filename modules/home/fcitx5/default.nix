@@ -56,7 +56,17 @@ in
       Install.WantedBy = lib.mkForce [ "graphical-session.target" ];
       Service = {
         Environment = [ "DISPLAY=:0" ];
-        Restart = "on-failure";
+        # on-failure misses clean exits (fcitx5 exits with status 0 when its
+        # dbus/wayland frontend wedges), leaving the bus name free for a
+        # dbus-activated rogue instance. Restart unconditionally instead.
+        Restart = lib.mkForce "always";
+        RestartSec = "2";
+        # Kill rogue instances so the managed one can claim org.fcitx.Fcitx5.
+        # On NixOS the running process has comm '.fcitx5-wrapped' while its
+        # cmdline still reads 'fcitx5 ...', so neither 'pkill -x fcitx5' nor
+        # 'pkill -f fcitx5-wrapped' can catch it. Match the real comm.
+        # '-' ignores failure when nothing is running.
+        ExecStartPre = "-${pkgs.procps}/bin/pkill -x .fcitx5-wrapped";
       };
     };
 
@@ -82,6 +92,9 @@ in
           Hidden=true
         '';
 
+        # Redirect dbus activation to the systemd unit, so a rogue instance
+        # can never be spawned outside of systemd management.
+
         # Make Fcitx5 work on XWayland (e.g. wechat)
         # Niri used xwayland-satellite doesn't support IME yet.
         # https://github.com/Supreeeme/xwayland-satellite/issues/92#issuecomment-2881949607
@@ -95,6 +108,16 @@ in
         "fcitx5/rime/amz-v2n3m1-zh-hans.gram" = {
           source = inputs.rime-3gram;
         };
+
+        # Redirect dbus activation to the systemd unit, so a rogue instance
+        # can never be spawned outside of systemd management.
+        # Overrides the file shipped in /etc/profiles/per-user/*/share/dbus-1/services.
+        "dbus-1/services/org.fcitx.Fcitx5.service".text = ''
+          [D-BUS Service]
+          Name=org.fcitx.Fcitx5
+          Exec=${config.i18n.inputMethod.package}/bin/fcitx5
+          SystemdService=fcitx5-daemon.service
+        '';
 
         # https://wiki.archlinuxcn.org/wiki/Rime
 
@@ -115,12 +138,13 @@ in
 
     }
     //
-      lib.optionalAttrs
-        (config.${namespace}.desktop.kde.enable || config.${namespace}.desktop.niri.enable)
-        {
-          GTK_IM_MODULE = lib.mkForce "fcitx";
-          QT_IM_MODULE = lib.mkForce "fcitx";
-        };
+      # Only KDE needs the legacy toolkit variables (kimpanel). On niri they
+      # make apps bypass the compositor text-input protocol and cause
+      # 'Toolkit specific environment variable detected' warnings.
+      lib.optionalAttrs config.${namespace}.desktop.kde.enable {
+        GTK_IM_MODULE = lib.mkForce "fcitx";
+        QT_IM_MODULE = lib.mkForce "fcitx";
+      };
 
     i18n.inputMethod = {
       type = "fcitx5";
