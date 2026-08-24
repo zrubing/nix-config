@@ -50,6 +50,19 @@ in
       };
     };
 
+    # Hide the standalone “Emacs” entry from launchers (fuzzel has no
+    # per-app exclude option; this works via the XDG Hidden key, which
+    # fuzzel honors). It fights the emacs.service daemon for the "server"
+    # socket, causing doom startup conflicts, and kubed's e opens buffers in
+    # the daemon instead of the current window. Keep “Emacs Client”
+    # (emacsclient --create-frame, connects to the daemon).
+    # ~/.local/share/applications takes precedence over /etc/profiles.
+    xdg.desktopEntries.emacs = {
+      type = "Application";
+      name = "Emacs";
+      settings.Hidden = "true";
+    };
+
     # 创建一些实用的 fuzzel 脚本
     home.packages = [
       (pkgs.writeShellScriptBin "fuzzel-launcher" ''
