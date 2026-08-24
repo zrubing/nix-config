@@ -76,6 +76,7 @@ in
           proselint
           fzf
           gdu
+          ast-grep
           (ripgrep.override {
             withPCRE2 = true;
           })
