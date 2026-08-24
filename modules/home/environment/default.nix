@@ -20,6 +20,11 @@ in
 
       SUDO_EDITOR = "emacsclient --create-frame";
 
+      # kubectl edit 默认编辑器（绝对路径）。kubectl 用非交互子 shell 调编辑器，
+      # 拿到的是最小 PATH，找不到 emacsclient；用 per-user profile 稳定软链，升级不变。
+      # -c 开新 frame；-a '' 在 daemon 未起时自动启动。
+      KUBE_EDITOR = "/etc/profiles/per-user/${username}/bin/emacsclient -c -a ''";
+
       # Rust / Cargo
       CARGO_HOME = "/home/${username}/.cargo";
       RUSTUP_HOME = "/home/${username}/.rustup";

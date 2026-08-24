@@ -234,7 +234,10 @@ in
           spawn = [ "fuzzel-file-chooser" ];
         };
         "Mod+X".action = {
-          spawn = [ "emacs" ];
+          # 连 emacs.service daemon（emacsclient --create-frame），不要开独立 emacs；
+          # 否则会和 daemon 抢 "server" socket，导致 doom 报 server-start 冲突、kubed 的 e 开错窗口。
+          # -a '' 在 daemon 未起时自动拉起 emacs 作为兜底。
+          spawn = [ "emacsclient" "--create-frame" "-a" "" ];
         };
         "Mod+G".action = {
           spawn = [ "niri-fuzzel-switcher-v3" ];
