@@ -4,6 +4,9 @@
     ../../../certs/ecc-ca.crt
     # nova13 Caddy 本地 CA（tls internal）：信任后 dsh.local 的 HTTPS 证书才有效。
     ../../../certs/caddy-local-nova13.crt
+    # zen14 Caddy 本地 CA（tls internal）：信任后 dsh-zen14.local 的 HTTPS 证书才有效。
+    # （crypto.randomUUID 等安全上下文 API 需要 HTTPS）
+    ../../../certs/caddy-local-zen14.crt
   ];
 
   # 26.05 默认切到 dbus-broker；实机升级时容易在 switch/boot 阶段触发已知兼容性问题。
