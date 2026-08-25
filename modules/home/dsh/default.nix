@@ -71,6 +71,16 @@ in
       description = "Extra authorities the /api browser-trust fence accepts (host or host:port). Needed when accessing via a .local name from another machine.";
     };
 
+    plugins.opencodeModels.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Install wyouwd1/dsh-opencode-models into the web profile. Provides a
+        settings section that live-syncs OpenCode Zen free/go tier model lists
+        (covers models missing from the bundled pi-ai catalog, e.g. ox-alpha).
+      '';
+    };
+
     # systemd user service 环境极简，必须显式注入；shell 里 source 的 default.env 不会带进来。
     # 注意：不能用 Environment = [ "KEY=${config.sops.placeholder...}" ] —— placeholder 是
     # 求值期的占位符字符串，写入单元后不会被解密。必须走 sops.templates 生成 env 文件，
@@ -119,6 +129,23 @@ in
           EnvironmentFile = cfg.envFile;
         };
       };
+    })
+
+    (lib.mkIf (cfg.enable && cfg.plugins.opencodeModels.enable) {
+      # dsh 插件 = 往 ~/.dsh/profiles/web 这个 pnpm 项目里加依赖（dsh plugin add 即
+      # pnpm add）。不能用 home.file 静态接管 package.json：它是 dsh/pnpm 的活文件
+      # （Web UI 装插件也会写它），同 multica config.json 教训，走 activation 幂等安装。
+      # 钉在 v0.1.0 tag；首次安装需联网，失败仅告警不阻塞激活，下次重建重试。
+      home.activation.configureDshOpencodeModels = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        if ! grep -q dsh-opencode-models "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "github:wyouwd1/dsh-opencode-models#v0.1.0"; then
+            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+          else
+            echo "WARN: dsh-opencode-models 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
     })
   ];
 }
