@@ -422,11 +422,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1785627969,
-        "narHash": "sha256-4dtXQk/NMePegK/nWp5NSeuZKLATItOq61lpEvmXqGw=",
+        "lastModified": 1787559586,
+        "narHash": "sha256-onL0VLf9vPllmT0H/OlURIU5r5t5WIEl7t4tVNKT0Nw=",
         "owner": "hercules-ci",
         "repo": "flake-parts",
-        "rev": "427bf4bd9435fdf21321c8cc628c24efc14c0f7a",
+        "rev": "9d0d87172c374f89da73c1cfe6d81ae62feac1f1",
         "type": "github"
       },
       "original": {
@@ -657,11 +657,11 @@
         "treefmt-nix": "treefmt-nix_3"
       },
       "locked": {
-        "lastModified": 1787531217,
-        "narHash": "sha256-HWMSQq3DrpqulKIOJFbqGqTGf5TjK8jZ4n9AdsJfI6I=",
+        "lastModified": 1787632720,
+        "narHash": "sha256-HR+GKxQuLbrpWJuJlbZxMWV9ECSs9WHSGoKtI1Dc3BU=",
         "owner": "numtide",
         "repo": "llm-agents.nix",
-        "rev": "9532e7c4703758df2d6bf184f469238f09db5631",
+        "rev": "88dccae0669e6581694b930c5c2903f1ceb60c7e",
         "type": "github"
       },
       "original": {
@@ -709,11 +709,11 @@
     "mysecrets": {
       "flake": false,
       "locked": {
-        "lastModified": 1787329904,
-        "narHash": "sha256-QnTFQBYI0d6IQ7QsKoYhDiGgMM0jgKu5lgr0R15yDKk=",
+        "lastModified": 1787678934,
+        "narHash": "sha256-l+QVg00Xs2j8m9Xn3smZhNVKV1VTvmk+zcdSZJWB+nM=",
         "ref": "main",
-        "rev": "2ca4f585de857a64cab522e72f2fd31c775b4064",
-        "revCount": 356,
+        "rev": "8984f1efe405a28ca0696be584194763e31d7b57",
+        "revCount": 357,
         "type": "git",
         "url": "ssh://git@github.com/zrubing/nix-secrets.git"
       },
