@@ -10,6 +10,23 @@
 let
   cfg = config.${namespace}.modules.dsh;
   dshPackage = inputs.llm-agents.packages.${system}.dsh;
+  # activation 跑在系统级 home-manager-jojo.service 里，unit 的 PATH 只有
+  # coreutils/grep 等基础包（hm-setup-env 不导入用户 session 的 PATH），
+  # dsh plugin 内部 spawn 的 pnpm 找不到 → 安装静默失败（WARN 进系统 journal）。
+  # 所有会调 dsh plugin 的 activation 块必须先补上用户 profile bin。
+  username = config.snowfallorg.user.name;
+  userBin = "/etc/profiles/per-user/${username}/bin";
+
+  # 本地 dsh 插件：中和 MCP 工具描述带进 prompt section 的未注册 {{...}} 组
+  # （如 apipost get_target_detail 的字面示例 {{paramName}}），否则
+  # dsh-system-prompt 严格渲染器抛 "malformed prompt variable reference"
+  # 导致整轮对话失败（上游已知问题 #711，rc.2 无转义语法未修）。
+  # 已注册变量（model/cwd 等）保留插值；单测见仓库 .braces-sanitize-test.mjs。
+  bracesSanitizePlugin = pkgs.runCommand "dsh-braces-sanitize" { } ''
+    mkdir -p $out
+    cp ${./plugins/braces-sanitize/package.json} $out/package.json
+    cp ${./plugins/braces-sanitize/index.js} $out/index.js
+  '';
 
   # 静态 patch 层：cordis.patch.yml 只被 dsh 只读加载（从不写回），
   # 所以可以安全地由 nix 托管（软链接到 store）。provider 模型路由放这里。
@@ -95,6 +112,29 @@ let
                   max: max
                 compat:
                   thinkingFormat: zai
+
+    # ApiPost 开放平台 MCP：远程 streamable-http server，认证走 api-token 头。
+    # token 由 clan vars 加密管理（apipost-mcp-token generator），经 home sops
+    # 解密渲染进 dsh.env，dsh-web 服务 EnvironmentFile 注入后在此运行时求值，
+    # 本 patch 文件不含明文密钥。插件包由下方 activation 装入 web profile；
+    # headless 未装此包，加载该条目时仅告警跳过（failOnStartupError 默认 false）。
+    - insert:
+        - id: mcp-apipost
+          name: '@deepseek-ai/dsh-mcp-client'
+          config:
+            serverName: apipost
+            transport: streamable-http
+            url: https://open.apipost.net/mcp
+            headers:
+              api-token: !!js process.env.APIPOST_MCP_TOKEN
+
+    # 工具描述花括号清洗（见上方 bracesSanitizePlugin 注释）。waterfall listener
+    # 在 next() 之后改写权威 assembly，注册顺序无关；headless 未装包时本条目
+    # 加载仅告警跳过。
+    - insert:
+        - id: mcp-braces-sanitize
+          name: dsh-braces-sanitize
+          config: {}
   '';
 in
 {
@@ -202,6 +242,7 @@ in
       # 钉在 main HEAD（9f6451a）：v0.1.0 的 settings section 在 dsh 0.1.1-rc.2 下渲染
       # 空白（干净环境冒烟测试复现），main 已修复。首次安装需联网，失败仅告警不阻塞激活。
       home.activation.configureDshOpencodeModels = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
         pkgJson="$HOME/.dsh/profiles/web/package.json"
         want="github:wyouwd1/dsh-opencode-models#9f6451ac58885b39d038e085d5475467f2746e97"
         if ! grep -q "$want" "$pkgJson" 2>/dev/null; then
@@ -218,6 +259,7 @@ in
       # 同 opencodeModels：插件 = profile 的 pnpm 依赖，走 activation 幂等安装。
       # 凭据存在 ~/.dsh/web-auth.json（插件用 $HOME 而非 DSH_HOME 定位）。
       home.activation.configureDshWebAuth = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
         pkgJson="$HOME/.dsh/profiles/web/package.json"
         want="dsh-web-startup-auth@0.1.2"
         if ! grep -q "dsh-web-startup-auth" "$pkgJson" 2>/dev/null; then
@@ -225,6 +267,42 @@ in
             systemctl --user try-restart dsh-web.service 2>/dev/null || true
           else
             echo "WARN: dsh-web-startup-auth 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+    })
+
+    (lib.mkIf cfg.enable {
+      # ApiPost MCP 桥接：把 @deepseek-ai/dsh-mcp-client 装入 web profile，
+      # 配合 cordis.patch.yml 里 mcp-apipost 插件条目（token 走环境变量）。
+      # 同上走 activation 幂等安装；安装成功后重启服务让插件生效。
+      home.activation.configureDshMcpClient = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        want="@deepseek-ai/dsh-mcp-client@0.0.1-rc.1"
+        if ! grep -q "@deepseek-ai/dsh-mcp-client" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
+            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+          else
+            echo "WARN: dsh-mcp-client 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+    })
+
+    (lib.mkIf cfg.enable {
+      # 花括号清洗插件：源码在 plugins/braces-sanitize/，nix 打包成只读 store path
+      # 后以 file: 协议装入 web profile。want 含 store hash，插件内容变更时 spec
+      # 随之变化 → grep 不命中 → 自动重装；未变则跳过。
+      home.activation.configureDshBracesSanitize = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        want="file://${bracesSanitizePlugin}"
+        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
+            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+          else
+            echo "WARN: dsh-braces-sanitize 安装失败（离线？），下次重建重试"
           fi
         fi
       '';

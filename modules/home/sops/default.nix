@@ -97,6 +97,15 @@ in
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
 
+    # ApiPost MCP token：密文由 clan vars 管理（clan/zen14.nix 的 apipost-mcp-token
+    # generator，写入 vars/per-machine/zen14/apipost-mcp-token/）。加密 recipients
+    # 同时含 machines/zen14 与 users/jojo，故这里可用 jojo 的 age(ssh) key 解密。
+    # binary 格式 = sops 整文件加密形态（{"data": "ENC[...]"}）。
+    sops.secrets."apipost-mcp/api_token" = {
+      sopsFile = ../../../vars/per-machine/zen14/apipost-mcp-token/api-token/secret;
+      format = "binary";
+    };
+
     sops.templates."anysearch-env" = {
       path = "/home/${username}/.pi/agent/skills/anysearch/.env";
       content = ''
@@ -151,6 +160,7 @@ in
         RUNINFRA_GATEWAY_KEY=${config.sops.placeholder."runinfra/gateway_key"}
         OPENCODE_API_KEY=${config.sops.placeholder."opencode/api_key"}
         ZAI_CODING_CN_API_KEY=${config.sops.placeholder."anthropic/api_key"}
+        APIPOST_MCP_TOKEN=${config.sops.placeholder."apipost-mcp/api_token"}
       '';
     };
   };
