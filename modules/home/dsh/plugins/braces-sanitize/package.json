@@ -1,0 +1,8 @@
+{
+  "name": "dsh-braces-sanitize",
+  "version": "0.1.0",
+  "description": "DSH plugin: neutralize unregistered {{...}} template references leaked into the system prompt by MCP tool descriptions (e.g. apipost's get_target_detail ships a literal {{paramName}} example), which would otherwise make dsh-system-prompt's strict renderer throw and fail every turn.",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT"
+}
