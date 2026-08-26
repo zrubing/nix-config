@@ -81,6 +81,19 @@ in
       '';
     };
 
+    plugins.webAuth.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Install GDWhisper/dsh-web-startup-auth into the web profile: login
+        page + password auth, releases the loopback-only privileged RPCs
+        (settings.*, credentials.*, llm.discoverModels) for authenticated
+        callers, and overrides the frontend connection.isLoopback gate so the
+        settings mirror runs in host mode — fixes "settings are unavailable
+        in this browser" when the UI is opened via a non-loopback hostname.
+      '';
+    };
+
     # systemd user service 环境极简，必须显式注入；shell 里 source 的 default.env 不会带进来。
     # 注意：不能用 Environment = [ "KEY=${config.sops.placeholder...}" ] —— placeholder 是
     # 求值期的占位符字符串，写入单元后不会被解密。必须走 sops.templates 生成 env 文件，
@@ -135,14 +148,32 @@ in
       # dsh 插件 = 往 ~/.dsh/profiles/web 这个 pnpm 项目里加依赖（dsh plugin add 即
       # pnpm add）。不能用 home.file 静态接管 package.json：它是 dsh/pnpm 的活文件
       # （Web UI 装插件也会写它），同 multica config.json 教训，走 activation 幂等安装。
-      # 钉在 v0.1.0 tag；首次安装需联网，失败仅告警不阻塞激活，下次重建重试。
+      # 钉在 main HEAD（9f6451a）：v0.1.0 的 settings section 在 dsh 0.1.1-rc.2 下渲染
+      # 空白（干净环境冒烟测试复现），main 已修复。首次安装需联网，失败仅告警不阻塞激活。
       home.activation.configureDshOpencodeModels = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         pkgJson="$HOME/.dsh/profiles/web/package.json"
-        if ! grep -q dsh-opencode-models "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "github:wyouwd1/dsh-opencode-models#v0.1.0"; then
+        want="github:wyouwd1/dsh-opencode-models#9f6451ac58885b39d038e085d5475467f2746e97"
+        if ! grep -q "$want" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
             systemctl --user try-restart dsh-web.service 2>/dev/null || true
           else
             echo "WARN: dsh-opencode-models 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+    })
+
+    (lib.mkIf (cfg.enable && cfg.plugins.webAuth.enable) {
+      # 同 opencodeModels：插件 = profile 的 pnpm 依赖，走 activation 幂等安装。
+      # 凭据存在 ~/.dsh/web-auth.json（插件用 $HOME 而非 DSH_HOME 定位）。
+      home.activation.configureDshWebAuth = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        want="dsh-web-startup-auth@0.1.2"
+        if ! grep -q "dsh-web-startup-auth" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
+            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+          else
+            echo "WARN: dsh-web-startup-auth 安装失败（离线？），下次重建重试"
           fi
         fi
       '';
