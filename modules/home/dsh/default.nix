@@ -61,7 +61,8 @@ let
                 name: ox-alpha (stealth)
                 contextWindow: 1000000
                 maxTokens: 131072
-                input: [text]
+                # OpenRouter 元数据：text+image+video->text（2026-08 实查 /api/v1/models）
+                input: [text image video]
           # zai-coding-cn 是 pi-ai 内置 catalog 路由（端点 open.bigmodel.cn/api/coding/paas/v4，
           # thinkingFormat=zai），但 glm-5.3 不在 catalog（最新到 glm-5.2），
           # 故用 models 列表手工声明（与 pi 的 models.json 定义一致）。
