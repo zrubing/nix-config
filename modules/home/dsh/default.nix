@@ -30,6 +30,21 @@ let
           # openai-completions），catalog 内置 276 个模型，无需手工声明 models。
           openrouter:
             apiKeyEnv: OPENROUTER_API_KEY
+          # stealth/ox-alpha 不在内嵌 pi-ai 0.82.1 的 openrouter catalog 快照里
+          # （pi 0.84.3 打包的新快照才有）。modelOverrides 不能凭空创建模型 id
+          # （llm-pi-ai 源码强制校验），models 全量替换又不现实，故按 runinfra
+          # 模式开独立路由，复用同一把 OPENROUTER_API_KEY。
+          ox-alpha:
+            apiKeyEnv: OPENROUTER_API_KEY
+            displayName: OpenRouter (ox-alpha)
+            api: openai-completions
+            baseURL: https://openrouter.ai/api/v1
+            models:
+              - id: stealth/ox-alpha
+                name: ox-alpha (stealth)
+                contextWindow: 1000000
+                maxTokens: 131072
+                input: [text]
           # zai-coding-cn 是 pi-ai 内置 catalog 路由（端点 open.bigmodel.cn/api/coding/paas/v4，
           # thinkingFormat=zai），但 glm-5.3 不在 catalog（最新到 glm-5.2），
           # 故用 models 列表手工声明（与 pi 的 models.json 定义一致）。
