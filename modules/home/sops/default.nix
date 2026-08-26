@@ -28,6 +28,10 @@ in
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
 
+    sops.secrets."runinfra/gateway_key" = {
+      sopsFile = "${mysecrets}/secrets/env.yaml";
+    };
+
 
     sops.secrets."anthropic/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
@@ -144,6 +148,7 @@ in
         DEEPSEEK_API_KEY=${config.sops.placeholder."deepseek/api_key"}
         OPENAI_API_KEY=${config.sops.placeholder."openai/api_key"}
         OPENROUTER_API_KEY=${config.sops.placeholder."openrouter/api_key"}
+        RUNINFRA_GATEWAY_KEY=${config.sops.placeholder."runinfra/gateway_key"}
         OPENCODE_API_KEY=${config.sops.placeholder."opencode/api_key"}
         ZAI_CODING_CN_API_KEY=${config.sops.placeholder."anthropic/api_key"}
       '';
