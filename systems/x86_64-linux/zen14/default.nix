@@ -21,8 +21,10 @@ in
       # dsh web 随 jojo 共享 home 已启用（127.0.0.1:3080）；本机经 Caddy 反代访问
       # http://dsh-zen14.local。dsh 禁止 --host 0.0.0.0（会暴露 RCE），保持回环绑定。
       internal.modules.dsh.web.trustedHosts = [ "dsh-zen14.local" ];
-      # OpenCode Zen 模型实时同步插件（内置 pi-ai catalog 落后网关，缺 ox-alpha 等）
-      internal.modules.dsh.plugins.opencodeModels.enable = true;
+      # web-auth 插件：修复域名访问时 Settings 报 "settings are unavailable in
+      # this browser"（前端 isLoopback 硬编码检查），并提供登录认证兜底。
+      # 注意：Caddy header_up Host 改写后请求被视为回环，免登录全功能放行。
+      internal.modules.dsh.plugins.webAuth.enable = true;
     };
   };
   snowfallorg.users.hiar = {
