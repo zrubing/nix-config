@@ -26,10 +26,46 @@ let
           # 认证环境变量 OPENCODE_API_KEY 与 jojo home 注入一致。
           opencode-go:
             apiKeyEnv: OPENCODE_API_KEY
+          # openrouter 是 pi-ai 内置 catalog 路由（https://openrouter.ai/api/v1，
+          # openai-completions），catalog 内置 276 个模型，无需手工声明 models。
+          openrouter:
+            apiKeyEnv: OPENROUTER_API_KEY
           # zai-coding-cn 是 pi-ai 内置 catalog 路由（端点 open.bigmodel.cn/api/coding/paas/v4，
           # thinkingFormat=zai），但 glm-5.3 不在 catalog（最新到 glm-5.2），
           # 故用 models 列表手工声明（与 pi 的 models.json 定义一致）。
           # 注意：models 是替换而非扩充，写列表后 catalog 其它模型不再服务。
+          # runinfra 是自定义 provider（不在 pi-ai catalog），照搬 pi 插件
+          # monotykamary/pi-runinfra-provider 的定义：openai-completions 网关，
+          # 4 个模型全部显式声明（含 baseUrl/api，新键无默认可继承）。
+          # key 来自 pi auth.json 的 runinfra 条目（已迁入 sops secrets/env.yaml）。
+          runinfra:
+            apiKeyEnv: RUNINFRA_GATEWAY_KEY
+            displayName: RunInfra
+            # 注意 schema：api/baseURL 在 provider 层（models 条目不接受这些字段）；
+            # cost 也不在 patch schema 里（仅 UI 成本展示用，省略不影响功能）。
+            api: openai-completions
+            baseURL: https://api.runinfra.ai/v1
+            models:
+              - id: deepseek-v4-flash
+                name: DeepSeek V4 Flash (RunInfra)
+                contextWindow: 1048576
+                maxTokens: 32768
+                input: [text]
+              - id: deepseek-v4-pro
+                name: DeepSeek V4 Pro (RunInfra)
+                contextWindow: 1048576
+                maxTokens: 32768
+                input: [text]
+              - id: qwen3-8-2-4t-a95b
+                name: Qwen3.8 2.4T A95B (RunInfra)
+                contextWindow: 262144
+                maxTokens: 32768
+                input: [text]
+              - id: qwen3-8-27b
+                name: Qwen3.8 27B (RunInfra)
+                contextWindow: 262144
+                maxTokens: 32768
+                input: [text]
           zai-coding-cn:
             apiKeyEnv: ZAI_CODING_CN_API_KEY
             models:
