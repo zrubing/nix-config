@@ -47,28 +47,8 @@ let
           # openai-completions），catalog 内置 276 个模型，无需手工声明 models。
           openrouter:
             apiKeyEnv: OPENROUTER_API_KEY
-          # stealth/ox-alpha 不在内嵌 pi-ai 0.82.1 的 openrouter catalog 快照里
-          # （pi 0.84.3 打包的新快照才有）。modelOverrides 不能凭空创建模型 id
-          # （llm-pi-ai 源码强制校验），models 全量替换又不现实，故按 runinfra
-          # 模式开独立路由，复用同一把 OPENROUTER_API_KEY。
-          ox-alpha:
-            apiKeyEnv: OPENROUTER_API_KEY
-            displayName: OpenRouter (ox-alpha)
-            api: openai-completions
-            baseURL: https://openrouter.ai/api/v1
-            models:
-              - id: stealth/ox-alpha
-                name: ox-alpha (stealth)
-                contextWindow: 1000000
-                maxTokens: 131072
-                # OpenRouter 元数据：text+image+video->text，但 dsh 内嵌 pi-ai
-                # 0.82.1 的 modality 枚举仅 "text"|"image"（video 会拒绝加载整个
-                # provider），故只声明到 image；注意 YAML flow 列表必须逗号分隔。
-                input: [text, image]
-          # zai-coding-cn 是 pi-ai 内置 catalog 路由（端点 open.bigmodel.cn/api/coding/paas/v4，
-          # thinkingFormat=zai），但 glm-5.3 不在 catalog（最新到 glm-5.2），
-          # 故用 models 列表手工声明（与 pi 的 models.json 定义一致）。
-          # 注意：models 是替换而非扩充，写列表后 catalog 其它模型不再服务。
+          # ox-alpha（stealth/ox-alpha）已转正为智谱 GLM-5.3-Flash，走 zai-coding-cn
+          # 端点，此 openrouter 独立路由已移除（2026-08-26）。
           # runinfra 是自定义 provider（不在 pi-ai catalog），照搬 pi 插件
           # monotykamary/pi-runinfra-provider 的定义：openai-completions 网关，
           # 4 个模型全部显式声明（含 baseUrl/api，新键无默认可继承）。
@@ -104,6 +84,19 @@ let
           zai-coding-cn:
             apiKeyEnv: ZAI_CODING_CN_API_KEY
             models:
+              # ox-alpha 正式版（Z.ai blog：1M context，仅文本）。maxTokens 参考
+              # glm-5.3 取 131072，文档未单列 flash 的 max output。
+              - id: glm-5.3-flash
+                name: GLM-5.3 Flash
+                contextWindow: 1000000
+                maxTokens: 131072
+                reasoningEfforts:
+                  low: high
+                  medium: high
+                  high: high
+                  max: max
+                compat:
+                  thinkingFormat: zai
               - id: glm-5.3
                 name: GLM-5.3
                 contextWindow: 1000000
@@ -171,7 +164,7 @@ in
       description = ''
         Install wyouwd1/dsh-opencode-models into the web profile. Provides a
         settings section that live-syncs OpenCode Zen free/go tier model lists
-        (covers models missing from the bundled pi-ai catalog, e.g. ox-alpha).
+        (covers models missing from the bundled pi-ai catalog, e.g. glm-5.3-flash).
       '';
     };
 
