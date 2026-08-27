@@ -92,7 +92,9 @@ let
           name = "GLM-5.3 Flash";
           contextWindow = 1048576;
           maxTokens = 32768;
-          input = [ "text" ];
+          # flash 支持图片输入（同 zai-coding-cn 的 glm-5.3-flash）；缺 image
+          # 声明时 dsh 会把附件按纯文本路由处理。
+          input = [ "text" "image" ];
           thinkingLevelMap = { low = "high"; medium = "high"; high = "high"; max = "max"; };
           compat = { thinkingFormat = "zai"; supportsDeveloperRole = false; };
         }
@@ -225,9 +227,13 @@ let
     - id: llm-pi-ai
       config:
         providers:
-          deepseek:
-            apiKeyEnv: DEEPSEEK_API_KEY
-          # deepseek-relay 路由 = 企业 relay（与官方 deepseek 路由分开；该 key
+          # 官方 api.deepseek.com 不在此声明：web profile 内置第一方 llm-deepseek
+          # 插件已注册 deepseek-official（显示名 DeepSeek，同样读 DEEPSEEK_API_KEY，
+          # 模型更全——含 vision-exp 与文件上传直传）。之前这里配置的 pi-ai catalog
+          # deepseek 路由与之完全重复，导致模型选择器同时出现 DeepSeek（官方）和
+          # deepseek（catalog id 兜底名）两项；已移除。dsh-web-search-deepseek
+          # 也只认 deepseek-official，不受影响。
+          # deepseek-relay 路由 = 企业 relay（与官方 DeepSeek 分开；该 key
           # key/baseURL 走 clan vars openai-relay 渲染进 dsh.env 的
           # DEEPSEEK_RELAY_* 独立 env，不影响原 OPENAI_API_KEY）。非 catalog 路由，models 必须全量
           # 显式列出（实测可用 3 个，元数据对齐 opencode-go catalog 同家族条目）。
@@ -315,12 +321,14 @@ let
           zai-coding-cn:
             apiKeyEnv: ZAI_CODING_CN_API_KEY
             models:
-              # ox-alpha 正式版（Z.ai blog：1M context，仅文本）。maxTokens 参考
-              # glm-5.3 取 131072，文档未单列 flash 的 max output。
+              # ox-alpha 正式版（Z.ai blog：1M context）。flash 支持图片输入，
+              # 不声明 input 时按纯文本模型处理（附件被降级/拒绝）→ 显式列 image。
+              # maxTokens 参考 glm-5.3 取 131072，文档未单列 flash 的 max output。
               - id: glm-5.3-flash
                 name: GLM-5.3 Flash
                 contextWindow: 1000000
                 maxTokens: 131072
+                input: [text, image]
                 reasoningEfforts:
                   low: high
                   medium: high
@@ -362,6 +370,35 @@ let
         - id: mcp-braces-sanitize
           name: dsh-braces-sanitize
           config: {}
+  '';
+
+  # 竞态修复：dsh 的 baseURL/密钥依赖 sops 渲染的 envFile（~/.config/dsh.env，symlink 指向
+  # sops-nix 渲染产物）。sops 模板渲染与 systemd user 服务启动之间没有排序保证，服务可能在
+  # env 未就绪时先跑，而 EnvironmentFile 是 unit 启动时一次性读取（缺失只告警、不阻塞，
+  # 也不会在 ExecStartPre 重读），于是 process.env 取不到 baseURL → llm-pi-ai 插件树加载失败
+  # → 服务崩溃（Restart=on-failure 5s 后重启；停机窗口里浏览器执行 command → "Failed to
+  # fetch"，即 command.execute.failed 的 toast）。这里改为在真正 exec dsh 的同一进程里先等
+  # env 就绪再 source 进来：exec 让 dsh 取代该 bash（PID 不变，Type=simple 语义保持）。
+  dshWebStart = pkgs.writeShellScript "dsh-web-start" ''
+    declare -r env_file=${lib.escapeShellArg cfg.envFile}
+    ready=0
+    i=0
+    while [ "$i" -lt 120 ]; do
+      if [ -s "$env_file" ] && grep -qE '^DEEPSEEK_RELAY_BASE_URL=.+' "$env_file" 2>/dev/null; then
+        ready=1
+        break
+      fi
+      sleep 0.5
+      i=$((i + 1))
+    done
+    if [ "$ready" -ne 1 ]; then
+      echo "dsh-web: env file $env_file not ready (missing/empty DEEPSEEK_RELAY_BASE_URL) after ~60s; aborting start" >&2
+      exit 1
+    fi
+    set -a
+    . "$env_file"
+    set +a
+    exec ${lib.getExe dshPackage} web --host ${cfg.web.host} --port ${toString cfg.web.port}${lib.concatMapStrings (h: " --trusted-host ${h}") cfg.web.trustedHosts}
   '';
 in
 {
@@ -447,7 +484,9 @@ in
         Install.WantedBy = [ "default.target" ];
         Service = {
           Type = "simple";
-          ExecStart =
+          # envFile 非空时用 dshWebStart 包装（先等 sops 渲染的 env 就绪再 exec dsh），
+          # 否则直接启动（无 env 依赖）。理由见 dshWebStart 注释。
+          ExecStart = if (cfg.envFile != null) then dshWebStart else
             "${lib.getExe dshPackage} web --host ${cfg.web.host} --port ${toString cfg.web.port}"
             + (lib.concatMapStrings (h: " --trusted-host ${h}") cfg.web.trustedHosts);
           Environment = [
@@ -455,9 +494,6 @@ in
           ];
           Restart = "on-failure";
           RestartSec = 5;
-        }
-        // lib.optionalAttrs (cfg.envFile != null) {
-          EnvironmentFile = cfg.envFile;
         };
       };
     })
