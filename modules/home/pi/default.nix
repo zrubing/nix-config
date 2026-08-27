@@ -208,6 +208,11 @@ in
       export PATH='/etc/profiles/per-user/${config.snowfallorg.user.name}/bin:/run/current-system/sw/bin:$PATH'
       secret=${config.sops.secrets."nvidia-nim/api_key".path}
       if systemctl --user is-system-running 2>/dev/null | grep -qE '^(running|degraded)$'; then
+        # daemon-reload 必须先行：linkGeneration 刚换过 unit symlink，
+        # systemd 可能还在缓存旧 unit（旧 manifest），直接 restart 会重放
+        # 旧脚本（2026-08-27 实证：14:22 两次 restart 都跑了旧脚本，
+        # 新 secret 没渲染，本 activation 被 guard 跳过）
+        systemctl --user daemon-reload 2>/dev/null || true
         systemctl --user restart sops-nix
       fi
       if [ ! -f "$secret" ]; then
