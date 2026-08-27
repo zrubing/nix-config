@@ -81,17 +81,20 @@ let
       # wire 对齐 zai-coding-cn 的 glm-5.3-flash（thinkingFormat: zai；探针实测网关
       # 接受 thinking{type,clear_thinking}+reasoning_effort，均 200 + reasoning 字段）。
       # 上游一旦注册，knownIds 命中 → effectiveExtras 过滤掉本条，自动回归单一数据源。
-      # maxTokens 取 131072：网关报 max_output_tokens=1048576（= context，上限声明），
-      # 与 zai-coding-cn 条目保持一致的保守值。
+      # 网关强制 max_tokens <= 32768（2026-08-27 实测 131072 → 400
+      # "Too big: expected number to be <=32768"；/v1/models 报的
+      # max_output_tokens=1048576 是上限声明非请求限制）→ 取 32768。
+      # supportsDeveloperRole: false 与上游 models.json 四个 base 模型一致
+      # （网关 role 白名单只有 system/user/assistant/tool，实测 400）。
       extraModels = [
         {
           id = "glm-5-3-flash";
           name = "GLM-5.3 Flash";
           contextWindow = 1048576;
-          maxTokens = 131072;
+          maxTokens = 32768;
           input = [ "text" ];
           thinkingLevelMap = { low = "high"; medium = "high"; high = "high"; max = "max"; };
-          compat = { thinkingFormat = "zai"; };
+          compat = { thinkingFormat = "zai"; supportsDeveloperRole = false; };
         }
       ];
       orderedBase = lib.map applyTo base;
