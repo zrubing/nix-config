@@ -28,6 +28,124 @@ let
     cp ${./plugins/braces-sanitize/index.js} $out/index.js
   '';
 
+  # ── runinfra models adapter ───────────────────────────────────────────
+  # 单一数据源 = pi 扩展 monotykamary/pi-runinfra-provider（flake input
+  # pi-runinfra-provider-src，flake=false 源码树）。pi 侧扩展安装
+  # （modules/home/pi 的 runinfraPackage）与 dsh 侧本清单共用 flake.lock
+  # 同一 rev：nix flake update pi-runinfra-provider-src → rebuild，两边同步。
+  #
+  # 合并管线复刻扩展 index.ts buildModels：base(models.json) → apply
+  # patch.json（compat 一层深合并）→ merge custom-models.json（覆盖同 id）。
+  # deprecated-models.json 是 pi 运行时的 grace-period 概念，不进 dsh 静态清单。
+  #
+  # 字段映射（dsh-llm-pi-ai 0.1.1-rc.2 schema + openai-completions compat
+  # 门控，store 内 lib/index.js 实测）：
+  #   id/name/contextWindow/maxTokens/input 直通；
+  #   thinkingLevelMap → reasoningEfforts（level→wire 值，级别枚举一致；
+  #     只声明了 off 的表按 dsh 规则视为非推理模型，省略字段）；
+  #   compat 仅保留 openai-completions 门控 offer 且 dsh compatProfile
+  #   认识的字段；cost 不在 dsh patch schema，丢弃。
+  runinfraSrc = inputs.pi-runinfra-provider-src;
+  # dsh-llm-pi-ai 级别枚举（lib/index.js 实测）；adapter 与下方 emitter 共用
+  thinkingLevels = [ "off" "minimal" "low" "medium" "high" "xhigh" "max" ];
+  # openai-completions 门控 offer 且 dsh compatProfile 认识的字段白名单
+  allowedCompat = [
+    "thinkingFormat" "supportsReasoningEffort" "supportsDeveloperRole"
+    "supportsStore" "maxTokensField"
+    "requiresReasoningContentOnAssistantMessages" "chatTemplateKwargs"
+  ];
+  runinfraModels =
+    let
+      base = lib.importJSON (runinfraSrc + "/models.json");
+      patch = lib.importJSON (runinfraSrc + "/patch.json");
+      custom = lib.importJSON (runinfraSrc + "/custom-models.json");
+
+      # index.ts applyPatch：标量字段覆盖，compat 浅深合并（一层）
+      applyPatch = model: p:
+        model
+        // lib.optionalAttrs (p ? name) { name = p.name; }
+        // lib.optionalAttrs (p ? reasoning) { reasoning = p.reasoning; }
+        // lib.optionalAttrs (p ? input) { input = p.input; }
+        // lib.optionalAttrs (p ? contextWindow) { contextWindow = p.contextWindow; }
+        // lib.optionalAttrs (p ? maxTokens) { maxTokens = p.maxTokens; }
+        // lib.optionalAttrs (p ? thinkingLevelMap) { thinkingLevelMap = p.thinkingLevelMap; }
+        // lib.optionalAttrs (p ? compat) { compat = (model.compat or {}) // p.compat; };
+
+      # index.ts buildModels 等价：patch 后 custom 覆盖同 id，保持声明顺序
+      # （base 在前、custom 新增在后；同 id 以列表中靠后者 = custom 为准）
+      applyTo = m: if (builtins.hasAttr m.id patch) then applyPatch m (patch.${m.id}) else m;
+      orderedRaw = (lib.map applyTo base) ++ (lib.map applyTo custom);
+      orderedIds = lib.unique (map (m: m.id) orderedRaw);
+      idMap = lib.listToAttrs (map (m: { name = m.id; value = m; }) orderedRaw);
+
+      # dsh-llm-pi-ai 枚举（lib/index.js 实测）
+      supportedThinkingFormats = [
+        "openai" "deepseek" "openrouter" "together"
+        "zai" "qwen" "chat-template" "qwen-chat-template"
+      ];
+      maxTokensFields = [ "max_tokens" "max_completion_tokens" ];
+
+      toDshModel = m:
+        let
+          compat = lib.filterAttrs (n: _: lib.elem n allowedCompat) (m.compat or {});
+          efforts = lib.filterAttrs (l: _: lib.elem l thinkingLevels) (m.thinkingLevelMap or {});
+          hasThinking = (lib.filter (l: l != "off" && builtins.hasAttr l efforts) thinkingLevels) != [];
+        in
+        assert m ? contextWindow && m ? maxTokens;
+        assert lib.all (mod: lib.elem mod [ "text" "image" ]) (m.input or []);
+        assert ! (compat ? thinkingFormat)
+          || lib.elem compat.thinkingFormat supportedThinkingFormats;
+        assert ! (compat ? maxTokensField)
+          || lib.elem compat.maxTokensField maxTokensFields;
+        # dsh：wire 值必须非空字符串，仅 off 允许留空（null）
+        assert (lib.filterAttrs (l: v:
+          !(v == null || (builtins.isString v && (l == "off" || v != "")))) efforts) == {};
+        {
+          id = m.id;
+          name = m.name or m.id;
+          contextWindow = m.contextWindow;
+          maxTokens = m.maxTokens;
+          input = m.input or [ "text" ];
+        }
+        // lib.optionalAttrs hasThinking { reasoningEfforts = efforts; }
+        // lib.optionalAttrs (compat != {}) { compat = compat; };
+
+    in
+    assert (lib.length orderedIds) > 0;
+    lib.map (id: toDshModel idMap.${id}) orderedIds;
+
+  # 嵌入 providerPatch 的 models: 块。本 nixpkgs 的 toYAML 是 toJSON 别名
+  # （JSON flow 风格，会污染人工可读的 patch 文件）；模型条目结构固定
+  # （扁平字段 + 最多二层 map），手写 block 风格 emitter，风格与既有文件
+  # 一致（models: 在列 8，条目在列 10）。注意：indented string 的插值行
+  # 只有首行继承源缩进，后续行原样落到列 0，所以整块必须预缩进到绝对列位，
+  # 插值行写在与 writeText 去缩进边界对齐的位置（源缩进 4 = 去缩进后 0）。
+  yamlIndent10 = s: "          " + lib.replaceStrings [ "\n" ] [ "\n          " ] s;
+  yamlScalar = v:
+    if builtins.isInt v then builtins.toString v
+    else if v == true then "true"
+    else if v == false then "false"
+    else if builtins.match "^[A-Za-z0-9._]+( [A-Za-z0-9._]+)*$" (builtins.toString v) != null
+    then builtins.toString v
+    else "\"${builtins.replaceStrings [ "\"" ] [ "\\\"" ] (builtins.toString v)}\"";
+  yamlModel = m:
+    let
+      effortLevels = lib.filter (l: builtins.hasAttr l (m.reasoningEfforts or {})) thinkingLevels;
+      compatKeys = lib.filter (k: builtins.hasAttr k (m.compat or {})) allowedCompat;
+    in
+    [
+      "- id: ${yamlScalar m.id}"
+      "  name: ${yamlScalar m.name}"
+      "  contextWindow: ${toString m.contextWindow}"
+      "  maxTokens: ${toString m.maxTokens}"
+      "  input: [${lib.concatMapStringsSep ", " yamlScalar m.input}]"
+    ]
+    ++ lib.optional (m ? reasoningEfforts) "  reasoningEfforts:"
+    ++ (lib.map (l: "    ${l}: ${yamlScalar m.reasoningEfforts.${l}}") effortLevels)
+    ++ lib.optional (m ? compat) "  compat:"
+    ++ (lib.map (k: "    ${k}: ${yamlScalar m.compat.${k}}") compatKeys);
+  runinfraModelsYaml = yamlIndent10 (lib.concatStringsSep "\n" (lib.concatMap yamlModel runinfraModels));
+
   # 静态 patch 层：cordis.patch.yml 只被 dsh 只读加载（从不写回），
   # 所以可以安全地由 nix 托管（软链接到 store）。provider 模型路由放这里。
   providerPatch = pkgs.writeText "dsh-cordis.patch.yml" ''
@@ -49,38 +167,19 @@ let
             apiKeyEnv: OPENROUTER_API_KEY
           # ox-alpha（stealth/ox-alpha）已转正为智谱 GLM-5.3-Flash，走 zai-coding-cn
           # 端点，此 openrouter 独立路由已移除（2026-08-26）。
-          # runinfra 是自定义 provider（不在 pi-ai catalog），照搬 pi 插件
-          # monotykamary/pi-runinfra-provider 的定义：openai-completions 网关，
-          # 4 个模型全部显式声明（含 baseUrl/api，新键无默认可继承）。
+          # runinfra：openai-completions 网关。模型清单不再手抄——由上方
+          # runinfraModels adapter 从 pi 扩展（pi-runinfra-provider-src，与 pi
+          # 侧同一 rev）生成，单一数据源；同步方式见 adapter 注释。
           # key 来自 pi auth.json 的 runinfra 条目（已迁入 sops secrets/env.yaml）。
+          # 注意 schema：api/baseURL 在 provider 层（models 条目不接受这些字段）；
+          # cost 不在 dsh patch schema，adapter 已丢弃。
           runinfra:
             apiKeyEnv: RUNINFRA_GATEWAY_KEY
             displayName: RunInfra
-            # 注意 schema：api/baseURL 在 provider 层（models 条目不接受这些字段）；
-            # cost 也不在 patch schema 里（仅 UI 成本展示用，省略不影响功能）。
             api: openai-completions
             baseURL: https://api.runinfra.ai/v1
             models:
-              - id: deepseek-v4-flash
-                name: DeepSeek V4 Flash (RunInfra)
-                contextWindow: 1048576
-                maxTokens: 32768
-                input: [text]
-              - id: deepseek-v4-pro
-                name: DeepSeek V4 Pro (RunInfra)
-                contextWindow: 1048576
-                maxTokens: 32768
-                input: [text]
-              - id: qwen3-8-2-4t-a95b
-                name: Qwen3.8 2.4T A95B (RunInfra)
-                contextWindow: 262144
-                maxTokens: 32768
-                input: [text]
-              - id: qwen3-8-27b
-                name: Qwen3.8 27B (RunInfra)
-                contextWindow: 262144
-                maxTokens: 32768
-                input: [text]
+    ${runinfraModelsYaml}
           zai-coding-cn:
             apiKeyEnv: ZAI_CODING_CN_API_KEY
             models:
