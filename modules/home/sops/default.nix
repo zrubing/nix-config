@@ -93,8 +93,18 @@ in
     sops.secrets."opencode/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
+    # OpenAI 路由 key 改由 clan vars 管理（clan/zen14.nix 的 openai-relay
+    # generator，relay 全目录分组 key；旧 codex_pro key 弃用，
+    # env.yaml 里的旧值仍在但不再被引用）。
     sops.secrets."openai/api_key" = {
-      sopsFile = "${mysecrets}/secrets/env.yaml";
+      sopsFile = ../../../vars/per-machine/zen14/openai-relay/api-key/secret;
+      format = "binary";
+    };
+
+    # OpenAI relay base URL（dsh openai 路由 baseURL，渲染进 dsh.env / default.env）
+    sops.secrets."openai-relay/base_url" = {
+      sopsFile = ../../../vars/per-machine/zen14/openai-relay/base-url/secret;
+      format = "binary";
     };
 
     # ApiPost MCP token：密文由 clan vars 管理（clan/zen14.nix 的 apipost-mcp-token
@@ -150,6 +160,7 @@ in
       content = ''
 
         export OPENAI_API_KEY="${config.sops.placeholder."openai/api_key"}"
+        export OPENAI_BASE_URL="${config.sops.placeholder."openai-relay/base_url"}"
         export OPENROUTER_API_KEY="${config.sops.placeholder."openrouter/api_key"}"
         export OPENCODE_API_KEY="${config.sops.placeholder."opencode/api_key"}"
         export DEEPSEEK_API_KEY="${config.sops.placeholder."deepseek/api_key"}"
@@ -165,6 +176,7 @@ in
       content = ''
         DEEPSEEK_API_KEY=${config.sops.placeholder."deepseek/api_key"}
         OPENAI_API_KEY=${config.sops.placeholder."openai/api_key"}
+        OPENAI_BASE_URL=${config.sops.placeholder."openai-relay/base_url"}
         OPENROUTER_API_KEY=${config.sops.placeholder."openrouter/api_key"}
         RUNINFRA_GATEWAY_KEY=${config.sops.placeholder."runinfra/gateway_key"}
         OPENCODE_API_KEY=${config.sops.placeholder."opencode/api_key"}
