@@ -35,6 +35,10 @@ let
       "npm:@aliou/pi-processes@0.9.5"
       "npm:pi-deepseek-search@1.0.15"
       runinfraPackage
+      # NVIDIA NIM 网关 provider（integrate.api.nvidia.com/v1，100+ 模型，
+      # 运行时 live discovery）。dsh 侧对应 data/nvidia-nim-models.json 静态
+      # 快照（见 modules/home/dsh），升级时两边一起动。
+      "npm:pi-nvidia-nim@1.1.23"
     ];
     # —— settings.json 不支持 `providers` 键（pi 源码 Settings 接口无此字段），
     #    modelOverrides 已移到下方 piModelsOverlayJson，经 agenix merge 进 models.json
@@ -185,6 +189,27 @@ in
             ;;
         esac
       fi
+    '';
+
+    # nvidia-nim key：clan vars（nvidia-nim-api-key generator）→ home sops
+    # （nvidia-nim/api_key）→ 合并进 ~/.pi/agent/auth.json。pi-nvidia-nim
+    # 扩展 resolveRequiredNimApiKey 先查 pi 的 auth 注册表（auth.json），再回退
+    # NVIDIA_NIM_API_KEY/NVIDIA_API_KEY env；dsh 侧走 dsh.env 的 env 路径，两者
+    # 同源同一个 clan secret。幂等：只更新 nvidia-nim 条目，保留其他 provider。
+    home.activation.configurePiNvidiaNimAuth = config.lib.dag.entryAfter [ "writeBoundary" ] ''
+      set -euo pipefail
+      export PATH='/etc/profiles/per-user/${config.snowfallorg.user.name}/bin:/run/current-system/sw/bin:$PATH'
+      auth_file="$HOME/.pi/agent/auth.json"
+      mkdir -p "$HOME/.pi/agent"
+      key="$(cat ${config.sops.secrets."nvidia-nim/api_key".path})"
+      if [ -f "$auth_file" ]; then
+        tmp="$(mktemp)"
+        jq --arg k "$key" '.["nvidia-nim"] = {"type": "api_key", "key": $k}' "$auth_file" > "$tmp"
+        mv "$tmp" "$auth_file"
+      else
+        printf '{\n  "nvidia-nim": {"type": "api_key", "key": "%s"}\n}\n' "$key" > "$auth_file"
+      fi
+      chmod 600 "$auth_file"
     '';
 
     # home.activation.configurePiGuardrailsFork = config.lib.dag.entryAfter [ "writeBoundary" ] ''
