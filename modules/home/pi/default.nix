@@ -196,12 +196,27 @@ in
     # 扩展 resolveRequiredNimApiKey 先查 pi 的 auth 注册表（auth.json），再回退
     # NVIDIA_NIM_API_KEY/NVIDIA_API_KEY env；dsh 侧走 dsh.env 的 env 路径，两者
     # 同源同一个 clan secret。幂等：只更新 nvidia-nim 条目，保留其他 provider。
-    home.activation.configurePiNvidiaNimAuth = config.lib.dag.entryAfter [ "writeBoundary" ] ''
+    # 顺序坑（2026-08-27 实证）：sops-nix home 的原始 secret 渲染不是 activation
+    # 直做，而是 sops-nix user systemd oneshot 服务按 manifest 跑
+    # sops-install-secrets；user unit 文件 symlink 在 linkGeneration 才换，
+    # 早于它的 activation 里 restart sops-nix 只会重放旧 unit（旧 manifest）→
+    # 新 secret 永远渲染不出。故必须 entryAfter linkGeneration 并自己触发渲染
+    # （与 sops-nix 同名 entry 同操作，幂等）；user systemd 离线（boot 时）
+    # 则跳过并 WARN，不阻 activation。
+    home.activation.configurePiNvidiaNimAuth = config.lib.dag.entryAfter [ "linkGeneration" ] ''
       set -euo pipefail
       export PATH='/etc/profiles/per-user/${config.snowfallorg.user.name}/bin:/run/current-system/sw/bin:$PATH'
+      secret=${config.sops.secrets."nvidia-nim/api_key".path}
+      if systemctl --user is-system-running 2>/dev/null | grep -qE '^(running|degraded)$'; then
+        systemctl --user restart sops-nix
+      fi
+      if [ ! -f "$secret" ]; then
+        echo "WARN: nvidia-nim secret not rendered yet (user systemd offline?); skipping auth.json update"
+        exit 0
+      fi
       auth_file="$HOME/.pi/agent/auth.json"
       mkdir -p "$HOME/.pi/agent"
-      key="$(cat ${config.sops.secrets."nvidia-nim/api_key".path})"
+      key="$(cat "$secret")"
       if [ -f "$auth_file" ]; then
         tmp="$(mktemp)"
         jq --arg k "$key" '.["nvidia-nim"] = {"type": "api_key", "key": $k}' "$auth_file" > "$tmp"
