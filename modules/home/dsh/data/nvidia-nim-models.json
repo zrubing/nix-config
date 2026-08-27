@@ -1,0 +1,818 @@
+{
+  "upstream": {
+    "package": "pi-nvidia-nim",
+    "version": "1.1.23",
+    "rev": "dca773131e7649f421a7e5c9de24d5d92a4291f2",
+    "source": "https://github.com/xRyul/pi-nvidia-nim",
+    "note": "pi-nvidia-nim 的 FEATURED_MODELS 策展清单（扩展运行时 live discovery 的 100+ 模型不在内）。thinking 结构映射自 index.ts 的 THINKING_CONFIGS 与 inkling/minimax-m3 特例：chat-template 格式经 dsh chatTemplateKwargs 的 $var 表达（pi-ai 同一求值路径，$var 语义已对照 pi-ai dist/api/openai-completions.js resolveChatTemplateKwargValue 实测）；true 值 kwarg 用 thinking.enabled 联动，false 值 kwarg（GLM clear_thinking）为常量字面量——off 时也会发送（扩展 off 时不发送，偏差无害：thinking 关闭时无 thinking 可清除）；kimi 走顶层 reasoning_effort（扩展注释确认 NIM 有效，off 时不发显式禁用信号，k2-thinking 默认思考的边界已知）；requiresMistralToolIds 不在 dsh compatProfile 中已丢弃（影响 mistral 系 tool-call id 格式）。同步方式：升级 pi-nvidia-nim npm 版本后按新 rev 重新生成本文件。"
+  },
+  "models": [
+    {
+      "id": "deepseek-ai/deepseek-v4-flash",
+      "contextWindow": 1048576,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "high",
+        "low": "high",
+        "medium": "high",
+        "high": "high",
+        "xhigh": "max",
+        "max": "high"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          },
+          "reasoning_effort": {
+            "$var": "thinking.effort",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Deepseek V4 Flash"
+    },
+    {
+      "id": "deepseek-ai/deepseek-v4-pro",
+      "contextWindow": 1048576,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "high",
+        "low": "high",
+        "medium": "high",
+        "high": "high",
+        "xhigh": "max",
+        "max": "high"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          },
+          "reasoning_effort": {
+            "$var": "thinking.effort",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Deepseek V4 Pro"
+    },
+    {
+      "id": "deepseek-ai/deepseek-v3.2",
+      "contextWindow": 131072,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Deepseek V3.2"
+    },
+    {
+      "id": "deepseek-ai/deepseek-v3.1",
+      "contextWindow": 131072,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Deepseek V3.1"
+    },
+    {
+      "id": "deepseek-ai/deepseek-v3.1-terminus",
+      "contextWindow": 131072,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Deepseek V3.1 Terminus"
+    },
+    {
+      "id": "moonshotai/kimi-k2.6",
+      "contextWindow": 262144,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "supportsReasoningEffort": true
+      },
+      "name": "Kimi K2.6"
+    },
+    {
+      "id": "moonshotai/kimi-k2-thinking",
+      "contextWindow": 131072,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "supportsReasoningEffort": true
+      },
+      "name": "Kimi K2 Thinking"
+    },
+    {
+      "id": "moonshotai/kimi-k2-instruct",
+      "contextWindow": 131072,
+      "maxTokens": 8192,
+      "input": [
+        "text"
+      ],
+      "name": "Kimi K2 Instruct"
+    },
+    {
+      "id": "moonshotai/kimi-k2-instruct-0905",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "name": "Kimi K2 Instruct 0905"
+    },
+    {
+      "id": "minimaxai/minimax-m3",
+      "contextWindow": 1048576,
+      "maxTokens": 16384,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "off": "disabled",
+        "minimal": "adaptive",
+        "low": "adaptive",
+        "medium": "adaptive",
+        "high": "enabled",
+        "xhigh": "enabled",
+        "max": "enabled"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking_mode": {
+            "$var": "thinking.effort",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Minimax M3"
+    },
+    {
+      "id": "minimaxai/minimax-m2.1",
+      "contextWindow": 1048576,
+      "maxTokens": 8192,
+      "input": [
+        "text"
+      ],
+      "name": "Minimax M2.1"
+    },
+    {
+      "id": "minimaxai/minimax-m2",
+      "contextWindow": 1048576,
+      "maxTokens": 8192,
+      "input": [
+        "text"
+      ],
+      "name": "Minimax M2"
+    },
+    {
+      "id": "minimaxai/minimax-m2.7",
+      "contextWindow": 204800,
+      "maxTokens": 8192,
+      "input": [
+        "text"
+      ],
+      "name": "Minimax M2.7"
+    },
+    {
+      "id": "z-ai/glm5",
+      "contextWindow": 131072,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          },
+          "clear_thinking": false
+        }
+      },
+      "name": "Glm5"
+    },
+    {
+      "id": "z-ai/glm4.7",
+      "contextWindow": 131072,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          },
+          "clear_thinking": false
+        }
+      },
+      "name": "Glm4.7"
+    },
+    {
+      "id": "openai/gpt-oss-120b",
+      "contextWindow": 131072,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "name": "Gpt Oss 120b"
+    },
+    {
+      "id": "openai/gpt-oss-20b",
+      "contextWindow": 131072,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "name": "Gpt Oss 20b"
+    },
+    {
+      "id": "stepfun-ai/step-3.5-flash",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "name": "Step 3.5 Flash"
+    },
+    {
+      "id": "bytedance/seed-oss-36b-instruct",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "name": "Seed Oss 36b Instruct"
+    },
+    {
+      "id": "thinkingmachines/inkling",
+      "contextWindow": 1048576,
+      "maxTokens": 16384,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "off": "none",
+        "xhigh": "max",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "reasoning_effort": {
+            "$var": "thinking.effort",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Inkling"
+    },
+    {
+      "id": "qwen/qwen3-coder-480b-a35b-instruct",
+      "contextWindow": 262144,
+      "maxTokens": 65536,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Qwen3 Coder 480b A35b Instruct"
+    },
+    {
+      "id": "qwen/qwen3-235b-a22b",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Qwen3 235b A22b"
+    },
+    {
+      "id": "qwen/qwen3-next-80b-a3b-instruct",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "name": "Qwen3 Next 80b A3b Instruct"
+    },
+    {
+      "id": "qwen/qwen3-next-80b-a3b-thinking",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Qwen3 Next 80b A3b Thinking"
+    },
+    {
+      "id": "qwen/qwq-32b",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Qwq 32b"
+    },
+    {
+      "id": "qwen/qwen2.5-coder-32b-instruct",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "name": "Qwen2.5 Coder 32b Instruct"
+    },
+    {
+      "id": "meta/llama-4-maverick-17b-128e-instruct",
+      "contextWindow": 1048576,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "name": "Llama 4 Maverick 17b 128e Instruct"
+    },
+    {
+      "id": "meta/llama-4-scout-17b-16e-instruct",
+      "contextWindow": 524288,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "name": "Llama 4 Scout 17b 16e Instruct"
+    },
+    {
+      "id": "meta/llama-3.3-70b-instruct",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "name": "Llama 3.3 70b Instruct"
+    },
+    {
+      "id": "meta/llama-3.1-405b-instruct",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "name": "Llama 3.1 405b Instruct"
+    },
+    {
+      "id": "meta/llama-3.2-90b-vision-instruct",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text",
+        "image"
+      ],
+      "name": "Llama 3.2 90b Vision Instruct"
+    },
+    {
+      "id": "mistralai/mistral-large-3-675b-instruct-2512",
+      "contextWindow": 131072,
+      "maxTokens": 16384,
+      "input": [
+        "text"
+      ],
+      "compat": {
+        "requiresToolResultName": true,
+        "requiresThinkingAsText": true
+      },
+      "name": "Mistral Large 3 675b Instruct 2512"
+    },
+    {
+      "id": "mistralai/mistral-medium-3-instruct",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "compat": {
+        "requiresToolResultName": true,
+        "requiresThinkingAsText": true
+      },
+      "name": "Mistral Medium 3 Instruct"
+    },
+    {
+      "id": "mistralai/devstral-2-123b-instruct-2512",
+      "contextWindow": 131072,
+      "maxTokens": 32768,
+      "input": [
+        "text"
+      ],
+      "compat": {
+        "requiresToolResultName": true,
+        "requiresThinkingAsText": true
+      },
+      "name": "Devstral 2 123b Instruct 2512"
+    },
+    {
+      "id": "mistralai/magistral-small-2506",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        },
+        "requiresToolResultName": true,
+        "requiresThinkingAsText": true
+      },
+      "name": "Magistral Small 2506"
+    },
+    {
+      "id": "mistralai/mistral-nemotron",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "compat": {
+        "requiresToolResultName": true,
+        "requiresThinkingAsText": true
+      },
+      "name": "Mistral Nemotron"
+    },
+    {
+      "id": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+      "contextWindow": 131072,
+      "maxTokens": 32768,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Llama 3.1 Nemotron Ultra 253b V1"
+    },
+    {
+      "id": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Llama 3.3 Nemotron Super 49b V1.5"
+    },
+    {
+      "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Llama 3.3 Nemotron Super 49b V1"
+    },
+    {
+      "id": "deepseek-ai/deepseek-r1-distill-qwen-32b",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Deepseek R1 Distill Qwen 32b"
+    },
+    {
+      "id": "deepseek-ai/deepseek-r1-distill-qwen-14b",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Deepseek R1 Distill Qwen 14b"
+    },
+    {
+      "id": "microsoft/phi-4-mini-flash-reasoning",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "minimal": "low",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "high",
+        "max": "max"
+      },
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": {
+            "$var": "thinking.enabled",
+            "omitWhenOff": false
+          }
+        }
+      },
+      "name": "Phi 4 Mini Flash Reasoning"
+    },
+    {
+      "id": "microsoft/phi-4-mini-instruct",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "name": "Phi 4 Mini Instruct"
+    },
+    {
+      "id": "ibm/granite-3.3-8b-instruct",
+      "contextWindow": 131072,
+      "maxTokens": 2048,
+      "input": [
+        "text"
+      ],
+      "name": "Granite 3.3 8b Instruct"
+    }
+  ]
+}

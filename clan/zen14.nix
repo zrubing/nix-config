@@ -39,4 +39,20 @@
       cat $prompts/api-token > $out/api-token
     '';
   };
+
+  # build.nvidia.com 的 NIM API key（nvapi-...，免费档 40 req/min、1000 credits）。
+  # 消费方：home sops 渲染进 dsh.env 的 NVIDIA_NIM_API_KEY（dsh nvidia-nim
+  # provider）；pi 模块 activation 合并进 ~/.pi/agent/auth.json（pi-nvidia-nim
+  # 扩展）。换 key：clan vars set zen14 nvidia-nim-api-key/api-key
+  clan.core.vars.generators.nvidia-nim-api-key = {
+    prompts.api-key = {
+      description = "NVIDIA NIM API key (nvapi-...)";
+      type = "hidden";
+    };
+    files.api-key.secret = true;
+
+    script = ''
+      cat $prompts/api-key > $out/api-key
+    '';
+  };
 }

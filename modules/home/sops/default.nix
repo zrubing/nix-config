@@ -106,6 +106,15 @@ in
       format = "binary";
     };
 
+    # NVIDIA NIM API key：密文由 clan vars 管理（clan/zen14.nix 的
+    # nvidia-nim-api-key generator，写入 vars/per-machine/zen14/nvidia-nim-api-key/）。
+    # 渲染进 dsh.env 的 NVIDIA_NIM_API_KEY（dsh nvidia-nim provider）；pi 侧另由
+    # pi 模块 activation 读同一 secret 写 auth.json。
+    sops.secrets."nvidia-nim/api_key" = {
+      sopsFile = ../../../vars/per-machine/zen14/nvidia-nim-api-key/api-key/secret;
+      format = "binary";
+    };
+
     sops.templates."anysearch-env" = {
       path = "/home/${username}/.pi/agent/skills/anysearch/.env";
       content = ''
@@ -161,6 +170,7 @@ in
         OPENCODE_API_KEY=${config.sops.placeholder."opencode/api_key"}
         ZAI_CODING_CN_API_KEY=${config.sops.placeholder."anthropic/api_key"}
         APIPOST_MCP_TOKEN=${config.sops.placeholder."apipost-mcp/api_token"}
+        NVIDIA_NIM_API_KEY=${config.sops.placeholder."nvidia-nim/api_key"}
       '';
     };
   };

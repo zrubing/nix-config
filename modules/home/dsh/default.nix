@@ -146,6 +146,52 @@ let
     ++ (lib.map (k: "    ${k}: ${yamlScalar m.compat.${k}}") compatKeys);
   runinfraModelsYaml = yamlIndent10 (lib.concatStringsSep "\n" (lib.concatMap yamlModel runinfraModels));
 
+  # ---- nvidia-nim adapter ------------------------------------------------
+  # 模型清单来源：data/nvidia-nim-models.json —— 从 pi-nvidia-nim@1.1.23（rev
+  # dca7731，JSON 内 upstream 字段）转录。与 runinfra 不同，该扩展没有静态
+  # models.json（运行时 fetch /v1/models live discovery），故 dsh 侧取策展的
+  # FEATURED_MODELS 快照；pi 运行时发现的 100+ 模型不在 dsh（dsh 注册表是静态
+  # 清单，无 live discovery）。thinking 经 dsh chatTemplateKwargs 的 $var 表达
+  # （pi-ai resolveChatTemplateKwargValue 同一求值路径，语义已对照 store 内
+  # pi-ai dist/api/openai-completions.js 实测）。同步：升级 pi-nvidia-nim npm
+  # 版本 → 按新 rev 重新生成 JSON（映射规则见 JSON 内 upstream.note）→ rebuild。
+  nimModelsRaw = (lib.importJSON ./data/nvidia-nim-models.json).models;
+  # name 已在生成 JSON 时按扩展 makeDisplayName 规则预计算（本 nixpkgs 无
+  # lib.splitOn，不在 nix 侧重复实现字符串拆分）。
+  # flow-map 递归渲染（chatTemplateKwargs 内嵌一层 $var 对象）
+  # 注意：lambda 体内的字符串不能在另一个 ${...} 插值上下文内再开 ${}
+  #（Nix 字符串插值是词法嵌套禁止的），故逐键构造先提到独立字符串
+  nimYamlVal = v:
+    if v == null then "null"
+    else if v == true then "true"
+    else if v == false then "false"
+    else if builtins.isAttrs v
+    then let
+      pairs = lib.map (k: "${k}: ${nimYamlVal (lib.getAttr k v)}") (builtins.attrNames v);
+    in "{${lib.concatStringsSep ", " pairs}}"
+    else yamlScalar v;
+  nimModelYaml = m:
+    let
+      # 扩展 buildModelEntry 的默认 compat：NIM 对 developer role +
+      # chat_template_kwargs 组合会 500，故全量关闭；max_tokens 字段名更安全。
+      # supportsReasoningEffort 默认 false（effort 走 chatTemplateKwargs $var），
+      # kimi 例外（JSON 内覆盖为 true，走顶层 reasoning_effort）。
+      compat = { supportsDeveloperRole = false; supportsReasoningEffort = false; maxTokensField = "max_tokens"; }
+        // (m.compat or {});
+      effortPairs = lib.map (l: "${l}: ${nimYamlVal (lib.getAttr l m.reasoningEfforts)}")
+        (lib.filter (l: builtins.hasAttr l (m.reasoningEfforts or {})) thinkingLevels);
+    in
+    [
+      "- id: ${yamlScalar m.id}"
+      "  name: ${yamlScalar m.name}"
+      "  contextWindow: ${toString m.contextWindow}"
+      "  maxTokens: ${toString m.maxTokens}"
+      "  input: [${lib.concatMapStringsSep ", " yamlScalar m.input}]"
+    ]
+    ++ lib.optional (m ? reasoningEfforts) "  reasoningEfforts: {${lib.concatStringsSep ", " effortPairs}}"
+    ++ [ "  compat: ${nimYamlVal compat}" ];
+  nimModelsYaml = yamlIndent10 (lib.concatStringsSep "\n" (lib.concatMap nimModelYaml nimModelsRaw));
+
   # 静态 patch 层：cordis.patch.yml 只被 dsh 只读加载（从不写回），
   # 所以可以安全地由 nix 托管（软链接到 store）。provider 模型路由放这里。
   providerPatch = pkgs.writeText "dsh-cordis.patch.yml" ''
@@ -180,6 +226,17 @@ let
             baseURL: https://api.runinfra.ai/v1
             models:
     ${runinfraModelsYaml}
+          # nvidia-nim：NVIDIA NIM 网关（build.nvidia.com）。模型清单转录自
+          # pi-nvidia-nim@1.1.23 的 FEATURED_MODELS 策展清单（见上方 adapter
+          # 与 data/nvidia-nim-models.json）；key 由 clan vars
+          # （nvidia-nim-api-key）管理，渲染进 dsh.env 的 NVIDIA_NIM_API_KEY。
+          nvidia-nim:
+            apiKeyEnv: NVIDIA_NIM_API_KEY
+            displayName: NVIDIA NIM
+            api: openai-completions
+            baseURL: https://integrate.api.nvidia.com/v1
+            models:
+    ${nimModelsYaml}
           zai-coding-cn:
             apiKeyEnv: ZAI_CODING_CN_API_KEY
             models:
