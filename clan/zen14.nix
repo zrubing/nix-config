@@ -59,8 +59,9 @@
   # 企业 openai relay 的 API key + base URL。
   # 新 key 属于 relay 全目录分组（123 模型，含 deepseek-v4 系 / claude / gemini /
   # kimi / qwen）；旧 codex_pro 分组 key（6 个 gpt）弃用。
-  # 消费方：home sops 渲染进 dsh.env（OPENAI_API_KEY / OPENAI_BASE_URL，dsh
-  # openai 路由 = 该 relay）与 default.env（交互 shell，pi 读同一 key）。
+  # 消费方：home sops 渲染进 dsh.env（DEEPSEEK_RELAY_API_KEY /
+  # DEEPSEEK_RELAY_BASE_URL，dsh deepseek-relay provider 专用，不影响
+  # OPENAI_API_KEY）。
   # 换值：clan vars set zen14 openai-relay/api-key（或 /base-url）
   clan.core.vars.generators.openai-relay = {
     prompts.api-key = {

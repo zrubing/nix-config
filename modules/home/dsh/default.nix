@@ -227,18 +227,17 @@ let
         providers:
           deepseek:
             apiKeyEnv: DEEPSEEK_API_KEY
-          # openai 路由 = 企业 relay（全目录分组，123 模型；key/baseURL
-          # 走 clan vars openai-relay 渲染进 dsh.env）。声明 models 会替换内置
-          # 38 模型 catalog（catalog 默认指 api.openai.com，该 key 在那 401），
-          # 故显式列出实测可用的模型：deepseek-v4 系 3 个 + relay 实际服务的
-          # gpt-5.x 5 个（catalog 内，ctx/max/input 从内置 catalog 继承）。
+          # deepseek-relay 路由 = 企业 relay（与官方 deepseek 路由分开；该 key
+          # key/baseURL 走 clan vars openai-relay 渲染进 dsh.env 的
+          # DEEPSEEK_RELAY_* 独立 env，不影响原 OPENAI_API_KEY）。非 catalog 路由，models 必须全量
+          # 显式列出（实测可用 3 个，元数据对齐 opencode-go catalog 同家族条目）。
           # relay 角色白名单无 developer（实测 400）→ 路由级 supportsDeveloperRole。
-          # relay 共 123 模型（claude/gemini/kimi/qwen/glm...），需要再补。
-          openai:
-            apiKeyEnv: OPENAI_API_KEY
-            displayName: OpenAI Relay
+          # relay /models 共 123 个，后续要加其他模型在此补。
+          deepseek-relay:
+            apiKeyEnv: DEEPSEEK_RELAY_API_KEY
+            displayName: DeepSeek Relay
             api: openai-completions
-            baseURL: !!js process.env.OPENAI_BASE_URL
+            baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
             compat:
               supportsDeveloperRole: false
             models:
@@ -248,9 +247,6 @@ let
                 maxTokens: 384000
                 input: [text]
                 reasoningEfforts:
-                  minimal: null
-                  low: null
-                  medium: null
                   high: high
                   max: max
                 compat:
@@ -263,9 +259,6 @@ let
                 maxTokens: 384000
                 input: [text, image]
                 reasoningEfforts:
-                  minimal: null
-                  low: null
-                  medium: null
                   high: high
                   max: max
                 compat:
@@ -278,20 +271,12 @@ let
                 maxTokens: 384000
                 input: [text]
                 reasoningEfforts:
-                  minimal: null
-                  low: null
-                  medium: null
                   high: high
                   max: max
                 compat:
                   thinkingFormat: deepseek
                   maxTokensField: max_tokens
                   requiresReasoningContentOnAssistantMessages: true
-              - id: gpt-5.4
-              - id: gpt-5.4-mini
-              - id: gpt-5.5
-              - id: gpt-5.6-sol
-              - id: gpt-5.6-terra
           # opencode-go 是 pi-ai 内置 catalog 路由（OpenCode Zen Go 网关，
           # 含 deepseek-v4-pro/flash、glm-5.2、kimi-k3、qwen3.7 等模型），
           # 认证环境变量 OPENCODE_API_KEY 与 jojo home 注入一致。
