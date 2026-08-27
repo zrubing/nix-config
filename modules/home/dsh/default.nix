@@ -74,7 +74,31 @@ let
       # index.ts buildModels 等价：patch 后 custom 覆盖同 id，保持声明顺序
       # （base 在前、custom 新增在后；同 id 以列表中靠后者 = custom 为准）
       applyTo = m: if (builtins.hasAttr m.id patch) then applyPatch m (patch.${m.id}) else m;
-      orderedRaw = (lib.map applyTo base) ++ (lib.map applyTo custom);
+
+      # dsh 侧本地补充：网关已上线 glm-5-3-flash（2026-08-27 live /v1/models 实测，
+      # id 是连字符 glm-5-3-flash，context 1M；pi 侧扩展经 live discovery 已能取到），
+      # 但扩展内置 catalog（models.json 10 模型）尚未注册 → 临时在此补齐。
+      # wire 对齐 zai-coding-cn 的 glm-5.3-flash（thinkingFormat: zai；探针实测网关
+      # 接受 thinking{type,clear_thinking}+reasoning_effort，均 200 + reasoning 字段）。
+      # 上游一旦注册，knownIds 命中 → effectiveExtras 过滤掉本条，自动回归单一数据源。
+      # maxTokens 取 131072：网关报 max_output_tokens=1048576（= context，上限声明），
+      # 与 zai-coding-cn 条目保持一致的保守值。
+      extraModels = [
+        {
+          id = "glm-5-3-flash";
+          name = "GLM-5.3 Flash";
+          contextWindow = 1048576;
+          maxTokens = 131072;
+          input = [ "text" ];
+          thinkingLevelMap = { low = "high"; medium = "high"; high = "high"; max = "max"; };
+          compat = { thinkingFormat = "zai"; };
+        }
+      ];
+      orderedBase = lib.map applyTo base;
+      orderedCustom = lib.map applyTo custom;
+      knownIds = map (m: m.id) (orderedBase ++ orderedCustom);
+      effectiveExtras = lib.filter (m: ! (lib.elem m.id knownIds)) extraModels;
+      orderedRaw = orderedBase ++ orderedCustom ++ (lib.map applyTo effectiveExtras);
       orderedIds = lib.unique (map (m: m.id) orderedRaw);
       idMap = lib.listToAttrs (map (m: { name = m.id; value = m; }) orderedRaw);
 
