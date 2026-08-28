@@ -46,7 +46,6 @@ buildNpmPackage (finalAttrs: {
   ];
 
   postPatch = ''
-    # patch -p1 < ${./web-boot-settle-pending.patch}
     # 内网免 token：受信来源（loopback / --trusted-host）跳过浏览器会话认证，
     # 保留 Host/Origin fence（DNS rebinding / 跨站仍 403）。
     patch -p1 < ${./web-auth-bypass-trusted.patch}
