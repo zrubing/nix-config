@@ -119,7 +119,6 @@ in {
         pkgs-nix-ai.pi
         #pkgs-nix-ai.omp
         pkgs-nix-ai.codex
-        pkgs-nix-ai.dsh
         pkgs-nix-ai.semble
         pkgs-nix-ai.workmux
         pkgs-nix-ai.openskills
