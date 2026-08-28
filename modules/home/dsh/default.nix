@@ -84,6 +84,32 @@ let
   # tool-result pruner 沿用 dsh。
   blackholePlugin = import ./plugins/dsh-blackhole/build.nix { inherit lib pkgs inputs dshNodeModules; };
 
+  # ── my-minimal preset 组合：上游 shipped `minimal` + 本地增量行 ────────────
+  # dsh 的 preset composition（@deepseek-ai/dsh-agent-presets + 底层
+  # cordis-plugin-include）没有 extends/继承/合并机制：`PresetTree`/`Include`
+  # 只读一个顶层插件行数组，行的 `name` 被解析成一个模块，`cordis:group` 只是
+  # 嵌套、`patches` 是宿主级（cordis.patch.yml）而非 preset 级。所以「my-minimal
+  # = shipped minimal + 我的新增」无法在 agent.cordis.yml 里表达，只能在 Nix
+  # 求值期把两边文本拼成一份合法 composition。
+  #
+  # 基础部分（persona / persistent-shell / filesystem）直接读 flake input
+  # deepseek-harness-src 的源码树 `packages/preset/agent-presets/presets/minimal/`，
+  # 与 useDshSource=true（源码构建）共享同一 rev（flake.lock）：上游更新 minimal
+  # → nix flake update deepseek-harness-src + rebuild → 基础行自动跟随，不再手抄
+  # 快照。增量行（web_search / start_process 后台进程 / pi-blackhole /
+  # 确定性压缩）是你本地维护的 extras.cordis.yml，真正属于你的部分。
+  # 若将来切回 useDshSource=false（llm-agents npm 版），此路径需按 npm 版布局调整。
+  #
+  # 拼接产物是合法 composition（顶层数组），由 home.file 以 text= 写入
+  # ~/.dsh/.agent-presets/my-minimal/agent.cordis.yml（见下文）。
+  myMinimalComposition =
+    builtins.readFile (
+      inputs.deepseek-harness-src
+      + "/packages/preset/agent-presets/presets/minimal/agent.cordis.yml"
+    )
+    + "\n"
+    + builtins.readFile ./agent-presets/my-minimal/extras.cordis.yml;
+
   # ── runinfra models adapter ───────────────────────────────────────────
   # 单一数据源 = pi 扩展 monotykamary/pi-runinfra-provider（flake input
   # pi-runinfra-provider-src，flake=false 源码树）。pi 侧扩展安装
@@ -579,8 +605,11 @@ in
       # 新建会话即挂新组合（standing mount 按 composition 文件 stamp 换代，
       # 运行中的旧会话保持原代），无需重启 dsh-web。
       # force：目录最初为手工创建，需要接管既有普通文件。
+      # agent.cordis.yml 是求值产物：上游 shipped `minimal` + 本地增量行（见上方
+      # myMinimalComposition）。用 text= 而非 source=，因为内容在 Nix 求值期拼好，
+      # 没有对应的仓库文件；上游更新随 deepseek-harness-src 自动跟随。
       home.file.".dsh/.agent-presets/my-minimal/agent.cordis.yml" = {
-        source = ./agent-presets/my-minimal/agent.cordis.yml;
+        text = myMinimalComposition;
         force = true;
       };
       home.file.".dsh/.agent-presets/my-minimal/preset.yml" = {
