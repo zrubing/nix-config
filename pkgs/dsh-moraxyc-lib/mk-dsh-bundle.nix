@@ -11,7 +11,7 @@
 }:
 
 let
-  resolveDshBundles = ../lib/resolve-dsh-bundles.mjs;
+  resolveDshBundles = ./resolve-dsh-bundles.mjs;
   emptyCordisPatch = writers.writeYAML "empty-cordis.patch.yml" [ ];
 
   # Shared protocol required by the composition layer for every bundle.
