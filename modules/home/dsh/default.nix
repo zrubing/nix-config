@@ -467,6 +467,8 @@ let
     - insert:
         - id: ui-model-select-plus
           name: '@local/dsh-model-select-plus'
+          config: {}
+
   '';
 
   # 竞态修复：dsh 的 baseURL/密钥依赖 sops 渲染的 envFile（~/.config/dsh.env，symlink 指向
@@ -477,6 +479,15 @@ let
   # fetch"，即 command.execute.failed 的 toast）。这里改为在真正 exec dsh 的同一进程里先等
   # env 就绪再 source 进来：exec 让 dsh 取代该 bash（PID 不变，Type=simple 语义保持）。
   dshWebStart = pkgs.writeShellScript "dsh-web-start" ''
+    # 防御性清理：第三方插件（曾用的 dsh-web-startup-auth 等）的 pnpm 传递依赖会把
+    # @deepseek-ai/dsh-host-webserver@0.1.1-rc.2 等旧版实体目录装进 web profile 的
+    # node_modules，遮蔽 kernel 的 0.1.2 版本 → webserver handler 抛异常 → GET / 400
+    # （页面打不开）。每次启动前幂等删除，让解析回落到 kernel store；
+    # dsh-mcp-client 是显式安装的插件，保留。
+    for stale in dsh-host-webserver dsh-cmdline cosmokit schemastery; do
+      rm -rf "$HOME/.dsh/profiles/web/node_modules/@deepseek-ai/$stale"
+    done
+
     declare -r env_file=${lib.escapeShellArg cfg.envFile}
     ready=0
     i=0
@@ -530,19 +541,6 @@ in
         Install wyouwd1/dsh-opencode-models into the web profile. Provides a
         settings section that live-syncs OpenCode Zen free/go tier model lists
         (covers models missing from the bundled pi-ai catalog, e.g. glm-5.3-flash).
-      '';
-    };
-
-    plugins.webAuth.enable = mkOption {
-      type = types.bool;
-      default = false;
-      description = ''
-        Install GDWhisper/dsh-web-startup-auth into the web profile: login
-        page + password auth, releases the loopback-only privileged RPCs
-        (settings.*, credentials.*, llm.discoverModels) for authenticated
-        callers, and overrides the frontend connection.isLoopback gate so the
-        settings mirror runs in host mode — fixes "settings are unavailable
-        in this browser" when the UI is opened via a non-loopback hostname.
       '';
     };
 
@@ -653,23 +651,6 @@ in
       '';
     })
 
-    (lib.mkIf (cfg.enable && cfg.plugins.webAuth.enable) {
-      # 同 opencodeModels：插件 = profile 的 pnpm 依赖，走 activation 幂等安装。
-      # 凭据存在 ~/.dsh/web-auth.json（插件用 $HOME 而非 DSH_HOME 定位）。
-      home.activation.configureDshWebAuth = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="dsh-web-startup-auth@0.1.2"
-        if ! grep -q "dsh-web-startup-auth" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            systemctl --user try-restart dsh-web.service 2>/dev/null || true
-          else
-            echo "WARN: dsh-web-startup-auth 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-    })
-
     (lib.mkIf cfg.enable {
       # ApiPost MCP 桥接：把 @deepseek-ai/dsh-mcp-client 装入 web profile，
       # 配合 cordis.patch.yml 里 mcp-apipost 插件条目（token 走环境变量）。
@@ -704,9 +685,7 @@ in
           fi
         fi
       '';
-    })
 
-    (lib.mkIf cfg.enable {
       # 可搜索模型选择器（见上方 modelSelectPlusPlugin 注释）：同 braces-sanitize
       # 的 file: + store-hash 幂等安装；loader 行在 cordis.patch.yml 的
       # ui-model-select-plus insert 条目。装完重启 dsh-web 生效。

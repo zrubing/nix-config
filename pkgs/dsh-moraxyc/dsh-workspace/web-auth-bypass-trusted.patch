@@ -1,0 +1,24 @@
+diff --git a/packages/client/connection/src/rpc-host.ts b/packages/client/connection/src/rpc-host.ts
+index a00277d..f79fa8c 100644
+--- a/packages/client/connection/src/rpc-host.ts
++++ b/packages/client/connection/src/rpc-host.ts
+@@ -95,12 +95,17 @@ export class HostConnectionService extends Service implements HostConnectionHand
+   /** Apply the configured Host/Origin fence, then browser authentication. */
+   requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
+     if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
+-    return this.browserAuth.isAuthenticated(request) ? undefined : 401
++    // Local patch: requests passing the Host/Origin fence (loopback or a
++    // declared --trusted-host authority) skip the browser-session cookie
++    // check; the fence still rejects DNS-rebinding and cross-site traffic.
++    return undefined
+   }
+ 
+   /** Authenticate an index request through the process-token exchange or cookie. */
+   authorizeIndex(request: ConnectionIndexRequest, response: ConnectionIndexResponse): boolean {
+-    return this.browserAuth.authorizeIndex(request, response)
++    // Local patch: trusted authorities may load the index without the token
++    // exchange; other sources keep the original token/cookie flow.
++    return isTrustedApiRequest(request, this.trustedHosts) || this.browserAuth.authorizeIndex(request, response)
+   }
+ 
+   /** Add this process's launch token to the clean application URL. */

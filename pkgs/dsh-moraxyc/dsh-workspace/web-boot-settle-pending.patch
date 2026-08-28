@@ -1,0 +1,38 @@
+diff --git a/packages/client/web/src/boot.ts b/packages/client/web/src/boot.ts
+index 71ab65c..16ec463 100644
+--- a/packages/client/web/src/boot.ts
++++ b/packages/client/web/src/boot.ts
+@@ -131,9 +131,33 @@ export class AppWebEntry {
+     }))
+ 
+     await loader.await()
++    // loader.await() resolves once no fiber has a running task, but fibers
++    // parked on asynchronously-injected services (e.g. the remote.* namespaces
++    // mounted by dsh-api-remotes) have no running task and are skipped. Give
++    // the service-notify chain a bounded window to activate them before the
++    // strict audit below; a genuinely missing service still fails after the
++    // timeout with the original audit message.
++    await this.settlePending(ctx)
+     this.assertEntriesActive(ctx)
+   }
+ 
++  /**
++   * Wait for pending entries to activate as their injected services settle
++   * asynchronously. Bounded so a missing service cannot hang the boot page.
++   */
++  private async settlePending(ctx: Context, timeoutMs = 10_000): Promise<void> {
++    const deadline = Date.now() + timeoutMs
++    for (;;) {
++      const pending = [...ctx.loader.entries()].filter((entry) => {
++        const fiber = entry.fiber
++        return fiber !== undefined && STATE_LABELS[fiber.state] === 'pending'
++      })
++      if (pending.length === 0) return
++      if (Date.now() >= deadline) return
++      await new Promise((resolve) => setTimeout(resolve, 50))
++    }
++  }
++
+   /** Reject entries that failed import/apply or still wait on missing services. */
+   private assertEntriesActive(ctx: Context): void {
+     const failures: string[] = []
