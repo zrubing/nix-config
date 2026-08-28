@@ -74,20 +74,15 @@ let
     ln -s ${dshNodeModules} $out/node_modules
   '';
 
-  # pi-blackhole 的确定性压缩后端（k0valik pi-blackhole@0.4.3 的 agent 侧移植）。
-  # pi extension 无法被 dsh 加载（dsh 唯一的 pi 相关包 dsh-llm-pi-ai 只是 LLM API
-  # 适配层），这里移植真正有用的半区：Deterministic（零 LLM）的 compile() 结构摘要。
-  # 适配器子类化 BasicCompactionEngine（dsh-compaction-basic）并只覆写
-  # summarize() 钩子——压力阈值、/compact、<compacted-summary> 框架、tool-result
-  # pruner 全部沿用 dsh 原样，仅把 LLM stream 摘要换成确定性 compile()。属于后端
-  # 替换而非重实现。同步溯源见插件头部注释（静态快照 @0.4.3，非随 pi 版本自动跟进）。
-  # 与 toolProcessesPlugin 同构：源码随 preset 相对说明符加载，旁置 node_modules shim
-  # 解析 dsh 自身依赖树（dsh-compaction-basic/dsh-compaction 等）。
-  blackholeCompactPlugin = pkgs.runCommand "dsh-blackhole-compact" { } ''
-    mkdir -p $out
-    cp ${./agent-presets/my-minimal/compact-blackhole.js} $out/compact-blackhole.js
-    ln -s ${dshNodeModules} $out/node_modules
-  '';
+  # pi-blackhole (k0valik @0.4.3) 适配器 —— 独立 dsh 插件包（modules/home/dsh/plugins/dsh-blackhole，
+  # 不是 Snowfall 的 packages/：它需要 dsh 模块独有的 dshNodeModules，不能进 flake packages 输出）。
+  # 采用「导入上游核心」的适配器模式：nix 让包的 scripts/build.sh 用 esbuild 把 pi-blackhole 的纯 TS
+  # 核心（src/core/summarize.ts 的 compile 管线 + recall 检索，仅依赖 node 内建 + 一个 pi-tui
+  # wrapTextWithAnsi 占位）打成 ESM bundle，dsh 侧只保留薄适配器：to-pi.js（dsh Message -> pi
+  # Message）、compaction 引擎（覆写 summarize()）、recall 工具、OM worker、/blackhole* 命令。
+  # 上游更新 = flake.lock 换 rev + rebuild，不再手工 re-port。阈值、/compact、<compacted-summary>、
+  # tool-result pruner 沿用 dsh。
+  blackholePlugin = import ./plugins/dsh-blackhole/build.nix { inherit lib pkgs inputs dshNodeModules; };
 
   # ── runinfra models adapter ───────────────────────────────────────────
   # 单一数据源 = pi 扩展 monotykamary/pi-runinfra-provider（flake input
@@ -598,10 +593,12 @@ in
         source = "${toolProcessesPlugin}/tool-processes.js";
         force = true;
       };
-      # 确定性压缩后端源码也在 preset 目录内（相对说明符 ./compact-blackhole.js），
-      # 实体是上方 blackholeCompactPlugin 的 store 产物。
-      home.file.".dsh/.agent-presets/my-minimal/compact-blackhole.js" = {
-        source = "${blackholeCompactPlugin}/compact-blackhole.js";
+      # pi-blackhole 适配器（modules/home/dsh/plugins/dsh-blackhole 的 store 产物：package.json + lib/
+      # + esbuild 打包的 pi 核心 + node_modules shim）。preset 通过相对说明符
+      # ./dsh-blackhole/lib/compaction.js（压缩 isolate）与 ./dsh-blackhole/lib/index.js
+      # （agent scope）挂载。
+      home.file.".dsh/.agent-presets/my-minimal/dsh-blackhole" = {
+        source = "${blackholePlugin}";
         force = true;
       };
     })

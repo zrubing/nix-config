@@ -1,0 +1,27 @@
+{
+  "name": "@jojo/dsh-blackhole",
+  "version": "0.1.0",
+  "description": "pi-blackhole adapter for DeepSeek Harness (dsh): deterministic compaction backend, recall tool, observational memory, and /blackhole* commands.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./compaction": "./lib/compaction.js"
+  },
+  "files": [
+    "lib/"
+  ],
+  "scripts": {
+    "build": "bash scripts/build.sh"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "pi-blackhole": "0.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-compaction-basic": "^0.1.0"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+}
