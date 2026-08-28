@@ -9,7 +9,20 @@
 }:
 let
   cfg = config.${namespace}.modules.dsh;
-  dshPackage = inputs.llm-agents.packages.${system}.dsh;
+  # dsh 二进制来源：默认用 llm-agents 打包的 npm 版（@deepseek-ai/dsh 0.1.1-rc.2）；
+  # useDshSource=true 改用从 deepseek-harness 源码构建的本仓库包（packages/dsh-source，
+  # 即 Moraxyc 式 kernel 方案产出的 dsh-kernel，追 main/0.1.2-alpha.1，npm 尚无此版）。
+  # llm-agents 更新后把 useDshSource 改回 false 即切回。
+  dshPackage =
+    if cfg.useDshSource
+    then import ../../../packages/dsh-source { inherit lib pkgs inputs; }
+    else inputs.llm-agents.packages.${system}.dsh;
+  # 本地 plugin（tool-processes / compact-blackhole）导入 @deepseek-ai/* 的 node_modules 根。
+  # llm-agents npm 版与源码 kernel 版布局不同，按后端切换。
+  dshNodeModules =
+    if cfg.useDshSource
+    then "${dshPackage}/lib/deepseek-harness/node_modules"
+    else "${dshPackage}/lib/node_modules/@deepseek-ai/dsh/node_modules";
   # activation 跑在系统级 home-manager-jojo.service 里，unit 的 PATH 只有
   # coreutils/grep 等基础包（hm-setup-env 不导入用户 session 的 PATH），
   # dsh plugin 内部 spawn 的 pnpm 找不到 → 安装静默失败（WARN 进系统 journal）。
@@ -58,7 +71,7 @@ let
   toolProcessesPlugin = pkgs.runCommand "dsh-tool-processes" { } ''
     mkdir -p $out
     cp ${./agent-presets/my-minimal/tool-processes.js} $out/tool-processes.js
-    ln -s ${dshPackage}/lib/node_modules/@deepseek-ai/dsh/node_modules $out/node_modules
+    ln -s ${dshNodeModules} $out/node_modules
   '';
 
   # pi-blackhole 的确定性压缩后端（k0valik pi-blackhole@0.4.3 的 agent 侧移植）。
@@ -73,7 +86,7 @@ let
   blackholeCompactPlugin = pkgs.runCommand "dsh-blackhole-compact" { } ''
     mkdir -p $out
     cp ${./agent-presets/my-minimal/compact-blackhole.js} $out/compact-blackhole.js
-    ln -s ${dshPackage}/lib/node_modules/@deepseek-ai/dsh/node_modules $out/node_modules
+    ln -s ${dshNodeModules} $out/node_modules
   '';
 
   # ── runinfra models adapter ───────────────────────────────────────────
@@ -541,6 +554,15 @@ in
       type = types.nullOr types.path;
       default = null;
       description = "EnvironmentFile for the dsh web service (sops template output).";
+    };
+
+    # 用深源码构建的 dsh（packages/dsh-src，追 deepseek-harness main）替代
+    # llm-agents 打包的 npm 版。默认 false（用 llm-agents 稳定版）；体验最新版
+    # 时置 true。llm-agents 更新后改回 false 即回退。
+    useDshSource = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Build dsh from the deepseek-harness source tree instead of the llm-agents npm package.";
     };
   };
 
