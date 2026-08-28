@@ -97,9 +97,10 @@ in
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
 
-    # 企业 relay（dsh deepseek-relay 路由）key + base URL：密文由 clan vars
-    # 管理（clan/zen14.nix openai-relay generator）。独立 env（DEEPSEEK_RELAY_*），
-    # 不影响原 OPENAI_API_KEY。
+    # 企业 relay key + base URL：密文由 clan vars 管理（clan/zen14.nix
+    # openai-relay generator）。独立 env（DEEPSEEK_RELAY_*），不影响原
+    # OPENAI_API_KEY；base URL 由 dsh 两个 provider 共用——deepseek-relay 路由与
+    # 内置 catalog 路由 openai 的 baseURL 重定向（modules/home/dsh providers.openai）。
     sops.secrets."deepseek-relay/api_key" = {
       sopsFile = ../../../vars/per-machine/zen14/openai-relay/api-key/secret;
       format = "binary";
