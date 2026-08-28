@@ -28,6 +28,22 @@ let
     cp ${./plugins/braces-sanitize/index.js} $out/index.js
   '';
 
+  # composer 模型座位替换（可搜索 + Provider 前缀）。client-ui 插件：host 半区
+  # 空 apply 占位，浏览器半区 lib/client.js 是手写的 __ModuleLoader__.load 单文件
+  # 产物（vendor seed 模块 react / jsx-runtime / ui-primitives 之外零依赖）。
+  # 数据面复用官方 ui-model-selection 的 ModelDirectoryResolver（ctx.modelDirectories），
+  # 不重复挂载 resolver、不动 /model 命令；官方座位组件保持挂载，被本插件在同
+  # `conversation.input.model` 单座位上的后注册者遮蔽（single slot shadowing：
+  # 后注册优先级数值更低、胜出）。装载 = activation 以 file: 依赖装入 web
+  # profile（configureDshModelSelectPlus）+ 本文件 providerPatch 的 insert 行；
+  # 与 braces-sanitize 同款双件套。headless 未装包时该 insert 行仅告警跳过。
+  modelSelectPlusPlugin = pkgs.runCommand "dsh-model-select-plus" { } ''
+    mkdir -p $out/lib
+    cp ${./plugins/model-select-plus/package.json} $out/package.json
+    cp ${./plugins/model-select-plus/lib/index.js} $out/lib/index.js
+    cp ${./plugins/model-select-plus/lib/client.js} $out/lib/client.js
+  '';
+
   # ── runinfra models adapter ───────────────────────────────────────────
   # 单一数据源 = pi 扩展 monotykamary/pi-runinfra-provider（flake input
   # pi-runinfra-provider-src，flake=false 源码树）。pi 侧扩展安装
@@ -347,6 +363,19 @@ let
                   max: max
                 compat:
                   thinkingFormat: zai
+          # 内置 catalog 路由 openai（gpt 全家族，api=openai-responses）重定向到企业
+          # relay 端点。base URL 与 deepseek-relay 同源：clan vars openai-relay/base-url
+          # 渲染进 dsh.env 的 DEEPSEEK_RELAY_BASE_URL（同一网关，单一事实来源，换值仍
+          # clan vars set zen14 openai-relay/base-url）；认证沿用路由默认 OPENAI_API_KEY。
+          # 模型清单保持 catalog 原样，仅以 modelOverrides 钉住 gpt-5.6-sol 的
+          # contextWindow（272000 = 上游 pricing tiers 分档边界，防 catalog 漂移）。
+          # 注意：modelOverrides 只允许出现在未声明 models 列表的 catalog 路由上，
+          # 两者同配会被 dsh 拒载。
+          openai:
+            baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
+            modelOverrides:
+              gpt-5.6-sol:
+                contextWindow: 272000
 
     # ApiPost 开放平台 MCP：远程 streamable-http server，认证走 api-token 头。
     # token 由 clan vars 加密管理（apipost-mcp-token generator），经 home sops
@@ -370,6 +399,13 @@ let
         - id: mcp-braces-sanitize
           name: dsh-braces-sanitize
           config: {}
+
+    # composer 模型座位替换（见上方 modelSelectPlusPlugin 注释）。行必须在官方
+    # ui-model-selection（dsh-web-app bundle 层）之后插入：浏览器端单座位按注册
+    # 顺序选举，后注册的本插件胜出。headless 未装包时仅告警跳过。
+    - insert:
+        - id: ui-model-select-plus
+          name: '@local/dsh-model-select-plus'
   '';
 
   # 竞态修复：dsh 的 baseURL/密钥依赖 sops 渲染的 envFile（~/.config/dsh.env，symlink 指向
@@ -583,6 +619,24 @@ in
             systemctl --user try-restart dsh-web.service 2>/dev/null || true
           else
             echo "WARN: dsh-braces-sanitize 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+    })
+
+    (lib.mkIf cfg.enable {
+      # 可搜索模型选择器（见上方 modelSelectPlusPlugin 注释）：同 braces-sanitize
+      # 的 file: + store-hash 幂等安装；loader 行在 cordis.patch.yml 的
+      # ui-model-select-plus insert 条目。装完重启 dsh-web 生效。
+      home.activation.configureDshModelSelectPlus = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        want="file://${modelSelectPlusPlugin}"
+        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
+            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+          else
+            echo "WARN: dsh-model-select-plus 安装失败（离线？），下次重建重试"
           fi
         fi
       '';
