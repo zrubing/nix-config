@@ -82,4 +82,20 @@
       cat $prompts/base-url > $out/base-url
     '';
   };
+
+  # GitHub 远程 MCP server 的 PAT（github_pat_... 或 ghp_...，至少 repo scope）。
+  # 消费方：home sops 渲染进 dsh.env 的 GITHUB_MCP_TOKEN，dsh 的 mcp-client 插件
+  # （mcp-github）以 process.env.GITHUB_MCP_TOKEN 拼 Bearer 头。换 key：
+  # clan vars set zen14 github-mcp-token/api-token
+  clan.core.vars.generators.github-mcp-token = {
+    prompts.api-token = {
+      description = "GitHub MCP personal access token";
+      type = "hidden";
+    };
+    files.api-token.secret = true;
+
+    script = ''
+      cat $prompts/api-token > $out/api-token
+    '';
+  };
 }

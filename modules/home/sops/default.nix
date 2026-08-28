@@ -128,6 +128,15 @@ in
       format = "binary";
     };
 
+    # GitHub 远程 MCP server 的 PAT：密文由 clan vars 管理（clan/zen14.nix 的
+    # github-mcp-token generator，写入 vars/per-machine/zen14/github-mcp-token/）。
+    # 渲染进 dsh.env 的 GITHUB_MCP_TOKEN（dsh mcp-github server，Bearer 头）。加密
+    # recipients 同 apipost（machines/zen14 与 users/jojo）。
+    sops.secrets."github-mcp/api_token" = {
+      sopsFile = ../../../vars/per-machine/zen14/github-mcp-token/api-token/secret;
+      format = "binary";
+    };
+
     sops.templates."anysearch-env" = {
       path = "/home/${username}/.pi/agent/skills/anysearch/.env";
       content = ''
@@ -186,6 +195,7 @@ in
         ZAI_CODING_CN_API_KEY=${config.sops.placeholder."anthropic/api_key"}
         APIPOST_MCP_TOKEN=${config.sops.placeholder."apipost-mcp/api_token"}
         NVIDIA_NIM_API_KEY=${config.sops.placeholder."nvidia-nim/api_key"}
+        GITHUB_MCP_TOKEN=${config.sops.placeholder."github-mcp/api_token"}
       '';
     };
   };

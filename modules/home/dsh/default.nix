@@ -424,6 +424,22 @@ let
             headers:
               api-token: !!js process.env.APIPOST_MCP_TOKEN
 
+    # GitHub 远程 MCP server（官方托管 https://api.githubcopilot.com/mcp/，
+    # streamable-http，认证 Authorization: Bearer <PAT>）。PAT 由 clan vars 加密
+    # 管理（clan/zen14.nix github-mcp-token），渲染进 dsh.env 的 GITHUB_MCP_TOKEN，
+    # 此处运行时求值，patch 文件不含明文。远程托管免 docker，dsh-web 服务里最稳；
+    # 工具面由服务端默认 toolset 决定（与 pi 侧 docker 版 GITHUB_DYNAMIC_TOOLSETS=1
+    # 不同）。
+    - insert:
+        - id: mcp-github
+          name: '@deepseek-ai/dsh-mcp-client'
+          config:
+            serverName: github
+            transport: streamable-http
+            url: https://api.githubcopilot.com/mcp/
+            headers:
+              Authorization: !!js '"Bearer " + process.env.GITHUB_MCP_TOKEN'
+
     # 工具描述花括号清洗（见上方 bracesSanitizePlugin 注释）。waterfall listener
     # 在 next() 之后改写权威 assembly，注册顺序无关；headless 未装包时本条目
     # 加载仅告警跳过。
