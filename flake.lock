@@ -234,6 +234,22 @@
         "url": "https://git.clan.lol/clan/data-mesher/archive/main.tar.gz"
       }
     },
+    "deepseek-harness-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787849863,
+        "narHash": "sha256-v4XBZN7NN+LodosuIoa3HGUlmrk5dsouTVxJrxPMhlY=",
+        "owner": "deepseek-ai",
+        "repo": "deepseek-harness",
+        "rev": "cd5ef8148158c3a752a658978873241fdf8e2bbc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "deepseek-ai",
+        "repo": "deepseek-harness",
+        "type": "github"
+      }
+    },
     "design-doc-mermaid": {
       "flake": false,
       "locked": {
@@ -1135,6 +1151,7 @@
         "caveman-skills": "caveman-skills",
         "clan-core": "clan-core",
         "claude-code": "claude-code",
+        "deepseek-harness-src": "deepseek-harness-src",
         "design-doc-mermaid": "design-doc-mermaid",
         "doom-modules": "doom-modules",
         "doomemacs": "doomemacs",

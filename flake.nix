@@ -16,6 +16,15 @@
 
     llm-agents.url = "github:numtide/llm-agents.nix";
 
+    # 追踪 deepseek-harness 源码的最新版（main）。npm 上 @deepseek-ai/dsh 长期停在
+    # 0.1.1-rc.2（llm-agents 也只会打包 npm 版），想提前用主分支/下一个版本就得从
+    # 源码构建。flake=false 让 flake.lock 锁住 rev，nix flake update deepseek-harness-src
+    # 可随时拉新。packages/dsh-src 消费它。
+    deepseek-harness-src = {
+      url = "github:deepseek-ai/deepseek-harness";
+      flake = false;
+    };
+
     pi-guardrails-src = {
       url = "github:zrubing/pi-guardrails?rev=712a2ae0b5150a867414bfcb99049128339dc44a";
       flake = false;
