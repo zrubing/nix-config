@@ -7,11 +7,15 @@
 # tool guidance, and later assembly listeners cannot add prompt text. Runtime
 # context snapshots are suppressed for this preset, and the model composes the
 # persistent shell (`bash` on POSIX, `pwsh` on win32), `str_replace_editor`,
-# `web_search`, and `start_process` (background processes). Context compaction
-# uses the preset-local `compact-blackhole.js` backend: a port of pi-blackhole's
-# LLM-free deterministic compile() that subclasses `BasicCompactionEngine` so dsh's
-# pressure / `/compact` / `<compacted-summary>` framing stay, but summarization is
-# free and structural instead of an `llm.stream()` call.
+# `web_search`, `start_process` (background processes), and `recall` (session
+# history + file search). Context compaction uses the pi-blackhole deterministic
+# backend: the @jojo/dsh-blackhole package's `lib/compaction.js` imports
+# pi-blackhole's compile() (bundled by nix from the flake input) and subclasses
+# `BasicCompactionEngine` so dsh's pressure / `/compact` / `<compacted-summary>`
+# framing stay, but summarization is free and structural instead of an
+# `llm.stream()` call. Observational memory (observer/reflector/dropper) is
+# re-expressed over dsh's ctx.llm and injected into the summary; `recall`
+# recovers what the compaction dropped.
 #
 # Managed by nix (modules/home/dsh): do not edit ~/.dsh/.agent-presets/my-minimal
 # in place — edit this file and rebuild (home-manager activation re-links it;
@@ -133,11 +137,22 @@
 - id: tool-processes
   name: './tool-processes.js'
 
+# ── pi-blackhole (recall + observational memory + commands) ─────────────────
+# The agent-facing half of pi-blackhole beyond the deterministic compaction:
+# the `recall` tool (session/file search via the imported pi-blackhole core),
+# the observational-memory workers (observer/reflector/dropper, re-expressed
+# over dsh's ctx.llm), and the /blackhole* commands. This row sits in the
+# agent scope (NOT inside the compaction isolate group below); the compaction
+# backend row mounts ./dsh-blackhole/lib/compaction.js and imports the same
+# bundled core.
+- id: blackhole
+  name: './dsh-blackhole/lib/index.js'
+
 # ── deterministic compaction ─────────────────────────────────────────────────
 #
 # dsh ships a compaction seam (ctx.compaction) with an LLM backend
 # (dsh-compaction-basic). This preset omits the shipped default and mounts a
-# preset-local backend instead: compact-blackhole.js subclasses
+# preset-local backend instead: ./dsh-blackhole/lib/compaction.js subclasses
 # BasicCompactionEngine and overrides ONLY summarize(), replacing the LLM stream
 # call with pi-blackhole's deterministic compile() — an LLM-free structural
 # summary. Pressure thresholds, the /compact command, the <compacted-summary>
@@ -154,8 +169,10 @@
     compaction: true
     toolResultPruner: true
   config:
+    # 确定性压缩后端源码在 preset 内符（./dsh-blackhole/lib/compaction.js，@jojo/dsh-blackhole
+    # 包产物），覆写 BasicCompactionEngine 的 summarize()，导入 pi-blackhole 的 compile()。
     - id: blackhole-compact
-      name: './compact-blackhole.js'
+      name: './dsh-blackhole/lib/compaction.js'
 
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'

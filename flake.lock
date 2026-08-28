@@ -1075,6 +1075,23 @@
         "type": "github"
       }
     },
+    "pi-blackhole-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785594241,
+        "narHash": "sha256-uaTmojNEVj+16Mxv4UMQ47RY76YK73Qn54/f0Kj9zhM=",
+        "owner": "k0valik",
+        "repo": "pi-blackhole",
+        "rev": "2246bca51f8fffc4d2b38949663ab1bf4b695120",
+        "type": "github"
+      },
+      "original": {
+        "owner": "k0valik",
+        "repo": "pi-blackhole",
+        "rev": "2246bca51f8fffc4d2b38949663ab1bf4b695120",
+        "type": "github"
+      }
+    },
     "pi-guardrails-src": {
       "flake": false,
       "locked": {
@@ -1170,6 +1187,7 @@
         "nixpkgs": "nixpkgs_9",
         "nixpkgs-unstable": "nixpkgs-unstable",
         "noctalia": "noctalia",
+        "pi-blackhole-src": "pi-blackhole-src",
         "pi-guardrails-src": "pi-guardrails-src",
         "pi-runinfra-provider-src": "pi-runinfra-provider-src",
         "process-compose": "process-compose",
