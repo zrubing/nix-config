@@ -471,6 +471,23 @@ in
         source = providerPatch;
         force = true;
       };
+
+      # Agent presets：用户侧 preset 目录（$DSH_HOME/.agent-presets，trust=user，
+      # dsh-agent-presets 的 includeUserRoot 默认扫描）。组合文件 dsh 只读——
+      # PresetTree.write() 是 no-op（preset 是输入、不是持久化目标），所以可以像
+      # 上面的 cordis.patch.yml 一样由 nix 静态托管；preset.yml 只是 picker 的
+      # 展示文案（name/description/order），id = 目录名。生效方式：rebuild 后
+      # 新建会话即挂新组合（standing mount 按 composition 文件 stamp 换代，
+      # 运行中的旧会话保持原代），无需重启 dsh-web。
+      # force：目录最初为手工创建，需要接管既有普通文件。
+      home.file.".dsh/.agent-presets/my-minimal/agent.cordis.yml" = {
+        source = ./agent-presets/my-minimal/agent.cordis.yml;
+        force = true;
+      };
+      home.file.".dsh/.agent-presets/my-minimal/preset.yml" = {
+        source = ./agent-presets/my-minimal/preset.yml;
+        force = true;
+      };
     })
 
     (lib.mkIf (cfg.enable && cfg.web.enable) {
