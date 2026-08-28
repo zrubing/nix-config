@@ -44,6 +44,38 @@ let
     cp ${./plugins/model-select-plus/lib/client.js} $out/lib/client.js
   '';
 
+  # pi-processes（aliou）的 agent 侧移植。pi extension（@earendil-works/* 契约 +
+  # TUI 面板）无法被 dsh 加载——dsh 唯一的 pi 关联包 dsh-llm-pi-ai 只是 LLM API
+  # 适配层，不是 extension 宿主。这里移植对 agent 真正有用的半区：start_process
+  # 工具后台起进程不阻塞对话，进程句柄注册进 host 的 ctx.jobs（完成通知 /
+  # job_output 增量读 / job_kill 终止 / web UI jobs 面板全部复用），收集工具由
+  # preset 里的 tool-jobs 行提供。preset 行用相对说明符 ./tool-processes.js 加载
+  # （dsh-agent-presets：preset 自带文件随 preset 走），但 preset 目录向上没有
+  # node_modules，裸 @deepseek-ai/* 导入会失败——故把插件源码与一个 node_modules
+  # shim（符号链接回 dsh 包自身的 node_modules——这个包的依赖嵌套在
+  # @deepseek-ai/dsh/node_modules，不在 lib/node_modules 顶层）构建进同一 store
+  # 路径，dsh 升级（flake.lock 变更）时随 input 重建。
+  toolProcessesPlugin = pkgs.runCommand "dsh-tool-processes" { } ''
+    mkdir -p $out
+    cp ${./agent-presets/my-minimal/tool-processes.js} $out/tool-processes.js
+    ln -s ${dshPackage}/lib/node_modules/@deepseek-ai/dsh/node_modules $out/node_modules
+  '';
+
+  # pi-blackhole 的确定性压缩后端（k0valik pi-blackhole@0.4.3 的 agent 侧移植）。
+  # pi extension 无法被 dsh 加载（dsh 唯一的 pi 相关包 dsh-llm-pi-ai 只是 LLM API
+  # 适配层），这里移植真正有用的半区：Deterministic（零 LLM）的 compile() 结构摘要。
+  # 适配器子类化 BasicCompactionEngine（dsh-compaction-basic）并只覆写
+  # summarize() 钩子——压力阈值、/compact、<compacted-summary> 框架、tool-result
+  # pruner 全部沿用 dsh 原样，仅把 LLM stream 摘要换成确定性 compile()。属于后端
+  # 替换而非重实现。同步溯源见插件头部注释（静态快照 @0.4.3，非随 pi 版本自动跟进）。
+  # 与 toolProcessesPlugin 同构：源码随 preset 相对说明符加载，旁置 node_modules shim
+  # 解析 dsh 自身依赖树（dsh-compaction-basic/dsh-compaction 等）。
+  blackholeCompactPlugin = pkgs.runCommand "dsh-blackhole-compact" { } ''
+    mkdir -p $out
+    cp ${./agent-presets/my-minimal/compact-blackhole.js} $out/compact-blackhole.js
+    ln -s ${dshPackage}/lib/node_modules/@deepseek-ai/dsh/node_modules $out/node_modules
+  '';
+
   # ── runinfra models adapter ───────────────────────────────────────────
   # 单一数据源 = pi 扩展 monotykamary/pi-runinfra-provider（flake input
   # pi-runinfra-provider-src，flake=false 源码树）。pi 侧扩展安装
@@ -522,6 +554,18 @@ in
       };
       home.file.".dsh/.agent-presets/my-minimal/preset.yml" = {
         source = ./agent-presets/my-minimal/preset.yml;
+        force = true;
+      };
+      # start_process 插件源码在 preset 目录内（随 preset 的相对说明符加载），
+      # 实体是上方 toolProcessesPlugin 的 store 产物。
+      home.file.".dsh/.agent-presets/my-minimal/tool-processes.js" = {
+        source = "${toolProcessesPlugin}/tool-processes.js";
+        force = true;
+      };
+      # 确定性压缩后端源码也在 preset 目录内（相对说明符 ./compact-blackhole.js），
+      # 实体是上方 blackholeCompactPlugin 的 store 产物。
+      home.file.".dsh/.agent-presets/my-minimal/compact-blackhole.js" = {
+        source = "${blackholeCompactPlugin}/compact-blackhole.js";
         force = true;
       };
     })
