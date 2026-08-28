@@ -1,11 +1,17 @@
 # The `my-minimal` agent preset: a fixed-prompt coding-agent composition —
-# the shipped `minimal` preset plus the model-facing `web_search` tool.
+# the shipped `minimal` preset plus the model-facing `web_search` tool, the
+# preset-local `start_process` background-process tool, and a deterministic
+# (pi-blackhole) compaction backend.
 #
 # The persona is the complete system prompt, so global identity, Web orientation,
 # tool guidance, and later assembly listeners cannot add prompt text. Runtime
 # context snapshots are suppressed for this preset, and the model composes the
 # persistent shell (`bash` on POSIX, `pwsh` on win32), `str_replace_editor`,
-# and `web_search`. Context compaction is absent.
+# `web_search`, and `start_process` (background processes). Context compaction
+# uses the preset-local `compact-blackhole.js` backend: a port of pi-blackhole's
+# LLM-free deterministic compile() that subclasses `BasicCompactionEngine` so dsh's
+# pressure / `/compact` / `<compacted-summary>` framing stay, but summarization is
+# free and structural instead of an `llm.stream()` call.
 #
 # Managed by nix (modules/home/dsh): do not edit ~/.dsh/.agent-presets/my-minimal
 # in place — edit this file and rebuild (home-manager activation re-links it;
@@ -104,3 +110,59 @@
   config:
     fetch: false
     searchTimeoutMs: 60000
+
+# ── background processes ────────────────────────────────────────────────────
+
+# The agent-facing half of aliou's pi-processes, ported to dsh's own seams: pi
+# extensions cannot load here (dsh's only pi-related package, dsh-llm-pi-ai, is
+# an LLM API adapter, not an extension host), so `start_process` re-expresses
+# the spawn-without-blocking workflow over the host shell executor and the
+# generic `ctx.jobs` runtime. The jobs REGISTRY stays on the host plane
+# (`dsh-jobs-local` in dsh-base); the producer resolves it with ctx.get, and the
+# `tool-jobs` row supplies the collection tools plus completion notices. The web
+# UI's session-header jobs list (dsh-client-ui-jobs) shows running and finished
+# processes — the dsh counterpart of pi-processes' process dock. The persistent
+# PTY shell above stays free for foreground work.
+#
+# The producer row loads its module through a relative specifier, so the file
+# travels with this preset; nix builds it beside a node_modules shim resolving
+# the harness's own @deepseek-ai/* dependencies (see modules/home/dsh).
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+- id: tool-processes
+  name: './tool-processes.js'
+
+# ── deterministic compaction ─────────────────────────────────────────────────
+#
+# dsh ships a compaction seam (ctx.compaction) with an LLM backend
+# (dsh-compaction-basic). This preset omits the shipped default and mounts a
+# preset-local backend instead: compact-blackhole.js subclasses
+# BasicCompactionEngine and overrides ONLY summarize(), replacing the LLM stream
+# call with pi-blackhole's deterministic compile() — an LLM-free structural
+# summary. Pressure thresholds, the /compact command, the <compacted-summary>
+# framing, and the tool-result pruner all stay as dsh ships them; this is a
+# backend swap, not a reimplementation.
+#
+# `tool-result-pruner` shares this realm because compaction-basic reads it through
+# ctx.get. `tokenMeter` is deliberately NOT here: the meter stays on the HOST plane
+# and the rows below resolve that one instance.
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: blackhole-compact
+      name: './compact-blackhole.js'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
