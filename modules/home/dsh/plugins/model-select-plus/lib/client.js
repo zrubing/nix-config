@@ -507,7 +507,9 @@ window.__ModuleLoader__.load({
 			"locale",
 			"modelDirectories",
 			"sessions",
-			"slots"
+			"slots",
+			"remote",
+			"remote.session"
 		];
 		/**
 		 * Client plugin body: register the `modelPlus` dictionaries, then take over
