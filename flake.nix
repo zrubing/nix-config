@@ -273,6 +273,15 @@
       clan = clanConfig.config;
       clanInternals = clanConfig.config.clanInternals;
 
+      # 官方形态通用入口：nix run .#clan -- secrets|vars|...
+      # （与 system-manager-hinihao-net 锁同一 clan-core rev，CLI 二进制一致）
+      apps.x86_64-linux = (snowfall.apps.x86_64-linux or { }) // {
+        clan = {
+          type = "app";
+          program = "${inputs.clan-core.packages.x86_64-linux.clan-cli}/bin/clan";
+        };
+      };
+
       devShells.x86_64-linux.trading =
         let
           pkgs = import inputs.nixpkgs {
