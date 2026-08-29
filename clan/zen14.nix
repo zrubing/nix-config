@@ -83,6 +83,22 @@
     '';
   };
 
+  # OpenBao LDAP agent 密码：OpenBao 的 LDAP auth（LLDAP 用户，agent 通道）
+  # 用于程序零交互获取动态 MySQL 只读凭证（读 database/creds/...）。
+  # 消费方：home sops 渲染进 dsh.env 的 OPENBAO_LDAP_AGENT_PASSWORD。换值：
+  # clan vars set zen14 openbao-ldap-agent-password/password
+  clan.core.vars.generators.openbao-ldap-agent-password = {
+    prompts.password = {
+      description = "OpenBao LDAP agent 用户密码";
+      type = "hidden";
+    };
+    files.password.secret = true;
+
+    script = ''
+      cat $prompts/password > $out/password
+    '';
+  };
+
   # GitHub 远程 MCP server 的 PAT（github_pat_... 或 ghp_...，至少 repo scope）。
   # 消费方：home sops 渲染进 dsh.env 的 GITHUB_MCP_TOKEN，dsh 的 mcp-client 插件
   # （mcp-github）以 process.env.GITHUB_MCP_TOKEN 拼 Bearer 头。换 key：

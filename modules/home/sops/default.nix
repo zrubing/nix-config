@@ -137,6 +137,17 @@ in
       format = "binary";
     };
 
+    # OpenBao LDAP agent 密码：密文由 clan vars 管理（clan/zen14.nix 的
+    # openbao-ldap-agent-password generator，写入
+    # vars/per-machine/zen14/openbao-ldap-agent-password/）。渲染进 dsh.env 的
+    # OPENBAO_LDAP_AGENT_PASSWORD——程序经 OpenBao LDAP auth 零交互取动态
+    # MySQL 只读凭证时读取。加密 recipients 同 apipost（machines/zen14 与
+    # users/jojo）。
+    sops.secrets."openbao-ldap-agent/password" = {
+      sopsFile = ../../../vars/per-machine/zen14/openbao-ldap-agent-password/password/secret;
+      format = "binary";
+    };
+
     sops.templates."anysearch-env" = {
       path = "/home/${username}/.pi/agent/skills/anysearch/.env";
       content = ''
@@ -176,6 +187,9 @@ in
         export OPENCODE_API_KEY="${config.sops.placeholder."opencode/api_key"}"
         export DEEPSEEK_API_KEY="${config.sops.placeholder."deepseek/api_key"}"
         export ZAI_CODING_CN_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
+        # GH_TOKEN 复用 github-mcp/api_token 同一份 PAT（clan/zen14.nix github-mcp-token），
+        # 供 gh CLI / git 等读标准 GH_TOKEN 完成认证。单一来源，随 MCP token 一起轮换。
+        export GH_TOKEN="${config.sops.placeholder."github-mcp/api_token"}"
       '';
     };
 
@@ -196,6 +210,7 @@ in
         APIPOST_MCP_TOKEN=${config.sops.placeholder."apipost-mcp/api_token"}
         NVIDIA_NIM_API_KEY=${config.sops.placeholder."nvidia-nim/api_key"}
         GITHUB_MCP_TOKEN=${config.sops.placeholder."github-mcp/api_token"}
+        OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
       '';
     };
   };
