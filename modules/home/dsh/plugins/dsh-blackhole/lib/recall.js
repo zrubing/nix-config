@@ -163,20 +163,27 @@ function apply(ctx, config) {
       "#N expands an entry; #N:path drills into file content with optional :offset:limit or :full; " +
       "12-char hex ids recover observation/reflection sources; mode:file for file-content-only, " +
       "mode:touched aggregates files-by-path. Use this to recover details lost to compaction.",
+    // `parameters` must be a full JSON Schema with an object root. dsh's
+    // raw `ctx.tools.register()` does NOT normalize a bare property map (only
+    // `defineTool()` does), so without `type: "object"` the model API rejects
+    // the tool ("schema must be a JSON Schema of 'type: "object"'").
     parameters: {
-      query: {
-        type: "string",
-        description:
-          "Text/regex search; #N expands an entry; #N:path drills file content; 12-char hex for observations.",
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Text/regex search; #N expands an entry; #N:path drills file content; 12-char hex for observations.",
+        },
+        expand: {
+          type: "array",
+          items: { type: "number" },
+          description: "Entry indices to return full untruncated content for.",
+        },
+        page: { type: "number", description: "Page (1-based) for paginated results." },
+        scope: { type: "string", enum: ["lineage", "all"], description: "Search scope (default lineage = whole session)." },
+        mode: { type: "string", enum: ["hybrid", "file", "touched"], description: "What content to search." },
       },
-      expand: {
-        type: "array",
-        items: { type: "number" },
-        description: "Entry indices to return full untruncated content for.",
-      },
-      page: { type: "number", description: "Page (1-based) for paginated results." },
-      scope: { type: "string", enum: ["lineage", "all"], description: "Search scope (default lineage = whole session)." },
-      mode: { type: "string", enum: ["hybrid", "file", "touched"], description: "What content to search." },
     },
     output: {
       schema: { type: "string" },

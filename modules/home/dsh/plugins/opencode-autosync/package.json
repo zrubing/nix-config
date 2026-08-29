@@ -1,0 +1,15 @@
+{
+  "name": "dsh-opencode-autosync",
+  "version": "0.1.0",
+  "description": "DSH host plugin: automatically discover the live opencode.ai Go-tier model list and merge new model ids into the 'opencode-go' llm-pi-ai route. Runs once at dsh startup and again on an interval, add-only (never prunes). Bypasses dsh-llm-pi-ai's catalog short-circuit by calling llm.discoverModels without a catalog provider id, so opencode-go models that pi-ai's static catalog has not shipped yet appear automatically.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js"
+  ],
+  "license": "MIT"
+}
