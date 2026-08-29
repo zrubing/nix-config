@@ -158,6 +158,15 @@ in
       format = "binary";
     };
 
+    # OpenBao 集群访问地址：密文由 clan vars 管理（clan/zen14.nix 的
+    # openbao-addr generator）。渲染进 dsh.env 的 BAO_ADDR——程序执行
+    # bao CLI 时自动带上，无需手动 export。加密 recipients 同 apipost
+    # （machines/zen14 与 users/jojo）。
+    sops.secrets."openbao-addr/addr" = {
+      sopsFile = ../../../vars/per-machine/zen14/openbao-addr/addr/secret;
+      format = "binary";
+    };
+
     sops.templates."anysearch-env" = {
       path = "/home/${username}/.pi/agent/skills/anysearch/.env";
       content = ''
@@ -222,6 +231,7 @@ in
         GITHUB_MCP_TOKEN=${config.sops.placeholder."github-mcp/api_token"}
         OPENBAO_LDAP_AGENT_USERNAME=${config.sops.placeholder."openbao-ldap-agent/username"}
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
+        BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}
       '';
     };
   };

@@ -89,6 +89,7 @@
   # OPENBAO_LDAP_AGENT_PASSWORD。换值：
   # clan vars set zen14 openbao-ldap-agent-password/password
   # clan vars set zen14 openbao-ldap-agent-username/username
+  # clan vars set zen14 openbao-addr/addr
   clan.core.vars.generators.openbao-ldap-agent-password = {
     prompts.password = {
       description = "OpenBao LDAP agent 用户密码";
@@ -109,6 +110,17 @@
 
     script = ''
       cat $prompts/username > $out/username
+    '';
+  };
+
+  clan.core.vars.generators.openbao-addr = {
+    prompts.addr = {
+      description = "OpenBao 集群访问地址（HTTPS URL）";
+    };
+    files.addr.secret = true;
+
+    script = ''
+      cat $prompts/addr > $out/addr
     '';
   };
 
