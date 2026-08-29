@@ -167,11 +167,12 @@ in
       format = "binary";
     };
 
-    # dsh 的 OpenBao 用法指令（~/.dsh/AGENTS.md）：全文 sops 加密（仓库内
-    # .sops.yaml zen14 规则，systems/x86_64-linux/zen14/secrets/AGENTS.md），
-    # 激活时解密渲染并 symlink 到 dsh-agent-instructions 的全局指令位置。
-    # 内容含集群地址等不宜明文入库的信息；不含密码（密码经 env 注入）。
-    sops.secrets."openbao-agents/AGENTS.md" = {
+    # dsh agent 全局指令（~/.dsh/AGENTS.md）：所有 dsh agent 的用法说明都
+    # 放这里（当前为 OpenBao 操作指南）。全文 sops 加密（仓库内 .sops.yaml
+    # zen14 规则，systems/x86_64-linux/zen14/secrets/AGENTS.md），激活时解密
+    # 渲染并 symlink 到 dsh-agent-instructions 的全局指令位置。内容含集群
+    # 地址等不宜明文入库的信息；不含密码（密码经 env 注入）。
+    sops.secrets."dsh-agents/AGENTS.md" = {
       sopsFile = ../../../systems/x86_64-linux/zen14/secrets/AGENTS.md;
       format = "binary";
       path = "/home/${username}/.dsh/AGENTS.md";
