@@ -41,6 +41,17 @@
     fetch: false
     searchTimeoutMs: 60000
 
+# ── workspace instructions (AGENTS.md) ───────────────────────────────────────
+# User-global $DSH_HOME/AGENTS.md plus the project-chain AGENTS.md/CLAUDE.md
+# files become a durable baseline in the first request (byte-budget capped).
+# The user-global file declares OpenBao (bao) usage — env-var provenance,
+# LDAP login, and dynamic MySQL credential flow — see ~/.dsh/AGENTS.md
+# (declared via home.file in modules/home/dsh).
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
 # ── background processes ────────────────────────────────────────────────────
 
 # The agent-facing half of aliou's pi-processes, ported to dsh's own seams: pi
