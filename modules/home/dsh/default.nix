@@ -41,6 +41,22 @@ let
     cp ${./plugins/braces-sanitize/index.js} $out/index.js
   '';
 
+  # OpenBao LDAP agent 密码注入（shell-env 注册表）：dsh 的子进程 env 构建会
+  # 擦除名字匹配 KEY|PASSWORD|SECRET|TOKEN 的宿主变量（scrubbedParentEnv，
+  # 刻意安全设计），但 shell-env 注册表是官方受信通道（DSH_* 命名空间，每次
+  # shell 调用重建、经 executor 在 scrub 之后注入）。本插件照 dsh-web-app 的
+  # 官方范例注册 contributor：resolver 从宿主进程 env 读
+  # OPENBAO_LDAP_AGENT_PASSWORD（dsh-web-start 已 source dsh.env），注入为
+  # DSH_OPENBAO_LDAP_AGENT_PASSWORD。agent 配合 OPENBAO_LDAP_AGENT_USERNAME
+  # （非敏感名，不受 scrub）+ BAO_ADDR 即可 bao login 零交互取动态 MySQL 凭证。
+  # 装载 = activation 以 file: 依赖装入 web profile + 本文件 providerPatch 的
+  # insert 行；同 braces-sanitize 双件套。
+  openbaoShellEnvPlugin = pkgs.runCommand "dsh-openbao-shell-env" { } ''
+    mkdir -p $out
+    cp ${./plugins/openbao-shell-env/package.json} $out/package.json
+    cp ${./plugins/openbao-shell-env/index.js} $out/index.js
+  '';
+
   # composer 模型座位替换（可搜索 + Provider 前缀）。client-ui 插件：host 半区
   # 空 apply 占位，浏览器半区 lib/client.js 是手写的 __ModuleLoader__.load 单文件
   # 产物（vendor seed 模块 react / jsx-runtime / ui-primitives 之外零依赖）。
@@ -55,6 +71,19 @@ let
     cp ${./plugins/model-select-plus/package.json} $out/package.json
     cp ${./plugins/model-select-plus/lib/index.js} $out/lib/index.js
     cp ${./plugins/model-select-plus/lib/client.js} $out/lib/client.js
+  '';
+
+  # 自动发现 opencode-go 实时模型（见 plugins/opencode-autosync/lib/index.js 注释）。
+  # host-only 插件，零 @deepseek-ai/* 导入（不走 node_modules shim）：服务全部经
+  # ctx.get 惰性解析，网络发现复用 ctx.llm.discoverModels（provider 故意省略以绕过
+  # dsh-llm-pi-ai 对 catalog provider 的短路，见插件源码 Why）。构建产物只含
+  # package.json + lib/index.js，activation 以 file: 装入 web profile；loader 行
+  # 在 providerPatch 的 opencode-autosync insert 条目。同 braces-sanitize /
+  # model-select-plus 双件套。headless 未装包时该行仅告警跳过。
+  opencodeAutosyncPlugin = pkgs.runCommand "dsh-opencode-autosync" { } ''
+    mkdir -p $out/lib
+    cp ${./plugins/opencode-autosync/package.json} $out/package.json
+    cp ${./plugins/opencode-autosync/lib/index.js} $out/lib/index.js
   '';
 
   # pi-processes（aliou）的 agent 侧移植。pi extension（@earendil-works/* 契约 +
@@ -368,8 +397,18 @@ let
           # opencode-go 是 pi-ai 内置 catalog 路由（OpenCode Zen Go 网关，
           # 含 deepseek-v4-pro/flash、glm-5.2、kimi-k3、qwen3.7 等模型），
           # 认证环境变量 OPENCODE_API_KEY 与 jojo home 注入一致。
+          # 2026-08-29 实测：网关 /go/v1/chat/completions 对 catalog 判定为
+          # anthropic-messages 的 minimax-m3 / qwen3.7-max 也 200（统一 OpenAI
+          # 兼容端）。catalog 是混合 api（anthropic/openai-completions/
+          # openai-responses），sharedCatalogApi 返回 undefined，而 dsh schema 只认
+          # 路由级 api（request.api ?? base?.api；models 条目不接受 api/baseURL），
+          # 故补 catalog 未描述的模型（如 qwen3.8-flash 等，由 dsh-opencode-autosync
+          # 自动发现）必须给路由声明 api + baseURL。这会顺带让 catalog 里少数
+          # anthropic 模型改走 openai-completions（已验证可用）。
           opencode-go:
             apiKeyEnv: OPENCODE_API_KEY
+            api: openai-completions
+            baseURL: https://opencode.ai/zen/go/v1
           # openrouter 是 pi-ai 内置 catalog 路由（https://openrouter.ai/api/v1，
           # openai-completions），catalog 内置 276 个模型，无需手工声明 models。
           openrouter:
@@ -489,6 +528,29 @@ let
         - id: ui-model-select-plus
           name: '@local/dsh-model-select-plus'
           config: {}
+
+    # OpenBao LDAP agent 密码注入（见上方 openbaoShellEnvPlugin 注释）：
+    # shell-env 注册表 contributor，把 DSH_OPENBAO_LDAP_AGENT_PASSWORD 注入
+    # 每次模型 shell 调用（宿主敏感 env 被 scrub，这是官方受信通道）。
+    # headless 未装包时仅告警跳过。
+    - insert:
+        - id: openbao-shell-env
+          name: dsh-openbao-shell-env
+          config: {}
+
+    # 自动发现 opencode-go 实时模型（见上方 opencodeAutosyncPlugin 注释）。
+    # host-only 插件：启动 + 每 intervalMs 拉 opencode.ai Go 档清单，add-only
+    # 并入 opencode-go 路由的 models（不删已配置条目）。config 可选覆盖：
+    # route / baseURL / api / apiKeyEnv / intervalMs。headless 未装包时仅告警跳过。
+    - insert:
+        - id: opencode-autosync
+          name: dsh-opencode-autosync
+          config:
+            route: opencode-go
+            baseURL: https://opencode.ai/zen/go/v1
+            api: openai-completions
+            apiKeyEnv: OPENCODE_API_KEY
+            intervalMs: 43200000
 
   '';
 
@@ -616,6 +678,14 @@ in
         source = ./agent-presets/my-minimal/preset.yml;
         force = true;
       };
+      # OpenBao 用法指令（用户全局 AGENTS.md）：dsh-agent-instructions 插件
+      # （extras.cordis.yml 的 agent-instructions 行）把 $DSH_HOME/AGENTS.md
+      # 作为每次请求的基线指令。内容见源文件（bao 登录 / 动态 MySQL 凭证 /
+      # DSH_OPENBAO_LDAP_AGENT_PASSWORD 变量来源说明）。
+      home.file.".dsh/AGENTS.md" = {
+        source = ./agent-presets/my-minimal/AGENTS.md;
+        force = true;
+      };
       # start_process 插件源码在 preset 目录内（随 preset 的相对说明符加载），
       # 实体是上方 toolProcessesPlugin 的 store 产物。
       home.file.".dsh/.agent-presets/my-minimal/tool-processes.js" = {
@@ -712,6 +782,22 @@ in
         fi
       '';
 
+      # OpenBao LDAP agent 密码注入（见上方 openbaoShellEnvPlugin 注释）：同
+      # braces-sanitize 的 file: + store-hash 幂等安装；loader 行在
+      # cordis.patch.yml 的 openbao-shell-env insert 条目。装完重启 dsh-web 生效。
+      home.activation.configureDshOpenbaoShellEnv = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        want="file://${openbaoShellEnvPlugin}"
+        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
+            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+          else
+            echo "WARN: dsh-openbao-shell-env 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+
       # 可搜索模型选择器（见上方 modelSelectPlusPlugin 注释）：同 braces-sanitize
       # 的 file: + store-hash 幂等安装；loader 行在 cordis.patch.yml 的
       # ui-model-select-plus insert 条目。装完重启 dsh-web 生效。
@@ -724,6 +810,22 @@ in
             systemctl --user try-restart dsh-web.service 2>/dev/null || true
           else
             echo "WARN: dsh-model-select-plus 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+
+      # 自动发现 opencode-go 模型（见上方 opencodeAutosyncPlugin 注释）：同
+      # model-select-plus 的 file: + store-hash 幂等安装；loader 行在
+      # cordis.patch.yml 的 opencode-autosync insert 条目。装完重启 dsh-web 生效。
+      home.activation.configureDshOpencodeAutosync = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        want="file://${opencodeAutosyncPlugin}"
+        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
+            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+          else
+            echo "WARN: dsh-opencode-autosync 安装失败（离线？），下次重建重试"
           fi
         fi
       '';
