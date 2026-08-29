@@ -62,6 +62,7 @@ in
   home.packages = [
     pkgs.${namespace}."pv-inspect"
     pkgs.aliyun-cli
+    pkgs.openbao
     inputs.clan-core.packages.${pkgs.system}.clan-cli
   ];
 
@@ -150,6 +151,13 @@ in
         # 提前体验：用源码构建的 dsh 0.1.2-alpha.1（Moraxyc 式 kernel + 官方 web/headless bundle）。
         # llm-agents 更新到 0.1.2 后把这里改回 false 即回落 npm 版。
         useDshSource = true;
+        # 自动发现 opencode-go 模型：dsh 启动 + 每 12h 拉 opencode.ai Go 档清单，
+        # add-only 并入 opencode-go 路由的 models（modules/home/dsh 的
+        # dsh-opencode-autosync 插件，见 plugins/opencode-autosync）。
+        # 不再用 dsh-opencode-models 手动插件：dsh-llm-pi-ai 的 discoverModels 对
+        # catalog provider 走 pi-ai 静态清单（短路联网），对 opencode-go 拿到的是
+        # 内置 catalog 而非 opencode.ai 实时列表，会把本插件新加的模型当 stale 甚至
+        # pruneStale 删掉，两者冲突，故弃用。
       };
       pi = {
         enable = true;
