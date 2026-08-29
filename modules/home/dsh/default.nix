@@ -678,14 +678,6 @@ in
         source = ./agent-presets/my-minimal/preset.yml;
         force = true;
       };
-      # OpenBao 用法指令（用户全局 AGENTS.md）：dsh-agent-instructions 插件
-      # （extras.cordis.yml 的 agent-instructions 行）把 $DSH_HOME/AGENTS.md
-      # 作为每次请求的基线指令。内容见源文件（bao 登录 / 动态 MySQL 凭证 /
-      # DSH_OPENBAO_LDAP_AGENT_PASSWORD 变量来源说明）。
-      home.file.".dsh/AGENTS.md" = {
-        source = ./agent-presets/my-minimal/AGENTS.md;
-        force = true;
-      };
       # start_process 插件源码在 preset 目录内（随 preset 的相对说明符加载），
       # 实体是上方 toolProcessesPlugin 的 store 产物。
       home.file.".dsh/.agent-presets/my-minimal/tool-processes.js" = {
