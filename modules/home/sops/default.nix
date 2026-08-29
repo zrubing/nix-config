@@ -137,6 +137,16 @@ in
       format = "binary";
     };
 
+    # OpenBao LDAP agent 用户名：密文由 clan vars 管理（clan/zen14.nix 的
+    # openbao-ldap-agent-username generator）。与密码配套渲染进 dsh.env 的
+    # OPENBAO_LDAP_AGENT_USERNAME——程序经 OpenBao LDAP auth 零交互取动态
+    # MySQL 只读凭证时读取。加密 recipients 同 apipost（machines/zen14 与
+    # users/jojo）。
+    sops.secrets."openbao-ldap-agent/username" = {
+      sopsFile = ../../../vars/per-machine/zen14/openbao-ldap-agent-username/username/secret;
+      format = "binary";
+    };
+
     # OpenBao LDAP agent 密码：密文由 clan vars 管理（clan/zen14.nix 的
     # openbao-ldap-agent-password generator，写入
     # vars/per-machine/zen14/openbao-ldap-agent-password/）。渲染进 dsh.env 的
@@ -210,6 +220,7 @@ in
         APIPOST_MCP_TOKEN=${config.sops.placeholder."apipost-mcp/api_token"}
         NVIDIA_NIM_API_KEY=${config.sops.placeholder."nvidia-nim/api_key"}
         GITHUB_MCP_TOKEN=${config.sops.placeholder."github-mcp/api_token"}
+        OPENBAO_LDAP_AGENT_USERNAME=${config.sops.placeholder."openbao-ldap-agent/username"}
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
       '';
     };

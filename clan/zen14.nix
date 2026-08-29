@@ -83,10 +83,12 @@
     '';
   };
 
-  # OpenBao LDAP agent 密码：OpenBao 的 LDAP auth（LLDAP 用户，agent 通道）
-  # 用于程序零交互获取动态 MySQL 只读凭证（读 database/creds/...）。
-  # 消费方：home sops 渲染进 dsh.env 的 OPENBAO_LDAP_AGENT_PASSWORD。换值：
+  # OpenBao LDAP agent 用户名 + 密码：OpenBao 的 LDAP auth（LLDAP 用户，agent
+  # 通道）用于程序零交互获取动态 MySQL 只读凭证（读 database/creds/...）。
+  # 消费方：home sops 渲染进 dsh.env 的 OPENBAO_LDAP_AGENT_USERNAME /
+  # OPENBAO_LDAP_AGENT_PASSWORD。换值：
   # clan vars set zen14 openbao-ldap-agent-password/password
+  # clan vars set zen14 openbao-ldap-agent-username/username
   clan.core.vars.generators.openbao-ldap-agent-password = {
     prompts.password = {
       description = "OpenBao LDAP agent 用户密码";
@@ -96,6 +98,17 @@
 
     script = ''
       cat $prompts/password > $out/password
+    '';
+  };
+
+  clan.core.vars.generators.openbao-ldap-agent-username = {
+    prompts.username = {
+      description = "OpenBao LDAP agent 用户名（LLDAP 用户）";
+    };
+    files.username.secret = true;
+
+    script = ''
+      cat $prompts/username > $out/username
     '';
   };
 
