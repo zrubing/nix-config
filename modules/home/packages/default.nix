@@ -152,7 +152,6 @@ in {
           imv
           grim
           satty
-          pkgs.unstable.cherry-studio
           feishu
           vscode
           code-cursor
