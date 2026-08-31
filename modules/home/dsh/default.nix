@@ -30,6 +30,31 @@ let
   username = config.snowfallorg.user.name;
   userBin = "/etc/profiles/per-user/${username}/bin";
 
+  # dsh web 服务跑在无 DISPLAY 的 systemd user 环境里（has_display=false），xdg-open 会
+  # 跳过 mime 关联查找、直接走 BROWSER 兜底；BROWSER 空 + 无终端浏览器（www-browser 等全
+  # 未装）→ "no method available for opening '...'"，GUI 点文件路径即报这个错。给服务注入
+  # BROWSER=dsh-file-open：文件路径交给 emacsclient（用户默认 editor，--create-frame，
+  # 连 daemon 开新帧显示）；URL 回落给系统 xdg-open（避免把 http(s) 链接塞给 emacs）。
+  dshFileOpener = pkgs.writeShellScriptBin "dsh-file-open" ''
+    real_xdg_open=/run/current-system/sw/bin/xdg-open
+    for arg in "$@"; do
+      case "$arg" in
+        http://*|https://*|ftp://*|file://*|mailto:*)
+          exec "$real_xdg_open" "$@"
+          ;;
+      esac
+    done
+    # dsh-web 服务无 DISPLAY 且无 tty：emacsclient --create-frame 会先取终端名而报
+    # "could not get terminal name"；而 emacs daemon 常以缺 DISPLAY 的 systemd 服务启动、
+    # 初始为 terminal 模式（window-system=nil），直接开帧会报 "unknown terminal type"。故用
+    # --eval 把文件交给 daemon：若 daemon 尚无图形帧（本 emacs 为 X11 构建，靠 XWayland :0
+    # 提供窗口），优先复用当前图形帧（用户在看的那个），没有图形帧才在 XWayland :0 新建；打开文件后
+    # select-frame-set-input-focus + raise-frame，让显示该文件的窗口聚焦到前台。
+    # 客户端只连 server socket，无需 tty/display。路径转义成 Lisp 字符串字面量（\ 与 "）。
+    path="$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    emacsclient --eval "(progn (let* ((cur (selected-frame)) (gf (or (and (display-graphic-p cur) cur) (let ((found nil)) (dolist (f (frame-list) found) (when (and (frame-live-p f) (display-graphic-p f)) (setq found f)))))) (frame (or gf (make-frame (list (cons 'display \":0\")))))) (with-selected-frame frame (find-file \"$path\")) (select-frame-set-input-focus frame) (raise-frame frame)) t)"
+  '';
+
   # 本地 dsh 插件：中和 MCP 工具描述带进 prompt section 的未注册 {{...}} 组
   # （如 apipost get_target_detail 的字面示例 {{paramName}}），否则
   # dsh-system-prompt 严格渲染器抛 "malformed prompt variable reference"
@@ -649,7 +674,34 @@ in
 
   config = lib.mkMerge [
     (lib.mkIf cfg.enable {
-      home.packages = [ dshPackage ];
+      home.packages = [ dshPackage dshFileOpener ];
+
+      # 文本/源码文件默认用 emacs（用户默认 editor）打开。dsh-web 服务现带 WAYLAND_DISPLAY
+      # （has_display=true），xdg-open 走 mime 查找而非 BROWSER 兜底；而 emacsclient.desktop
+      # 的 Exec 是 --create-frame，在无 tty 的服务里报 "could not get terminal name"，故 mime
+      # 处理器必须用 no-tty-safe 的 dsh-file-open（内部 emacsclient --eval，需要时在 XWayland
+      # :0 上补图形帧）。BROWSER=dsh-file-open 继续保留，作无显示环境的兜底。
+      # 注意：本 flake 的 nixpkgs 里 xdg.desktopEntries 已移除 extraConfig、求值即报错
+      # （brave/emacs 亦受影响），故用 home.file 直接把 .desktop 写进 $XDG_DATA_HOME/applications/。
+      home.file."${config.xdg.dataHome}/applications/dsh-file-open.desktop" = {
+        text = ''
+          [Desktop Entry]
+          Type=Application
+          Name=Dsh File Open (Emacs)
+          Exec=${dshFileOpener}/bin/dsh-file-open %F
+          Terminal=false
+          NoDisplay=true
+          MimeType=text/plain;text/javascript;application/javascript;application/json;text/x-python;text/markdown;text/x-shellscript;application/x-shellscript;text/x-c;text/x-c++;
+        '';
+      };
+      xdg.mimeApps.defaultApplications = {
+        "text/plain" = [ "dsh-file-open.desktop" ];
+        "text/javascript" = [ "dsh-file-open.desktop" ];
+        "application/javascript" = [ "dsh-file-open.desktop" ];
+        "application/json" = [ "dsh-file-open.desktop" ];
+        "text/x-python" = [ "dsh-file-open.desktop" ];
+        "text/markdown" = [ "dsh-file-open.desktop" ];
+      };
 
       # 静态配置走 cordis.patch.yml（dsh 只读、应用所有 profile），模型路由声明在这里；
       # settings.yaml 留给 dsh 动态管理（Web UI 的 provider 改动 / onboarding 状态），
@@ -712,6 +764,7 @@ in
             + (lib.concatMapStrings (h: " --trusted-host ${h}") cfg.web.trustedHosts);
           Environment = [
             "PATH=/run/current-system/sw/bin:/etc/profiles/per-user/%u/bin:%h/.local/bin"
+            "BROWSER=${dshFileOpener}/bin/dsh-file-open"
           ];
           Restart = "on-failure";
           RestartSec = 5;
