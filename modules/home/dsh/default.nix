@@ -111,6 +111,23 @@ let
     cp ${./plugins/opencode-autosync/lib/index.js} $out/lib/index.js
   '';
 
+  # 自动发现 runinfra 实时模型（见 plugins/runinfra-autosync/lib/index.js 注释）。
+  # host-only 插件，零 @deepseek-ai/* 导入：服务全部经 ctx.get 惰性解析，网络
+  # 发现复用 ctx.llm.discoverModels（provider 故意省略以走网络分支）。与
+  # opencode-autosync 不同，runinfra 是单一 openai-completions 网关，其
+  # /v1/models 是权威，故这里采用 reconcile（增删同步）而非 add-only——保留
+  # 仍在 live 的既有条目（含 compat/reasoningEfforts/用户修正容量）、追加
+  # 新出现 id（带 RunInfra 安全默认：developer role 400 故
+  # supportsDeveloperRole:false）、并丢弃网关已下架 id。构建产物只含
+  # package.json + lib/index.js，activation 以 file: 装入 web profile；loader
+  # 行在 providerPatch 的 runinfra-autosync insert 条目。headless 未装包时该行
+  # 仅告警跳过。
+  runinfraAutosyncPlugin = pkgs.runCommand "dsh-runinfra-autosync" { } ''
+    mkdir -p $out/lib
+    cp ${./plugins/runinfra-autosync/package.json} $out/package.json
+    cp ${./plugins/runinfra-autosync/lib/index.js} $out/lib/index.js
+  '';
+
   # pi-processes（aliou）的 agent 侧移植。pi extension（@earendil-works/* 契约 +
   # TUI 面板）无法被 dsh 加载——dsh 唯一的 pi 关联包 dsh-llm-pi-ai 只是 LLM API
   # 适配层，不是 extension 宿主。这里移植对 agent 真正有用的半区：start_process
@@ -233,6 +250,47 @@ let
           input = [ "text" "image" ];
           thinkingLevelMap = { low = "high"; medium = "high"; high = "high"; max = "max"; };
           compat = { thinkingFormat = "zai"; supportsDeveloperRole = false; };
+        }
+        {
+          # nemotron-3-5-lightning-30b 只在 pi 扩展的 patch.json（不在
+          # models.json base），扩展的 buildModels/applyPatch 同样只 patch base
+          # 已有 id → dsh 静态 adapter 与 pi 静态构建都会漏掉它；pi 靠 live
+          # revalidate（fetchLiveModels + buildModels 再 apply patch）补上，dsh
+          # 之前没有 live 通路，故在此转录 patch.json 的推理元数据。上游一旦
+          # 把它注册进 models.json，knownIds 命中 → effectiveExtras 过滤掉本条，
+          # 自动回归单一数据源（同 glm-5-3-flash 机制）。
+          # contextWindow/maxTokens 取 live /v1/models 实测值（262144/262144，
+          # 网关对 nemotron 实测 mt=262144 仍 200；旧注释"网关强制 ≤32768"已
+          # 过时——glm/deepseek 在 1048576 均 200）。reasoningEfforts 严格转录
+          # patch.json 的 thinkingLevelMap（off=none，off 允许空值；dsh 规则下
+          # 其余 level wire 值须非空且非 off 不可留空）。
+          id = "nemotron-3-5-lightning-30b";
+          name = "Nemotron 3.5 Lightning 30B";
+          contextWindow = 262144;
+          maxTokens = 262144;
+          input = [ "text" ];
+          thinkingLevelMap = {
+            off = "none";
+            minimal = "low";
+            low = "low";
+            medium = "medium";
+            high = "xhigh";
+            xhigh = "xhigh";
+            max = "xhigh";
+          };
+          compat = {
+            thinkingFormat = "openai";
+            supportsReasoningEffort = true;
+            requiresReasoningContentOnAssistantMessages = true;
+            maxTokensField = "max_tokens";
+            # dev/store false：runinfra 网关 role 白名单只有 system/user/
+            # assistant/tool（developer 实测 400）；supportsStore 与 base
+            # models.json 其余模型一致。patch.json 的 nemotron compat 只有
+            # 上方 4 字段（基础 compat 本应来自 base models.json，但 nemotron
+            # 不在 base），故在此补齐。
+            supportsDeveloperRole = false;
+            supportsStore = false;
+          };
         }
       ];
       orderedBase = lib.map applyTo base;
@@ -442,7 +500,10 @@ let
           # 端点，此 openrouter 独立路由已移除（2026-08-26）。
           # runinfra：openai-completions 网关。模型清单不再手抄——由上方
           # runinfraModels adapter 从 pi 扩展（pi-runinfra-provider-src，与 pi
-          # 侧同一 rev）生成，单一数据源；同步方式见 adapter 注释。
+          # 侧同一 rev）生成，单一数据源。
+          # 静态 adapter 无 live 通路，网关新模型（如 nemotron-3-5-lightning-30b、
+          # ornith-1-5-35b、qwen3-8-flash-next）会落伍；由下方 runinfra-autosync
+          # 插件按 /v1/models 做 reconcile（增删同步，保留既有条目 compat）。
           # key 来自 pi auth.json 的 runinfra 条目（已迁入 sops secrets/env.yaml）。
           # 注意 schema：api/baseURL 在 provider 层（models 条目不接受这些字段）；
           # cost 不在 dsh patch schema，adapter 已丢弃。
@@ -575,6 +636,22 @@ let
             baseURL: https://opencode.ai/zen/go/v1
             api: openai-completions
             apiKeyEnv: OPENCODE_API_KEY
+            intervalMs: 43200000
+
+    # 自动发现 runinfra 实时模型（见上方 runinfraAutosyncPlugin 注释）。
+    # host-only 插件：启动 + 每 intervalMs 拉 api.runinfra.ai/v1/models 清单，
+    # reconcile（增删同步）runinfra 路由的 models——保留仍在 live 的既有条目
+    # （compat/reasoningEfforts/容量）、追加新出现 id（RunInfra 安全默认）、
+    # 丢弃网关已下架 id。config 可选覆盖：route / baseURL / api / apiKeyEnv /
+    # intervalMs。headless 未装包时仅告警跳过。
+    - insert:
+        - id: runinfra-autosync
+          name: dsh-runinfra-autosync
+          config:
+            route: runinfra
+            baseURL: https://api.runinfra.ai/v1
+            api: openai-completions
+            apiKeyEnv: RUNINFRA_GATEWAY_KEY
             intervalMs: 43200000
 
   '';
@@ -742,6 +819,25 @@ in
       # （agent scope）挂载。
       home.file.".dsh/.agent-presets/my-minimal/dsh-blackhole" = {
         source = "${blackholePlugin}";
+        force = true;
+      };
+
+      # ── DSH skill：woodpecker-ci（声明式）───────────────────────────────
+      # DSH 的本地 skill 由 @deepseek-ai/dsh-skill-filesystem 从若干根目录发现，
+      # 每个 skill 是一个目录 bundle（内含 SKILL.md，frontmatter 必有 name + description）。
+      # 用户级根取 ~/.agents/skills（$DSH_AGENTS_HOME 或 ~/.agents 的 skills 子目录，
+      # rank 500）——与 DSH 现有用户 skill（agent-browser、gitbutler）同处该活跃根，
+      # 已被本会话目录证明被扫描（本会话里 agent-browser/but 均由此根提供）。
+      # 与 pi 侧 <pi/agent/skills/woodpecker-ci> 同源（.pi/skill-sources/woodpecker-ci，
+      # git 权威源）：此处用同一 source，DSH 与 pi 各自读取自己根目录下的这份副本，
+      # 互不干扰。rebuild 后 home-manager 在 ~/.agents/skills/woodpecker-ci 建 symlink
+      # （该根已存在、chokidar 监听中），运行中的 dsh-web 立即发现；无需重启。
+      # force：接管以普通目录形式已存在的同名目录。~/.agents/skills/woodpecker-ci
+      # 已作为普通目录存在（内只有同一份 SKILL.md），home-manager 默认拒绝覆盖
+      # 非空真实目录，须显式 force 才允许替换为 symlink。来源与现有内容一致
+      # （均为 .pi/skill-sources/woodpecker-ci 的 2999 字节 SKILL.md），接管无破坏。
+      home.file.".agents/skills/woodpecker-ci" = {
+        source = ../../../.pi/skill-sources/woodpecker-ci;
         force = true;
       };
     })

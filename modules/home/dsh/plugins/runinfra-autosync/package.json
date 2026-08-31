@@ -1,0 +1,15 @@
+{
+  "name": "dsh-runinfra-autosync",
+  "version": "0.1.0",
+  "description": "DSH host plugin: reconcile the 'runinfra' llm-pi-ai route's model list against the live RunInfra /v1/models listing. Runs once at dsh startup and again on an interval; keeps existing configured entries (compat/reasoningEfforts/capacity) for ids still advertised, appends newly listed ids with RunInfra-safe defaults, and drops ids the gateway no longer lists. Unlike dsh-opencode-autosync (add-only), RunInfra is a single-protocol gateway whose /v1/models list is authoritative, so this plugin prunes models that fall off the live list.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js"
+  ],
+  "license": "MIT"
+}

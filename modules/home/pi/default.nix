@@ -123,54 +123,44 @@ in
       text = blackholeConfig;
       force = true;
     };
-    home.file.".pi/agent/skills/woodpecker-ci".source = ../../../.pi/skill-sources/woodpecker-ci;
-    home.file.".pi/agent/skills/zli".source = ../../../.pi/skill-sources/zli;
-    home.file.".pi/agent/skills/sealed-secrets".source = ../../../.pi/skill-sources/sealed-secrets;
-    home.file.".pi/agent/skills/tradingagents" = {
+    # skills 统一放 ~/.agents/skills（单一目录，DSH 与 pi 共用读取）：
+    # pi docs/skills.md Locations 的 Global 区列了 ~/.pi/agent/skills/ 和
+    # ~/.agents/skills/，DSH 的 skill-filesystem 也扫 ~/.agents/skills（rank 500）。
+    # 故这里不再在 ~/.pi/agent/skills 建声明，全部落到 ~/.agents/skills，两 agent
+    # 都从那一个目录读；~/.pi/agent/skills 仅保留此处未声明的手动 skill 与备份。
+    # woodpecker-ci 同理（DSH 侧 dsh/default.nix 已在 .agents/skills 声明，
+    # 此处不重复）。git 权威源仍是 .pi/skill-sources/*。
+    # zli / sealed-secrets：已按需移除（2026-08-31），不再声明。
+    home.file.".agents/skills/tradingagents" = {
       source = ../../../.pi/skill-sources/tradingagents;
       recursive = true;
     };
-    # GitButler skill：内容内嵌在 but 二进制，构建时用 `but skill install` 释放到 store，
-    # but 升级后自动重新生成，无需手动同步。但启动时会 mkdir $HOME，沙箱里需指向可写目录
-    home.file.".pi/agent/skills/gitbutler".source = pkgs.runCommand "gitbutler-skill" {
-      nativeBuildInputs = [ inputs.llm-agents.packages.${pkgs.system}.but ];
-    } ''
-      export HOME=$TMPDIR
-      but skill install --path $out >/dev/null
-    '';
+    # GitButler skill 已移除（2026-08-31）：gitbutler 的 ~/.agents/skills/gitbutler
+    # 目录（无 nix 声明、手动释放）与 pi 侧这一份一并关闭，两种 agent 都不再加载。
     # OpenSpec skills：构建时从 openspec 二进制生成，升级后自动重新生成
-    home.file.".pi/agent/skills/openspec-propose".source = "${openspecSkills}/openspec-propose";
-    home.file.".pi/agent/skills/openspec-explore".source = "${openspecSkills}/openspec-explore";
-    home.file.".pi/agent/skills/openspec-apply-change".source = "${openspecSkills}/openspec-apply-change";
-    home.file.".pi/agent/skills/openspec-archive-change".source = "${openspecSkills}/openspec-archive-change";
+    home.file.".agents/skills/openspec-propose".source = "${openspecSkills}/openspec-propose";
+    home.file.".agents/skills/openspec-explore".source = "${openspecSkills}/openspec-explore";
+    home.file.".agents/skills/openspec-apply-change".source = "${openspecSkills}/openspec-apply-change";
+    home.file.".agents/skills/openspec-archive-change".source = "${openspecSkills}/openspec-archive-change";
 
     # Pi skills
-    home.file.".pi/agent/skills/caveman".source = "${inputs.caveman-skills}/skills/caveman";
-    home.file.".pi/agent/skills/brainstorming" = lib.mkIf cfg.superpowers.enable {
+    home.file.".agents/skills/caveman".source = "${inputs.caveman-skills}/skills/caveman";
+    home.file.".agents/skills/brainstorming" = lib.mkIf cfg.superpowers.enable {
       source = "${inputs.superpowers}/skills/brainstorming";
     };
-    home.file.".pi/agent/skills/grill-me".source = "${inputs.mattpocock-skills}/skills/productivity/grill-me";
-    home.file.".pi/agent/skills/grilling".source = "${inputs.mattpocock-skills}/skills/productivity/grilling";
-    home.file.".pi/agent/skills/anysearch" = {
+    home.file.".agents/skills/grill-me".source = "${inputs.mattpocock-skills}/skills/productivity/grill-me";
+    # grilling：已按需移除（2026-08-31），不再声明。
+    home.file.".agents/skills/anysearch" = {
       source = "${inputs.anysearch-skill}";
       recursive = true;
     };
     home.file.".pi/agent/extensions/guardrails.json".source = ../../../.pi/extensions/guardrails.json;
 
-    home.activation.migrateGitbutlerSkillDirectory = config.lib.dag.entryBefore [ "checkLinkTargets" ] ''
-      target="$HOME/.pi/agent/skills/gitbutler"
-
-      # 旧版本是 but CLI 直接释放的真实目录，转为 nix 管理前先备份再删除
-      if [ -e "$target" ] && [ ! -L "$target" ]; then
-        rm -rf "$target.pre-nix.bak"
-        mv "$target" "$target.pre-nix.bak"
-      fi
-    '';
-
     home.activation.migrateOpenspecSkillDirectories = config.lib.dag.entryBefore [ "checkLinkTargets" ] ''
-      # 旧版本是 openspec CLI 直接释放的真实目录，转为 nix 管理前先备份再删除
+      # 旧版本是 openspec CLI 直接释放的真实目录（现在 skill 声明在 ~/.agents/skills），
+      # 转为 nix 管理前先备份再删除，避免 linkGeneration 被真实目录挡住
       for skill in openspec-propose openspec-explore openspec-apply-change openspec-archive-change; do
-        target="$HOME/.pi/agent/skills/$skill"
+        target="$HOME/.agents/skills/$skill"
         if [ -e "$target" ] && [ ! -L "$target" ]; then
           rm -rf "$target.pre-nix.bak"
           mv "$target" "$target.pre-nix.bak"
@@ -179,12 +169,14 @@ in
     '';
 
     home.activation.migrateAnysearchSkillDirectory = config.lib.dag.entryBefore [ "linkGeneration" ] ''
-      target="$HOME/.pi/agent/skills/anysearch"
+      target="$HOME/.agents/skills/anysearch"
 
+      # 旧版本是 anysearch CLI 直接释放的真实目录（现在声明在 ~/.agents/skills），
+      # 若已是 nix-managed symlink 则移除旧的真实目录残留
       if [ -L "$target" ]; then
         linkTarget="$(readlink "$target")"
         case "$linkTarget" in
-          /nix/store/*-home-manager-files/.pi/agent/skills/anysearch)
+          /nix/store/*-home-manager-files/.agents/skills/anysearch)
             rm "$target"
             ;;
         esac
