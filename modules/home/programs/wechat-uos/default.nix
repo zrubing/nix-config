@@ -20,7 +20,7 @@ let
     export GTK_IM_MODULE=fcitx
     export XMODIFIERS="@im=fcitx"
 
-    exec ${pkgs.unstable.wechat}/bin/wechat "$@"
+    exec ${pkgs.unstable.wechat-uos}/bin/wechat-uos "$@"
   '';
 in
 {
