@@ -75,7 +75,7 @@ let
       # Patch RUNPATH to $ORIGIN so libtdjson.so finds co-located deps
       for so in ${tdlib-dir}/lib/libtdjson.so*; do
         if [ -L "$so" ] || ! file "$so" | grep -q 'ELF'; then continue; fi
-        ${pkgs.patchelf}/bin/patchelf --set-rpath '\$ORIGIN' "$so" 2>/dev/null || true
+        ${pkgs.patchelf}/bin/patchelf --set-rpath '$ORIGIN' "$so" 2>/dev/null || true
       done
     '';
   };
