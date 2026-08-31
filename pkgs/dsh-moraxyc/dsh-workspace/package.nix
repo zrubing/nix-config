@@ -23,20 +23,20 @@ let
 in
 buildNpmPackage (finalAttrs: {
   pname = "dsh-workspace";
-  version = "0.1.2-alpha.1";
+  version = "0.1.2-alpha.2";
 
   __structuredAttrs = true;
   strictDeps = true;
 
-  # 源码：fetchFromGitHub 拉 dsh-v0.1.2-alpha.1（其派生源带 .name，供 dsh-landlock-run 取 sourceRoot）。
+  # 源码：fetchFromGitHub 拉 dsh-v0.1.2-alpha.2（其派生源带 .name，供 dsh-landlock-run 取 sourceRoot）。
   src = fetchFromGitHub {
     owner = "deepseek-ai";
     repo = "deepseek-harness";
     tag = "dsh-v${finalAttrs.version}";
-    hash = "sha256-v4XBZN7NN+LodosuIoa3HGUlmrk5dsouTVxJrxPMhlY=";
+    hash = "sha256-fDLyk09boJGNXVMOBnln2dY1ZSETXGpFBHUVqFBLRk4=";
   };
 
-  env.DSH_CLIENT_COMMIT_HASH = "cd5ef8148158c3a752a658978873241fdf8e2bbc";
+  env.DSH_CLIENT_COMMIT_HASH = "0a53fb55bea101816fa226bb964ae2bed71c343b";
 
   nodejs = nodejs-slim;
   disallowedReferences = [
@@ -192,9 +192,7 @@ buildNpmPackage (finalAttrs: {
   '';
 
   passthru = {
-    # Used by the update script to compare against importPnpmLock.
-    fetchPnpmDeps = finalAttrs.pnpmDeps.passthru.fetchPnpmDeps;
-
+    # 上游升级入口：./update.sh（解析新 tag、算 hash、重生成 pnpm-lock.json、更新 flake.lock）
     updateScript = ./update.sh;
   };
 
