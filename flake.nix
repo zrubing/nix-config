@@ -185,14 +185,6 @@
       };
     in
     let
-      permittedInsecureList = [
-        "electron-38.8.4"
-        "nodejs-slim-20.20.2"
-        "nodejs-20.20.2"
-        "pnpm-10.29.2"
-      ];
-    in
-    let
       snowfall = lib.mkFlake {
 
         # Add modules to all NixOS systems.
@@ -218,9 +210,9 @@
         overlays = [
           inputs.k0s-nix.overlays.default
           inputs.process-compose.overlays.default
-          # 复用 snowfall 已构造好的 nixpkgs-unstable channel（其 allowUnfree /
-          # permittedInsecurePackages 已由下方 channels-config 自动应用），
-          # 注入为 pkgs.unstable，模块内可直接 pkgs.unstable.<pkg>。
+          # 复用 snowfall 已构造好的 nixpkgs-unstable channel（其 allowUnfree 等
+          # nixpkgs 配置已由下方 channels-config 自动应用），注入为 pkgs.unstable，
+          # 模块内可直接 pkgs.unstable.<pkg>。
           (final: _prev: {
             unstable = inputs.self.pkgs.${final.stdenv.hostPlatform.system}.nixpkgs-unstable;
           })
@@ -238,15 +230,14 @@
           })
         ];
 
-        # channels-config 只用于设置 nixpkgs 的 config（allowUnfree /
-        # permittedInsecurePackages），会被 flake-utils-plus 应用到 nixpkgs 与
-        # nixpkgs-unstable 两个 channel。不要在此放 overlays：flake-utils-plus
-        # 的 channelsConfig 只接受 config 键，overlays 会被静默忽略。
+        # channels-config 只用于设置 nixpkgs 的 config（如 allowUnfree），
+        # 会被 flake-utils-plus 应用到 nixpkgs 与 nixpkgs-unstable 两个 channel。
+        # 不要在此放 overlays：flake-utils-plus 的 channelsConfig 只接受 config 键，
+        # overlays 会被静默忽略。
         channels-config = {
           # Allow unfree packages.
           allowUnfree = true;
           doCheckByDefault = false;
-          permittedInsecurePackages = permittedInsecureList;
         };
 
       };
