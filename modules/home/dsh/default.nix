@@ -11,7 +11,7 @@ let
   cfg = config.${namespace}.modules.dsh;
   # dsh 二进制来源：默认用 llm-agents 打包的 npm 版（@deepseek-ai/dsh 0.1.1-rc.2）；
   # useDshSource=true 改用从 deepseek-harness 源码构建的本仓库包（packages/dsh-source，
-  # 即 Moraxyc 式 kernel 方案产出的 dsh-kernel，追 main/0.1.2-alpha.1，npm 尚无此版）。
+  # 即 Moraxyc 式 kernel 方案产出的 dsh-kernel，追 master/0.1.2-alpha.2，npm 尚无此版）。
   # llm-agents 更新后把 useDshSource 改回 false 即切回。
   dshPackage =
     if cfg.useDshSource
@@ -784,7 +784,7 @@ in
         want="github:wyouwd1/dsh-opencode-models#9f6451ac58885b39d038e085d5475467f2746e97"
         if ! grep -q "$want" "$pkgJson" 2>/dev/null; then
           if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+            dshReloadWeb=1
           else
             echo "WARN: dsh-opencode-models 安装失败（离线？），下次重建重试"
           fi
@@ -802,7 +802,7 @@ in
         want="@deepseek-ai/dsh-mcp-client@0.0.1-rc.1"
         if ! grep -q "@deepseek-ai/dsh-mcp-client" "$pkgJson" 2>/dev/null; then
           if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+            dshReloadWeb=1
           else
             echo "WARN: dsh-mcp-client 安装失败（离线？），下次重建重试"
           fi
@@ -817,10 +817,10 @@ in
       home.activation.configureDshBracesSanitize = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
         pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file://${bracesSanitizePlugin}"
+        want="file:${bracesSanitizePlugin}"
         if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
           if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+            dshReloadWeb=1
           else
             echo "WARN: dsh-braces-sanitize 安装失败（离线？），下次重建重试"
           fi
@@ -833,10 +833,10 @@ in
       home.activation.configureDshOpenbaoShellEnv = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
         pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file://${openbaoShellEnvPlugin}"
+        want="file:${openbaoShellEnvPlugin}"
         if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
           if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+            dshReloadWeb=1
           else
             echo "WARN: dsh-openbao-shell-env 安装失败（离线？），下次重建重试"
           fi
@@ -849,10 +849,10 @@ in
       home.activation.configureDshModelSelectPlus = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
         pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file://${modelSelectPlusPlugin}"
+        want="file:${modelSelectPlusPlugin}"
         if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
           if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+            dshReloadWeb=1
           else
             echo "WARN: dsh-model-select-plus 安装失败（离线？），下次重建重试"
           fi
@@ -865,13 +865,50 @@ in
       home.activation.configureDshOpencodeAutosync = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
         pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file://${opencodeAutosyncPlugin}"
+        want="file:${opencodeAutosyncPlugin}"
         if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
           if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            systemctl --user try-restart dsh-web.service 2>/dev/null || true
+            dshReloadWeb=1
           else
             echo "WARN: dsh-opencode-autosync 安装失败（离线？），下次重建重试"
           fi
+        fi
+      '';
+
+      # 自动发现 runinfra 模型（见上方 runinfraAutosyncPlugin 注释）：同
+      # opencode-autosync 的 file: + store-hash 幂等安装；loader 行在
+      # cordis.patch.yml 的 runinfra-autosync insert 条目。装完重启 dsh-web 生效。
+      home.activation.configureDshRuninfraAutosync = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        want="file:${runinfraAutosyncPlugin}"
+        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
+            dshReloadWeb=1
+          else
+            echo "WARN: dsh-runinfra-autosync 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+
+      # 所有 configureDsh* 插件步骤共用一个"需要时是否重启 dsh-web"标记 dshReloadWeb：
+      # 任何插件真正安装后置 1，全部装完统一在此重启一次。之前每个 configureDsh* 都各
+      # 重启一次 dsh-web（310+ task/2G 的 node 进程，停起一次 3~4s，单次激活里被重启 6 次），
+      # 这是"最后重启很慢"的主因。entryAfter 列全部 configureDsh*，保证本步在最后一个插件之后、
+      # 装完统一只重启一次 dsh-web。also 修复了原幂等守卫：want 用 file:（pnpm 写回的规格）而非
+      # file://（永远 grep 不命中 → 每次 switch 都重装+重启）。
+      home.activation.configureDshReloadWeb = inputs.home-manager.lib.hm.dag.entryAfter [
+        "configureDshOpencodeModels"
+        "configureDshMcpClient"
+        "configureDshBracesSanitize"
+        "configureDshOpenbaoShellEnv"
+        "configureDshModelSelectPlus"
+        "configureDshOpencodeAutosync"
+        "configureDshRuninfraAutosync"
+      ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        if [[ "''${dshReloadWeb:-0}" = "1" ]]; then
+          systemctl --user try-restart dsh-web.service 2>/dev/null || true
         fi
       '';
     })
