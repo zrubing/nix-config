@@ -243,6 +243,16 @@ in
         OPENBAO_LDAP_AGENT_USERNAME=${config.sops.placeholder."openbao-ldap-agent/username"}
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
         BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}
+        # woodpecker-cli 凭据：bashrc 只 export 进交互 shell（WOODPECKER_TOKEN
+        # 会被 dsh subprocess 的敏感名 scrub 擦除），dsh 侧经 shell-env 受信通道
+        # 以 DSH_WOODPECKER_* 注入（见 modules/home/dsh 的 woodpecker-shell-env
+        # 插件），此处渲染进 dsh-web 宿主进程 env 供该插件 resolve。
+        WOODPECKER_SERVER=${config.sops.placeholder."woodpecker/server"}
+        WOODPECKER_TOKEN=${config.sops.placeholder."woodpecker/token"}
+        # 模型 bash 调用的自动桥接（见 home.file ".dsh/dsh-bash-env.sh"）：
+        # bash 非交互启动时 source BASH_ENV，把 shell-env 注入的 DSH_WOODPECKER_*
+        # 转回 WOODPECKER_*，woodpecker-cli 无需 agent 手动转换即可直接使用。
+        BASH_ENV=/home/${username}/.dsh/dsh-bash-env.sh
       '';
     };
   };

@@ -82,6 +82,23 @@ let
     cp ${./plugins/openbao-shell-env/index.js} $out/index.js
   '';
 
+  # Woodpecker CLI 服务器/令牌注入（shell-env 注册表）：woodpecker-cli 读
+  # WOODPECKER_SERVER/WOODPECKER_TOKEN（3.16 源码 cli/common/flags.go 实测），
+  # 但 WOODPECKER_TOKEN 命中 dsh subprocess 的敏感名 scrub
+  # （/KEY|PASSWORD|SECRET|TOKEN/i）——即便 dsh.env 渲染了它（dsh-web-start
+  # source 后进程内有），agent 的 shell 也拿不到。同 openbao 插件：注册
+  # contributor（resolve 从宿主进程 env 读回 WOODPECKER_*，注入为
+  # DSH_WOODPECKER_*）。AGENT 侧无需文档或 skill 说明：dsh.env 另有 BASH_ENV
+  # 行指向 dsh-bash-env.sh，模型每次非交互 bash 启动自动把 DSH_WOODPECKER_*
+  # 转回 WOODPECKER_*，woodpecker-cli 开箱即用（交互 persistent shell 由
+  # ~/.bashrc 覆盖）。装载 = activation 以 file: 依赖装入 web profile +
+  # 本文件 providerPatch 的 insert 行；同 openbao 双件套。
+  woodpeckerShellEnvPlugin = pkgs.runCommand "dsh-woodpecker-shell-env" { } ''
+    mkdir -p $out
+    cp ${./plugins/woodpecker-shell-env/package.json} $out/package.json
+    cp ${./plugins/woodpecker-shell-env/index.js} $out/index.js
+  '';
+
   # composer 模型座位替换（可搜索 + Provider 前缀）。client-ui 插件：host 半区
   # 空 apply 占位，浏览器半区 lib/client.js 是手写的 __ModuleLoader__.load 单文件
   # 产物（vendor seed 模块 react / jsx-runtime / ui-primitives 之外零依赖）。
@@ -180,6 +197,44 @@ let
     )
     + "\n"
     + builtins.readFile ./agent-presets/my-minimal/extras.cordis.yml;
+
+  # ── my-ptc preset 组合：上游 shipped `ptc`（标准 agent + PTC SDK 呈现）+ 本地增量 ──
+  # 与 my-minimal 同构（上游文本 + extras 增量），但上游 `ptc` 已自带
+  # agent-instructions / tool-jobs / tool-web / command-compact / tool-result-pruner
+  # —— 这些正是 my-minimal extras 加的行，所以 my-ptc 的增量只有两行
+  # （agent-presets/my-ptc/extras.cordis.yml），外加 compaction 组的后端替换：
+  # dsh preset composition 没有 merge/patch 机制，同 id 行直接抛
+  # "duplicate loader entry id"（EntryGroup.update 实测），因此
+  # `compaction-basic → ./dsh-blackhole/lib/compaction.js` 只能在 Nix 求值期对上游
+  # 文本做定点字符串替换（上游 ptc 只改这一行对，其余行原样保留）。
+  #
+  # preset id 说明：dsh-agent-presets 的 resolvedRoots = shipped root → 配置 roots →
+  # user root（$DSH_HOME/.agent-presets），discoverPresets 按 first-root-wins 去重，
+  # shipped `ptc` 会遮蔽用户 root 的同名目录 → 本地版取名为 my-ptc。
+  #
+  # 上游更新：deepseek-harness-src rev 变化后本表达式在求值期检查 compactionRow 仍
+  # 恰好出现一次——上游这两行不变则自动跟随，形状变了则构建报错（显式检修，不会
+  # 静默漂移）。
+  ptcComposition =
+    let
+      upstreamPtc = builtins.readFile (
+        inputs.deepseek-harness-src
+        + "/packages/preset/agent-presets/presets/ptc/agent.cordis.yml"
+      );
+      occurrences = needle: haystack:
+        (builtins.length (lib.splitString needle haystack) - 1);
+      compactionRow =
+        "    - id: compaction-basic\n      name: '@deepseek-ai/dsh-compaction-basic'";
+      blackholeRow =
+        "    - id: blackhole-compact\n      name: './dsh-blackhole/lib/compaction.js'";
+      found = occurrences compactionRow upstreamPtc;
+    in
+    if found != 1 then
+      throw "dsh my-ptc: upstream ptc composition shape changed (compaction-basic row found ${toString found} times, expected 1); update modules/home/dsh/default.nix (ptcComposition) for the new upstream"
+    else
+      builtins.replaceStrings [ compactionRow ] [ blackholeRow ] upstreamPtc
+      + "\n"
+      + builtins.readFile ./agent-presets/my-ptc/extras.cordis.yml;
 
   # ── runinfra models adapter ───────────────────────────────────────────
   # 单一数据源 = pi 扩展 monotykamary/pi-runinfra-provider（flake input
@@ -624,6 +679,16 @@ let
           name: dsh-openbao-shell-env
           config: {}
 
+    # Woodpecker CLI 服务器/令牌注入（见上方 woodpeckerShellEnvPlugin 注释）：
+    # 同 openbao 的 shell-env contributor 通道：WOODPECKER_TOKEN 命中敏感名
+    # scrub，只能以 DSH_WOODPECKER_* 进入每次模型 shell 调用；BASH_ENV 桥接
+    # （dsh-bash-env.sh）自动转回 WOODPECKER_*，CLI 无需任何手动转换。
+    # headless 未装包时仅告警跳过。
+    - insert:
+        - id: woodpecker-shell-env
+          name: dsh-woodpecker-shell-env
+          config: {}
+
     # 自动发现 opencode-go 实时模型（见上方 opencodeAutosyncPlugin 注释）。
     # host-only 插件：启动 + 每 intervalMs 拉 opencode.ai Go 档清单，add-only
     # 并入 opencode-go 路由的 models（不删已配置条目）。config 可选覆盖：
@@ -788,6 +853,27 @@ in
         force = true;
       };
 
+      # 模型 bash 调用的受信 env 自动桥接：dsh 子进程 env 构建擦除敏感名
+      # （scrubbedParentEnv 的 KEY|PASSWORD|SECRET|TOKEN），而 shell-env 受信
+      # 通道只允许 DSH_* 前缀，所以 woodpecker-cli 认的 WOODPECKER_SERVER/TOKEN
+      # 不可能出现在模型 shell。dsh.env 设 BASH_ENV 指向本文件（bash 非交互
+      # 启动时自动 source），把 shell-env 注入的 DSH_WOODPECKER_* 条件式转回
+      # 原名——CLI 开箱即用，无需 agent 手动转换或 skill 说明；交互 persistent
+      # shell 另由 ~/.bashrc 覆盖。条件式保证值缺席（headless/pi）时不覆盖
+      # 已有同名 env。
+      home.file.".dsh/dsh-bash-env.sh" = {
+        text = ''
+          # dsh 模型 shell 的受信 env 桥接（dsh.env 的 BASH_ENV 指向；bash 非交互
+          # 启动时 source；交互 persistent shell 由 ~/.bashrc 覆盖）。
+          # shell-env 注册表只允许 DSH_* 名字，这里把受信值转回 CLI 原名字。
+          if [ -n "$DSH_WOODPECKER_SERVER" ]; then
+            export WOODPECKER_SERVER="$DSH_WOODPECKER_SERVER"
+            export WOODPECKER_TOKEN="$DSH_WOODPECKER_TOKEN"
+          fi
+        '';
+        force = true;
+      };
+
       # Agent presets：用户侧 preset 目录（$DSH_HOME/.agent-presets，trust=user，
       # dsh-agent-presets 的 includeUserRoot 默认扫描）。组合文件 dsh 只读——
       # PresetTree.write() 是 no-op（preset 是输入、不是持久化目标），所以可以像
@@ -818,6 +904,32 @@ in
       # ./dsh-blackhole/lib/compaction.js（压缩 isolate）与 ./dsh-blackhole/lib/index.js
       # （agent scope）挂载。
       home.file.".dsh/.agent-presets/my-minimal/dsh-blackhole" = {
+        source = "${blackholePlugin}";
+        force = true;
+      };
+
+      # my-ptc：shipped `ptc`（标准 agent + PTC SDK 呈现）+ 与 my-minimal 同款增量
+      # （start_process 后台进程 / pi-blackhole recall+观测记忆+命令 / 确定性压缩）。
+      # 挂载结构与 my-minimal 一致；compaction 组的后端替换在 ptcComposition 求值期
+      # 完成（上游 `ptc` 自带 compaction 组，extras 重复 id 会抛 duplicate loader
+      # entry id）。id 取 my-ptc：user root 排在 shipped root 之后，同名会被遮蔽。
+      # agent.cordis.yml 同 my-minimal 一样是求值产物（text=）。
+      home.file.".dsh/.agent-presets/my-ptc/agent.cordis.yml" = {
+        text = ptcComposition;
+        force = true;
+      };
+      home.file.".dsh/.agent-presets/my-ptc/preset.yml" = {
+        source = ./agent-presets/my-ptc/preset.yml;
+        force = true;
+      };
+      # start_process 插件源码在 preset 目录内（随 preset 的相对说明符加载），
+      # 与 my-minimal 共用 toolProcessesPlugin 的 store 产物。
+      home.file.".dsh/.agent-presets/my-ptc/tool-processes.js" = {
+        source = "${toolProcessesPlugin}/tool-processes.js";
+        force = true;
+      };
+      # pi-blackhole 适配器（同 my-minimal：blackholePlugin 的 store 产物）。
+      home.file.".dsh/.agent-presets/my-ptc/dsh-blackhole" = {
         source = "${blackholePlugin}";
         force = true;
       };
@@ -939,6 +1051,22 @@ in
         fi
       '';
 
+      # Woodpecker CLI 服务器/令牌注入（见上方 woodpeckerShellEnvPlugin 注释）：
+      # 同 openbao-shell-env 的 file: + store-hash 幂等安装；loader 行在
+      # cordis.patch.yml 的 woodpecker-shell-env insert 条目。装完重启 dsh-web 生效。
+      home.activation.configureDshWoodpeckerShellEnv = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        want="file:${woodpeckerShellEnvPlugin}"
+        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
+            dshReloadWeb=1
+          else
+            echo "WARN: dsh-woodpecker-shell-env 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+
       # 可搜索模型选择器（见上方 modelSelectPlusPlugin 注释）：同 braces-sanitize
       # 的 file: + store-hash 幂等安装；loader 行在 cordis.patch.yml 的
       # ui-model-select-plus insert 条目。装完重启 dsh-web 生效。
@@ -998,11 +1126,33 @@ in
         "configureDshMcpClient"
         "configureDshBracesSanitize"
         "configureDshOpenbaoShellEnv"
+        "configureDshWoodpeckerShellEnv"
         "configureDshModelSelectPlus"
         "configureDshOpencodeAutosync"
         "configureDshRuninfraAutosync"
+        # dsh.env 内容变更守卫：必须在 sops-nix 重渲染 dsh.env 之后运行，才能读到新内容。
+        "sops-nix"
       ] ''
         export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        # ── dsh.env 内容变更守卫 ──────────────────────────────────────────
+        # dsh-web 只在启动时 source dsh.env 一次（dshWebStart 里 set -a; .），运行期间
+        # 不重读。sops-nix 每次 switch 都重渲染 dsh.env（并切换 secrets.d/<gen> 目录），
+        # 但"只改 dsh.env / 加 secret（如 WOODPECKER_*）"不经过任何 configureDsh* 插件
+        # 安装步骤 → 不会置 dshReloadWeb=1 → dsh-web 不重启 → 新 secret 不生效。
+        # 这里用内容哈希对比（而非 mtime：每次渲染都换目录、mtime 恒变会误触发），
+        # 变了才置 1。首次无记录也置 1 并落基线，保证守卫上线即收敛到与 dsh.env 一致。
+        ${lib.optionalString (cfg.envFile != null) ''
+        env_file=${lib.escapeShellArg cfg.envFile}
+        hash_state="$HOME/.dsh/.dsh-env-hash"
+        new_hash="$(${pkgs.coreutils}/bin/sha256sum "$env_file" 2>/dev/null | ${pkgs.coreutils}/bin/cut -d' ' -f1)"
+        if [ -n "$new_hash" ]; then
+          old_hash="$(${pkgs.coreutils}/bin/cat "$hash_state" 2>/dev/null || true)"
+          if [ -z "$old_hash" ] || [ "$new_hash" != "$old_hash" ]; then
+            printf '%s\n' "$new_hash" > "$hash_state"
+            dshReloadWeb=1
+          fi
+        fi
+        ''}
         if [[ "''${dshReloadWeb:-0}" = "1" ]]; then
           systemctl --user try-restart dsh-web.service 2>/dev/null || true
         fi

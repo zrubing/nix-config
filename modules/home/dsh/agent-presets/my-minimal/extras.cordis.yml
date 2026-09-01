@@ -4,17 +4,18 @@
 #   upstream `minimal` (persona / persistent-shell / filesystem)  ← read from the
 #   deepseek-harness-src flake input at eval time, so upstream updates flow
 #   through on rebuild
-#   + this file's rows (web_search, start_process jobs, pi-blackhole,
-#   deterministic compaction)
+#   + this file's rows (web_search, skill catalog + loader, start_process jobs,
+#   pi-blackhole, deterministic compaction)
 #
 # The FULL preset is the shipped `minimal` plus these delta rows. The persona is
 # the complete system prompt, so global identity, Web orientation, tool guidance,
 # and later assembly listeners cannot add prompt text. Runtime context snapshots
 # are suppressed for this preset, and the model composes the persistent shell
-# (`bash` on POSIX, `pwsh` on win32), `str_replace_editor`, `web_search`,
-# `start_process` (background processes), and `recall` (session history + file
-# search). Context compaction uses the pi-blackhole deterministic backend:
-# the @jojo/dsh-blackhole package's `lib/compaction.js` imports pi-blackhole's
+# (`bash` on POSIX, `pwsh` on win32), `str_replace_editor`, `web_search`, the
+# `skill` loader (session skill catalog), `start_process` (background
+# processes), and `recall` (session history + file search). Context compaction
+# uses the pi-blackhole deterministic backend: the @jojo/dsh-blackhole
+# package's `lib/compaction.js` imports pi-blackhole's
 # compile() (bundled by nix from the flake input) and subclasses
 # `BasicCompactionEngine` so dsh's pressure / `/compact` / `<compacted-summary>`
 # framing stay, but summarization is free and structural instead of an
@@ -51,6 +52,26 @@
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
     maxBytes: 65536
+
+# ── skills ──────────────────────────────────────────────────────────────────
+# The skill REGISTRY (@deepseek-ai/dsh-skill) lives in the HOST composition and
+# is layered per scope: these rows register into THIS preset's layer of it, so
+# they need no realm. `skill-filesystem` contributes local-root discovery for
+# agents on this preset (default config → default roots, incl. ~/.agents/skills
+# and ~/.dsh/skills), and `tool-skill` gives the model the session catalog and
+# the `skill` loader tool.
+#
+# The catalog and loaded bodies are NOT system-prompt sections: `tool-skill`
+# injects the catalog as a durable user-role message at agent/pre-step and
+# renders a loaded skill into the tool result. So the `complete: true` persona
+# (which restores only the persona as the sole prompt SECTION) does NOT suppress
+# them — the `skill` tool stays visible and the catalog still appears. Skill-
+# specific usage guidance rides in each skill's own body, not in the persona.
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
 
 # ── background processes ────────────────────────────────────────────────────
 
