@@ -1,0 +1,3 @@
+name: my-ptc
+description: 具备 PTC 模式（标准 agent + SDK 呈现）全部能力，并带 pi-blackhole 确定性压缩、recall 会话检索、观测记忆与 start_process 后台进程的编码 Agent。
+order: 4

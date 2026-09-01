@@ -1,0 +1,8 @@
+{
+  "name": "dsh-woodpecker-shell-env",
+  "version": "0.1.0",
+  "description": "DSH plugin: inject the Woodpecker CLI server/token into every model shell call as DSH_WOODPECKER_SERVER/DSH_WOODPECKER_TOKEN via the dsh-shell-env trusted registry (WOODPECKER_TOKEN matches the KEY|PASSWORD|SECRET|TOKEN scrub, so it cannot reach the agent any other way).",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT"
+}

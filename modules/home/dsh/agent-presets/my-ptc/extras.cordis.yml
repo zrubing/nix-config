@@ -1,0 +1,59 @@
+# The `my-ptc` agent preset DELTA — the rows this preset adds on top of the
+# shipped `ptc` preset (the standard coding agent presented through the PTC
+# mode SDK: one run_code program per multi-step action sequence). The generated
+# composition is:
+#
+#   upstream `ptc` (persona / shell / fs / jobs / skills / goals / plan mode /
+#   delegation / workflows / PTC presentation)  ← read from the
+#   deepseek-harness-src flake input at eval time (default.nix, ptcComposition),
+#   so upstream updates flow through on rebuild
+#   + ONE eval-time inline swap: the compaction group's `compaction-basic` row
+#   becomes `./dsh-blackhole/lib/compaction.js` (the deterministic pi-blackhole
+#   backend) — done in default.nix because a second `compaction` group or row
+#   here would collide with the shipped one (`duplicate loader entry id`)
+#   + this file's rows (start_process background processes, pi-blackhole
+#   recall / observational memory / /blackhole* commands)
+#
+# The FULL preset is the shipped `ptc` plus these delta rows. Unlike my-minimal
+# (a delta over the two-tool `minimal`), ptc upstream already ships rows that
+# my-minimal had to add — agent-instructions (maxBytes 65536), tool-jobs,
+# tool-web (host provides the http fetch provider + deepseek-official search
+# provider, so its `fetch: true` stays), command-compact, tool-result-pruner —
+# so the delta is only the two rows below, and no row from this file shares an
+# id with the upstream file.
+#
+# Preset id: the shipped root precedes the user root in discovery
+# (dsh-agent-presets resolvedRoots: shipped → configured roots → user) and an
+# earlier root wins a duplicate id, so a user-root directory named `ptc` would
+# be shadowed by the shipped preset. This preset therefore lives as `my-ptc`.
+#
+# Managed by nix (modules/home/dsh): do not edit ~/.dsh/.agent-presets/my-ptc
+# in place. `agent.cordis.yml` is a generated artifact (upstream `ptc` with the
+# compaction swap, plus this file). Edit THIS file for the delta rows and
+# rebuild (home-manager activation re-links it; dsh picks the new generation up
+# for the NEXT session on this preset).
+
+# ── background processes ────────────────────────────────────────────────────
+
+# The agent-facing half of aliou's pi-processes, ported to dsh's own seams (as
+# in my-minimal): `start_process` spawns a long-running command without
+# blocking the conversation, registering the handle with the host `ctx.jobs`
+# runtime so job_output / job_kill / completion notices all work. The
+# `tool-jobs` collection row is already provided by upstream `ptc`.
+#
+# The producer row loads its module through a relative specifier, so the file
+# travels with this preset; nix builds it beside a node_modules shim resolving
+# the harness's own @deepseek-ai/* dependencies (see modules/home/dsh).
+- id: tool-processes
+  name: './tool-processes.js'
+
+# ── pi-blackhole (recall + observational memory + commands) ─────────────────
+# The agent-facing half of pi-blackhole beyond the deterministic compaction:
+# the `recall` tool (session/file search via the imported pi-blackhole core),
+# the observational-memory workers (observer/reflector/dropper, re-expressed
+# over dsh's ctx.llm), and the /blackhole* commands. This row sits in the
+# agent scope (NOT inside the compaction isolate group below); the compaction
+# backend swap is applied to the shipped group in default.nix and imports the
+# same bundled core.
+- id: blackhole
+  name: './dsh-blackhole/lib/index.js'
