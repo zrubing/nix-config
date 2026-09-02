@@ -4,16 +4,17 @@
 #   upstream `minimal` (persona / persistent-shell / filesystem)  ← read from the
 #   deepseek-harness-src flake input at eval time, so upstream updates flow
 #   through on rebuild
-#   + this file's rows (web_search, skill catalog + loader, start_process jobs,
-#   pi-blackhole, deterministic compaction)
+#   + this file's rows (web_search + web_fetch, skill catalog + loader,
+#   start_process jobs, pi-blackhole, deterministic compaction)
 #
 # The FULL preset is the shipped `minimal` plus these delta rows. The persona is
 # the complete system prompt, so global identity, Web orientation, tool guidance,
 # and later assembly listeners cannot add prompt text. Runtime context snapshots
 # are suppressed for this preset, and the model composes the persistent shell
-# (`bash` on POSIX, `pwsh` on win32), `str_replace_editor`, `web_search`, the
-# `skill` loader (session skill catalog), `start_process` (background
-# processes), and `recall` (session history + file search). Context compaction
+# (`bash` on POSIX, `pwsh` on win32), `str_replace_editor`, `web_search` +
+# `web_fetch`, the `skill` loader (session skill catalog), `start_process`
+# (background processes), and `recall` (session history + file search). Context
+# compaction
 # uses the pi-blackhole deterministic backend: the @jojo/dsh-blackhole
 # package's `lib/compaction.js` imports pi-blackhole's
 # compile() (bundled by nix from the flake input) and subclasses
@@ -29,17 +30,22 @@
 # rebuild (home-manager activation re-links it; dsh picks the new generation up
 # for the NEXT session on this preset).
 
-# Web search. The `web` service and its `deepseek-official` search provider
-# (DEEPSEEK_API_KEY, rendered into dsh.env by sops) stay in the HOST
-# composition; only this model-facing tool is per-session. `fetch` stays
-# disabled: the shipped deployment mounts no fetch provider, and enabling it
-# here would register a tool that always fails. `complete: true` on the persona
-# suppresses the tool-web guidance section, so if the model needs usage
-# instructions, append them to the persona text above.
+# Web search + fetch. The `web` service and its providers stay in the HOST
+# composition (base bundle, inherited by the web-app patch chain): `web` pins
+# `searchProvider: deepseek-official` (DEEPSEEK_API_KEY, rendered into dsh.env
+# by sops) and `fetchProvider: http`, with the `web-search-deepseek` and
+# `web-fetch-http` provider rows mounted beside it; web-app only disables the
+# HOST `tool-web` row so each preset composes its own tools. The `http` fetch
+# provider is anonymous public HTTP(S) only — public-IP validation with
+# connection pinning, same-origin redirects, no ambient credentials, 5 MB /
+# 100k chars / 30 s caps — converting HTML to markdown. This mirrors upstream
+# `ptc`, whose own `tool-web` row leaves `fetch: true` against the same HOST.
+# `complete: true` on the persona suppresses the tool-web guidance section, so
+# if the model needs usage instructions, append them to the persona text above.
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
   config:
-    fetch: false
+    fetch: true
     searchTimeoutMs: 60000
 
 # ── workspace instructions (AGENTS.md) ───────────────────────────────────────
