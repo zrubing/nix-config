@@ -83,6 +83,12 @@ elif [ "$target" = "latest" ]; then
   tag="$(git ls-remote --refs "$upstream" 'refs/tags/dsh-v*' \
     | sed 's|.*refs/tags/||' | sort -V | tail -1 || true)"
   [ -n "$tag" ] || die "no upstream dsh-v* tags found"
+else
+  # 位置参数是版本号：按用法映射到 dsh-v<version> tag（容忍已带前缀的写法）
+  case "$target" in
+    dsh-v*) tag="$target" ;;
+    *) tag="dsh-v$target" ;;
+  esac
 fi
 
 new_ver="${tag#dsh-v}"
