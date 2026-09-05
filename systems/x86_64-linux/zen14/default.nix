@@ -387,6 +387,8 @@ in
   environment.systemPackages = [
     pkgs.grafana-loki
     pkgs.aliyun-cli
+    # Thunar 解压后端：file-roller 自带 thunar-archive-plugin 可识别的 .tap 包装
+    pkgs.file-roller
 
     (pkgs.writeShellScriptBin "pi-as-agent" ''
       # 保存当前用户的 GUI 相关环境变量
