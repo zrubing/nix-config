@@ -8,6 +8,7 @@
   dshWorkspacePatchHook,
   nodejs,
   nodejs-slim,
+  node-gyp,
   pnpmConfigHook,
   pnpm_11,
   python3,
@@ -23,20 +24,20 @@ let
 in
 buildNpmPackage (finalAttrs: {
   pname = "dsh-workspace";
-  version = "0.1.2-alpha.4";
+  version = "0.1.3-alpha.1";
 
   __structuredAttrs = true;
   strictDeps = true;
 
-  # 源码：fetchFromGitHub 拉 dsh-v0.1.2-alpha.4（其派生源带 .name，供 dsh-landlock-run 取 sourceRoot）。
+  # 源码：fetchFromGitHub 拉 dsh-v0.1.3-alpha.1（其派生源带 .name，供 dsh-landlock-run 取 sourceRoot）。
   src = fetchFromGitHub {
     owner = "deepseek-ai";
     repo = "deepseek-harness";
     tag = "dsh-v${finalAttrs.version}";
-    hash = "sha256-CmXRTaP7R5W2icgnkDb18hBLgEhq3vxxjPLv0TYBkmk=";
+    hash = "sha256-7gje0bGlfRbo6qEubnKt3z8a6UjDGNW90g7phGU+s6g=";
   };
 
-  env.DSH_CLIENT_COMMIT_HASH = "4e84901e6471b79ec0338099867ebb4606d12bb5";
+  env.DSH_CLIENT_COMMIT_HASH = "d347e703908d0406b7a7ef80e3a0e594d86b2215";
 
   nodejs = nodejs-slim;
   disallowedReferences = [
@@ -88,11 +89,13 @@ buildNpmPackage (finalAttrs: {
       if stdenv.buildPlatform == stdenv.hostPlatform then stdenv.targetPlatform else null;
     patchedDependencySources = {
       "node-pty@1.2.0-beta.15" = "${finalAttrs.src}/patches/node-pty@1.2.0-beta.15.patch";
+      "@yao-pkg/pkg@6.21.0" = "${finalAttrs.src}/patches/@yao-pkg__pkg@6.21.0.patch";
     };
   };
 
   nativeBuildInputs = [
     nodejs-slim.npm
+    node-gyp
     pnpm_11
     python3
     dshWorkspacePatchHook
@@ -106,6 +109,9 @@ buildNpmPackage (finalAttrs: {
 
   # node-pty's postinstall can't run before deploy assembles the composition.
   preInstall = ''
+    export NODE_GYP_BIN="${lib.getBin node-gyp}/bin/node-gyp"
+    export PATH="${lib.getBin node-gyp}/bin:$PATH"
+    export PATH="${lib.getBin nodejs-slim}/bin:$PATH"
     pnpm config set --location=project inject-workspace-packages true
     yq -i 'del(.scripts.postinstall)' packages/subprocess/subprocess-local/package.json
   '';
@@ -121,6 +127,7 @@ buildNpmPackage (finalAttrs: {
     cp -r apps/cli/config apps/nix-kernel/config
     pnpm --filter @deepseek-ai/dsh-nix-kernel deploy \
       --prod \
+      --config.ignore-scripts=true \
       --config.node-linker=hoisted \
       --config.link-workspace-packages=true \
       "$appDir"
@@ -163,6 +170,7 @@ buildNpmPackage (finalAttrs: {
       mkdir -p "$(dirname "$bundleDir")"
       pnpm --filter "$packageName" deploy \
         --prod \
+        --config.ignore-scripts=true \
         --config.node-linker=hoisted \
         --config.link-workspace-packages=true \
         "$bundleDir"
@@ -187,6 +195,22 @@ buildNpmPackage (finalAttrs: {
     mkdir -p "$workspaceDir/frontends/web"
     cp apps/web/package.json "$workspaceDir/frontends/web/package.json"
     cp -r apps/web/dist "$workspaceDir/frontends/web/dist"
+
+    # fs-ext has no prebuilt binary; pnpm's deploy lifecycle does not reliably
+    # allow its node-gyp build here, so deploy with ignore-scripts and compile
+    # the native addon after deploy in every location pnpm placed fs-ext, using
+    # the explicit NODE_GYP_BIN and the hoisted nan already present in each
+    # deployed node_modules tree.
+    while IFS= read -r fsExtPkg; do
+      fsExtDir="$(dirname "$fsExtPkg")"
+      echo "dsh-workspace: building fs-ext native addon in $fsExtDir"
+      (cd "$fsExtDir" && "$NODE_GYP_BIN" configure build)
+      # Keep only the runtime .node artifact; node-gyp leaves absolute build
+      # metadata referencing the build-time node/python stores in the output.
+      mkdir -p "$fsExtDir/build/Release"
+      find "$fsExtDir/build" -mindepth 1 -maxdepth 1 ! -name Release -exec rm -rf {} +
+      find "$fsExtDir/build/Release" -mindepth 1 ! -name fs_ext.node -exec rm -rf {} +
+    done < <(find "$workspaceDir" -path '*/node_modules/fs-ext/package.json' -print)
 
     runHook postInstall
   '';
