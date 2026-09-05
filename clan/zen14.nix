@@ -139,4 +139,22 @@
       cat $prompts/api-token > $out/api-token
     '';
   };
+
+  # Context7 文档 MCP（https://mcp.context7.com/mcp，Upstash 托管）的 API key
+  # （ctx7sk-...）。远程端点无 key 可用但限流，带 key 提升配额。原存 claude 侧
+  # agenix claude.settings.json（stdio 版 @upstash/context7-mcp），DSH 侧改用
+  # 远程 streamable-http 端点 + CONTEXT7_API_KEY 请求头，密文统一入 clan vars。
+  # 消费方：home sops 渲染进 dsh.env 的 CONTEXT7_API_KEY（dsh mcp-context7）。
+  # 换 key：clan vars set zen14 context7-api-key/api-key
+  clan.core.vars.generators.context7-api-key = {
+    prompts.api-key = {
+      description = "Context7 API key (ctx7sk-...)";
+      type = "hidden";
+    };
+    files.api-key.secret = true;
+
+    script = ''
+      cat $prompts/api-key > $out/api-key
+    '';
+  };
 }
