@@ -665,6 +665,23 @@ let
             headers:
               Authorization: !!js '"Bearer " + process.env.GITHUB_MCP_TOKEN'
 
+    # Context7 文档 MCP server（Upstash 托管 https://mcp.context7.com/mcp，
+    # streamable-http，认证 CONTEXT7_API_KEY 请求头；无 key 可用但限流）。key 由
+    # clan vars 加密管理（clan/zen14.nix context7-api-key，自 claude 侧 agenix 的
+    # stdio 版配置迁移），渲染进 dsh.env 的 CONTEXT7_API_KEY，此处运行时求值，
+    # patch 文件不含明文。给 agent 提供 resolve-library-id / get-library-docs
+    # 两个工具（当前版本的库文档与代码示例）。2026-09 实测：无 key initialize/
+    # tools/call 均 200（限流），带 key 正常配额。
+    - insert:
+        - id: mcp-context7
+          name: '@deepseek-ai/dsh-mcp-client'
+          config:
+            serverName: context7
+            transport: streamable-http
+            url: https://mcp.context7.com/mcp
+            headers:
+              CONTEXT7_API_KEY: !!js process.env.CONTEXT7_API_KEY
+
     # 工具描述花括号清洗（见上方 bracesSanitizePlugin 注释）。waterfall listener
     # 在 next() 之后改写权威 assembly，注册顺序无关；headless 未装包时本条目
     # 加载仅告警跳过。

@@ -137,6 +137,17 @@ in
       format = "binary";
     };
 
+    # Context7 文档 MCP 的 API key：密文由 clan vars 管理（clan/zen14.nix 的
+    # context7-api-key generator，写入 vars/per-machine/zen14/context7-api-key/）。
+    # 渲染进 dsh.env 的 CONTEXT7_API_KEY（dsh mcp-context7 server，CONTEXT7_API_KEY
+    # 请求头；无 key 时远程端点也可用但限流）。原存 claude 侧 agenix（stdio 版
+    # 配置），DSH 侧改远程端点后统一入 clan vars。加密 recipients 同 apipost
+    # （machines/zen14 与 users/jojo）。
+    sops.secrets."context7/api_key" = {
+      sopsFile = ../../../vars/per-machine/zen14/context7-api-key/api-key/secret;
+      format = "binary";
+    };
+
     # OpenBao LDAP agent 用户名：密文由 clan vars 管理（clan/zen14.nix 的
     # openbao-ldap-agent-username generator）。与密码配套渲染进 dsh.env 的
     # OPENBAO_LDAP_AGENT_USERNAME——程序经 OpenBao LDAP auth 零交互取动态
@@ -240,6 +251,7 @@ in
         APIPOST_MCP_TOKEN=${config.sops.placeholder."apipost-mcp/api_token"}
         NVIDIA_NIM_API_KEY=${config.sops.placeholder."nvidia-nim/api_key"}
         GITHUB_MCP_TOKEN=${config.sops.placeholder."github-mcp/api_token"}
+        CONTEXT7_API_KEY=${config.sops.placeholder."context7/api_key"}
         OPENBAO_LDAP_AGENT_USERNAME=${config.sops.placeholder."openbao-ldap-agent/username"}
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
         BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}
