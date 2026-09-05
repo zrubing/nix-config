@@ -253,6 +253,11 @@ in
         # bash 非交互启动时 source BASH_ENV，把 shell-env 注入的 DSH_WOODPECKER_*
         # 转回 WOODPECKER_*，woodpecker-cli 无需 agent 手动转换即可直接使用。
         BASH_ENV=/home/${username}/.dsh/dsh-bash-env.sh
+        # dsh-web-fetch-http 走本地 gost HTTP->SOCKS5 桥接代理，绕过 fake-ip 导致的
+        # "resolves to a non-public IP address" SSRF 误拦。gost 转发的上游是
+        # socks5://username1:password1@127.0.0.1:10086。
+        HTTP_PROXY=http://127.0.0.1:10088
+        HTTPS_PROXY=http://127.0.0.1:10088
       '';
     };
   };
