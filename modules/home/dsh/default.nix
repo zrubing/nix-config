@@ -954,13 +954,34 @@ in
       };
     })
 
+    (lib.mkIf cfg.enable {
+      # HTTP->SOCKS5 桥接：DSH 官方 dsh-http-proxy 只支持 http/https 代理，
+      # 用户提供的是带认证的 socks5://username1:password1@127.0.0.1:10086。
+      # 用 gost 在本机开一个 http 代理，转发到该 SOCKS5 上游，DSH 再走这个
+      # 本地 http 代理，从而绕开 fake-ip 的 SSRF 误拦。
+      systemd.user.services.dsh-socks-bridge = {
+        Unit = {
+          Description = "DSH HTTP-to-SOCKS5 proxy bridge (gost)";
+          After = [ "network-online.target" ];
+          Wants = [ "network-online.target" ];
+        };
+        Install.WantedBy = [ "default.target" ];
+        Service = {
+          Type = "simple";
+          ExecStart = "${pkgs.gost}/bin/gost -L http://127.0.0.1:10088 -F socks5://username1:password1@127.0.0.1:10086";
+          Restart = "on-failure";
+          RestartSec = 5;
+        };
+      };
+    })
+
     (lib.mkIf (cfg.enable && cfg.web.enable) {
       # 参考 multica-daemon：交给 systemd 托管，脱离 SSH session 生命周期。
       systemd.user.services.dsh-web = {
         Unit = {
           Description = "DeepSeek Harness web UI";
-          After = [ "network-online.target" ];
-          Wants = [ "network-online.target" ];
+          After = [ "network-online.target" "dsh-socks-bridge.service" ];
+          Wants = [ "network-online.target" "dsh-socks-bridge.service" ];
         };
         Install.WantedBy = [ "default.target" ];
         Service = {
