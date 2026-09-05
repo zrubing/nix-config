@@ -47,6 +47,15 @@
 - id: tool-processes
   name: './tool-processes.js'
 
+# ── ast-grep(结构化代码搜索/改写)────────────────────────────────────────────
+# 与 my-minimal 同款 `ast_grep` 工具行:tree-sitter AST pattern 搜索 + 预览式
+# rewrite(apply: true 才落盘),走与 bash 相同的 shell seam。无命中 = exit 1,
+# 渲染为 (no matches),不当失败。命令必须用 `ast-grep` 全名(本机 `sg` 被
+# shadow 占用,dsh-web 服务 PATH 中 system sw/bin 在前)。文件随 preset 相对
+# 说明符加载;与 my-minimal 共用 toolAstGrepPlugin 的 store 产物(default.nix)。
+- id: tool-ast-grep
+  name: './tool-ast-grep.js'
+
 # ── pi-blackhole (recall + observational memory + commands) ─────────────────
 # The agent-facing half of pi-blackhole beyond the deterministic compaction:
 # the `recall` tool (session/file search via the imported pi-blackhole core),

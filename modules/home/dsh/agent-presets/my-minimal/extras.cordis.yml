@@ -101,6 +101,17 @@
 - id: tool-processes
   name: './tool-processes.js'
 
+# ── ast-grep(结构化代码搜索/改写)────────────────────────────────────────────
+# `ast_grep` 工具:tree-sitter AST pattern 搜索 + 预览式 rewrite(apply: true 才
+# 落盘),走与 bash 相同的 shell seam(沙箱/受信 env/workdir/超时一致)。无命中
+# = exit 1,渲染为 (no matches),不当失败;exit >= 2 才是 CLI 错误。命令必须用
+# `ast-grep` 全名:本机 `sg` 被 shadow 的组切换命令占用,且 dsh-web 服务 PATH
+# 中 system sw/bin 在 per-user bin 之前。文件随 preset 相对说明符加载;
+# toolAstGrepPlugin 构建源码 + node_modules shim(default.nix),my-minimal 与
+# my-ptc 共用同一 store 产物。
+- id: tool-ast-grep
+  name: './tool-ast-grep.js'
+
 # ── pi-blackhole (recall + observational memory + commands) ─────────────────
 # The agent-facing half of pi-blackhole beyond the deterministic compaction:
 # the `recall` tool (session/file search via the imported pi-blackhole core),

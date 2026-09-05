@@ -162,6 +162,17 @@ let
     ln -s ${dshNodeModules} $out/node_modules
   '';
 
+  # ast-grep 结构化搜索/改写工具（`ast_grep`）。同 tool-processes 的 preset 内
+  # 相对说明符模式：源码 + node_modules shim 构建进同一 store 路径，my-minimal
+  # 与 my-ptc 共用本产物（home.file 各自链接 tool-ast-grep.js）。命令必须是
+  # `ast-grep` 全名——本机 `sg` 被 shadow 的组切换命令占用，且 dsh-web 服务的
+  # PATH 里 system sw/bin 在 per-user bin 之前。
+  toolAstGrepPlugin = pkgs.runCommand "dsh-tool-ast-grep" { } ''
+    mkdir -p $out
+    cp ${./agent-presets/my-minimal/tool-ast-grep.js} $out/tool-ast-grep.js
+    ln -s ${dshNodeModules} $out/node_modules
+  '';
+
   # pi-blackhole (k0valik @0.4.3) 适配器 —— 独立 dsh 插件包（modules/home/dsh/plugins/dsh-blackhole，
   # 不是 Snowfall 的 packages/：它需要 dsh 模块独有的 dshNodeModules，不能进 flake packages 输出）。
   # 采用「导入上游核心」的适配器模式：nix 让包的 scripts/build.sh 用 esbuild 把 pi-blackhole 的纯 TS
@@ -899,6 +910,12 @@ in
         source = "${toolProcessesPlugin}/tool-processes.js";
         force = true;
       };
+      # ast_grep 工具源码在 preset 目录内（./tool-ast-grep.js），
+      # 实体是上方 toolAstGrepPlugin 的 store 产物。
+      home.file.".dsh/.agent-presets/my-minimal/tool-ast-grep.js" = {
+        source = "${toolAstGrepPlugin}/tool-ast-grep.js";
+        force = true;
+      };
       # pi-blackhole 适配器（modules/home/dsh/plugins/dsh-blackhole 的 store 产物：package.json + lib/
       # + esbuild 打包的 pi 核心 + node_modules shim）。preset 通过相对说明符
       # ./dsh-blackhole/lib/compaction.js（压缩 isolate）与 ./dsh-blackhole/lib/index.js
@@ -926,6 +943,12 @@ in
       # 与 my-minimal 共用 toolProcessesPlugin 的 store 产物。
       home.file.".dsh/.agent-presets/my-ptc/tool-processes.js" = {
         source = "${toolProcessesPlugin}/tool-processes.js";
+        force = true;
+      };
+      # ast_grep 工具源码在 preset 目录内（./tool-ast-grep.js），
+      # 与 my-minimal 共用 toolAstGrepPlugin 的 store 产物。
+      home.file.".dsh/.agent-presets/my-ptc/tool-ast-grep.js" = {
+        source = "${toolAstGrepPlugin}/tool-ast-grep.js";
         force = true;
       };
       # pi-blackhole 适配器（同 my-minimal：blackholePlugin 的 store 产物）。
