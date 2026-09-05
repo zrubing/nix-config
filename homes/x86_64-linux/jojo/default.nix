@@ -148,8 +148,8 @@ in
         # 密钥走 sops.templates 生成 env 文件（激活时解密），dsh-web 服务用 EnvironmentFile 读入。
         # 不能用 Environment=placeholder：那是求值期占位符，写入单元后不会被解密。
         envFile = config.sops.templates."dsh.env".path;
-        # 提前体验：用源码构建的 dsh 0.1.2-alpha.4（Moraxyc 式 kernel + 官方 web/headless bundle）。
-        # llm-agents 更新到 0.1.2 后把这里改回 false 即回落 npm 版。
+        # 提前体验：用源码构建的 dsh 0.1.3-alpha.1（Moraxyc 式 kernel + 官方 web/headless bundle）。
+        # llm-agents 更新到 0.1.3 后把这里改回 false 即回落 npm 版。
         useDshSource = true;
         # 自动发现 opencode-go 模型：dsh 启动 + 每 12h 拉 opencode.ai Go 档清单，
         # add-only 并入 opencode-go 路由的 models（modules/home/dsh 的
