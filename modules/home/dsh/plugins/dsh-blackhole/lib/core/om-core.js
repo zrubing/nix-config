@@ -3,17 +3,27 @@
 // The ledger is a plain JSON object kept per-session:
 //   {
 //     version: 1,
-//     observations: [{ id, timestamp, relevance, content, source, sourceEntryIds, status }],
-//     reflections:  [{ id, timestamp, content, source, sourceEntryIds }],
+//     observations: [{ id, timestamp, relevance, content, source, sourceEntryIds, status, tokenCount }],
+//     reflections:  [{ id, timestamp, content, source, sourceEntryIds, tokenCount }],
+//     cursors:      { observer: number, reflector: number, dropper: number },
+//     lastErrorAt:  number | undefined,
+//     cooldowns:    { "<provider>/<model>": { until, reason } },
 //   }
 // `id` is a 12-char lowercase hex identifier the `recall` tool resolves back to
-// source evidence. The dsh adapter owns filesystem I/O, the LLM worker calls,
-// and the compaction injection; this module only owns the shapes and the pure
-// transforms/renderers so the memory layer stays testable without dsh.
+// source evidence. Cursors are the index (into the derived-message array) the
+// observer last covered, so it only processes NEW content. The dsh adapter owns
+// filesystem I/O, the LLM worker calls, and the compaction injection; this
+// module owns the shapes, transforms, renderers, and the pure model-candidate /
+// chunking / cooldown helpers so the memory layer stays testable without dsh.
 
 import { sanitize, clip } from "./util.js";
 
 export const MEMORY_ID_PATTERN = /^[a-f0-9]{12}$/;
+
+/** Estimate tokens from characters using pi's conservative chars/4 heuristic. */
+export function estimateTokens(text) {
+  return Math.ceil(String(text || "").length / 4);
+}
 
 /** Mint a 12-char lowercase hex id (6 random bytes). */
 export function newId(rand = Math.random, cryptoObj = globalThis.crypto) {
@@ -34,6 +44,8 @@ export function isValidMemoryId(id) {
 export function normalizeLedger(raw) {
   const observations = Array.isArray(raw?.observations) ? raw.observations : [];
   const reflections = Array.isArray(raw?.reflections) ? raw.reflections : [];
+  const cursors = raw?.cursors && typeof raw.cursors === "object" ? raw.cursors : {};
+  const cooldowns = raw?.cooldowns && typeof raw.cooldowns === "object" ? raw.cooldowns : {};
   return {
     version: 1,
     observations: observations.map((o) => ({
@@ -44,6 +56,7 @@ export function normalizeLedger(raw) {
       source: String(o.source || ""),
       sourceEntryIds: Array.isArray(o.sourceEntryIds) ? o.sourceEntryIds : [],
       status: o.status === "dropped" ? "dropped" : "active",
+      tokenCount: Number.isFinite(o.tokenCount) ? o.tokenCount : estimateTokens(o.content || ""),
     })),
     reflections: reflections.map((r) => ({
       id: String(r.id || ""),
@@ -51,7 +64,19 @@ export function normalizeLedger(raw) {
       content: String(r.content || ""),
       source: String(r.source || ""),
       sourceEntryIds: Array.isArray(r.sourceEntryIds) ? r.sourceEntryIds : [],
+      tokenCount: Number.isFinite(r.tokenCount) ? r.tokenCount : estimateTokens(r.content || ""),
     })),
+    cursors: {
+      observer: Number.isFinite(cursors.observer) ? Number(cursors.observer) : -1,
+      reflector: Number.isFinite(cursors.reflector) ? Number(cursors.reflector) : -1,
+      dropper: Number.isFinite(cursors.dropper) ? Number(cursors.dropper) : -1,
+    },
+    lastErrorAt: Number.isFinite(raw?.lastErrorAt) ? Number(raw.lastErrorAt) : undefined,
+    cooldowns: Object.fromEntries(
+      Object.entries(cooldowns)
+        .filter(([, v]) => v && typeof v === "object")
+        .map(([k, v]) => [k, { until: Number(v.until) || 0, reason: String(v.reason || "") }]),
+    ),
   };
 }
 
@@ -64,6 +89,7 @@ export function addObservation(ledger, obs) {
     source: obs.source || "",
     sourceEntryIds: Array.isArray(obs.sourceEntryIds) ? obs.sourceEntryIds : [],
     status: "active",
+    tokenCount: Number.isFinite(obs.tokenCount) ? obs.tokenCount : estimateTokens(obs.content || ""),
   };
   ledger.observations.push(entry);
   return entry;
@@ -76,9 +102,17 @@ export function addReflection(ledger, refl) {
     content: sanitize(String(refl.content || "")) || "(empty)",
     source: refl.source || "",
     sourceEntryIds: Array.isArray(refl.sourceEntryIds) ? refl.sourceEntryIds : [],
+    tokenCount: Number.isFinite(refl.tokenCount) ? refl.tokenCount : estimateTokens(refl.content || ""),
   };
   ledger.reflections.push(entry);
   return entry;
+}
+
+/** True when an observation with the same normalized content already exists. */
+export function hasObservationContent(ledger, content) {
+  const key = sanitize(String(content || "")).trim().toLowerCase();
+  if (!key) return true;
+  return ledger.observations.some((o) => sanitize(o.content).trim().toLowerCase() === key);
 }
 
 /** Dedup existing observations by content; drop ones that fell below value. */
@@ -106,6 +140,87 @@ export function pruneObservations(ledger, poolMax) {
   }
   ledger.observations = kept.map((o) => ({ ...o, status: pruned.get(o.id) ?? o.status }));
   return ledger.observations.filter((o) => o.status === "active").length;
+}
+
+/** Sum of active observation tokens (the observation pool pressure). */
+export function poolTokens(ledger) {
+  return ledger.observations
+    .filter((o) => o.status !== "dropped")
+    .reduce((s, o) => s + (o.tokenCount || estimateTokens(o.content || "")), 0);
+}
+
+/**
+ * Cap source entries to maxTokens by keeping newest entries first
+ * (walk backwards until the token budget is exceeded). `entries` are
+ * { index, role, text } records; returns the kept slice in ascending index order.
+ */
+export function chunkSourceEntries(entries, maxTokens) {
+  const kept = [];
+  let total = 0;
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const e = entries[i];
+    const tok = estimateTokens(e.text || "");
+    if (total + tok > maxTokens && kept.length > 0) break;
+    // Always keep the newest entry even if it alone exceeds the budget.
+    if (total + tok > maxTokens && kept.length === 0) {
+      kept.unshift(e);
+      break;
+    }
+    kept.unshift(e);
+    total += tok;
+  }
+  return kept;
+}
+
+// ── model-candidate + cooldown helpers ───────────────────────────────────────
+
+export function modelKey(model) {
+  return `${model?.provider ?? ""}/${model?.id ?? ""}`;
+}
+
+/** Cooldown expiry for one model key; true means the model is still cooling down. */
+export function isCooledDown(cooldowns, key) {
+  const entry = cooldowns?.[key];
+  if (!entry) return false;
+  if ((entry.until || 0) > Date.now()) return true;
+  delete cooldowns[key];
+  return false;
+}
+
+/** Record a cooldown for a model key. cooldownHours 0 keeps it in-memory-only (no entry). */
+export function recordCooldownInto(cooldowns, key, reason, cooldownHours = 1) {
+  if (!key) return;
+  if (cooldownHours === 0) {
+    delete cooldowns[key];
+    return;
+  }
+  const ms = (Number.isFinite(cooldownHours) ? cooldownHours : 1) * 3600 * 1000;
+  cooldowns[key] = { until: Date.now() + ms, reason: String(reason || "") };
+}
+
+/**
+ * Build the ordered candidate list for a stage, mirroring pi-blackhole:
+ *   stage primary -> stage fallbacks -> base model
+ * The session model is the last resort handled by the caller via `sessionFallback`.
+ */
+export function candidateModels(cfg, worker) {
+  const primary =
+    worker === "observer" ? cfg.observerModel
+    : worker === "reflector" ? cfg.reflectorModel
+    : cfg.dropperModel;
+  const fallbacks =
+    worker === "observer" ? cfg.observerFallbackModels
+    : worker === "reflector" ? cfg.reflectorFallbackModels
+    : cfg.dropperFallbackModels;
+  const list = [];
+  if (primary?.provider && primary?.id) list.push(primary);
+  for (const fb of fallbacks || []) {
+    if (fb?.provider && fb?.id && modelKey(fb) !== modelKey(primary)) list.push(fb);
+  }
+  if (cfg.model?.provider && cfg.model?.id && !list.some((m) => modelKey(m) === modelKey(cfg.model))) {
+    list.push(cfg.model);
+  }
+  return list;
 }
 
 // ── render (the block injected after the vcc compaction summary) ────────────
