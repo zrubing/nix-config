@@ -35,11 +35,19 @@ let
   # 未装）→ "no method available for opening '...'"，GUI 点文件路径即报这个错。给服务注入
   # BROWSER=dsh-file-open：文件路径交给 emacsclient（用户默认 editor，--create-frame，
   # 连 daemon 开新帧显示）；URL 回落给系统 xdg-open（避免把 http(s) 链接塞给 emacs）。
+  # URL 回落前必须 unset BROWSER：xdg-open 的 open_generic 兜底对 URL 会同步调用
+  # $BROWSER（open_envvar，等退出码），若 BROWSER 仍指向本脚本 → 本脚本又 exec 回
+  # xdg-open → 无限嵌套 fork（2026-09-06 实测：9 分钟堆 2.7 万进程、吃 20G 内存；
+  # xdg-open 自身只对 BROWSER 含 "xdg-open" 字面量做防自递归 sanitize，防不了这种
+  # 包装器回环）。unset 后 xdg-open 走正常 scheme-handler/已知浏览器探测，无兜底则
+  # 优雅报 "no method available"。文件路径分支不受影响（open_envvar 传路径给本脚本 →
+  # 落到下方 emacsclient，不再经过 xdg-open）。
   dshFileOpener = pkgs.writeShellScriptBin "dsh-file-open" ''
     real_xdg_open=/run/current-system/sw/bin/xdg-open
     for arg in "$@"; do
       case "$arg" in
         http://*|https://*|ftp://*|file://*|mailto:*)
+          unset BROWSER
           exec "$real_xdg_open" "$@"
           ;;
       esac
