@@ -267,9 +267,8 @@ in
         BASH_ENV=/home/${username}/.dsh/dsh-bash-env.sh
         # dsh-web-fetch-http 走本地 gost HTTP->SOCKS5 桥接代理，绕过 fake-ip 导致的
         # "resolves to a non-public IP address" SSRF 误拦。gost 转发的上游是
-        # socks5://username1:password1@127.0.0.1:10086。
-        HTTP_PROXY=http://127.0.0.1:10088
-        HTTPS_PROXY=http://127.0.0.1:10088
+        HTTP_PROXY=http://127.0.0.1:10086
+        HTTPS_PROXY=http://127.0.0.1:10086
       '';
     };
   };
