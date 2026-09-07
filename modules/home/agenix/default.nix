@@ -2,106 +2,79 @@
   config,
   pkgs,
   inputs,
-  system,
   ...
 }:
 let
-  username = config.snowfallorg.user.name;
   mysecrets = inputs.mysecrets;
-  mystuff = pkgs.writeShellScriptBin "echo-secret" ''
+  home = config.home.homeDirectory;
+  M = "0600"; # 这些全是凭据，统一 0600
+
+  # 把 age secret 稳定地暴露到某个 app 硬编码的 dotfile 路径上。
+  # symlink 默认 true → 明文只在 $XDG_RUNTIME_DIR，<path> 是个软链接。
+  place = file: target: mode: {
+    file = file;
+    path = "${home}${target}";
+    mode = mode;
+  };
+
+  # app 硬编码路径 → 声明式放置，不再拷贝
+  placed = {
+    "authinfo"                  = place "${mysecrets}/authinfo.age"                 "/.authinfo"                    M;
+    "rclone.conf"               = place "${mysecrets}/rclone.conf.age"              "/.config/rclone/rclone.conf"   M;
+    "topsap/env.ini"            = place "${mysecrets}/topsap/env.ini.age"           "/.config/topsap/env.ini"       M;
+    "netrc"                     = place "${mysecrets}/netrc.age"                    "/.netrc"                       M;
+    "work/k8s/milvzn.kube"      = place "${mysecrets}/work/k8s/milvzn.kube.age"     "/.kube/config-milv-default.yml" M;
+    "work/k8s/sinopec.milv.kube" = place "${mysecrets}/work/k8s/milvzn.sinopec.kube.age" "/.kube/config-milv-sinopec.yml" M;
+    "work/k8s/k0s.kube"         = place "${mysecrets}/work/k8s/k0s.kube.age"        "/.kube/config-k0s.yml"         M;
+    "codex/auth.json"           = place "${mysecrets}/codex/auth.json.age"          "/.codex/auth.json"             M;
+    "ccr.config.json"           = place "${mysecrets}/ccr.config.age"               "/.claude-code-router/config.json" M;
+    "agents/pi/auth.json"       = place "${mysecrets}/agents/pi/auth.json.age"      "/.pi/agent/auth.json"          M;
+  };
+
+  # 其余 secret 仍走默认 tmpfs 路径，交给别的模块消费（ssh、claude-code），
+  # 以及必须「合并」而非直接拷贝的 pi models.json
+  plain = {
+    "ssh/topsap-config".file = "${mysecrets}/ssh/topsap-config.age";
+    "ssh/work-config".file = "${mysecrets}/ssh/work-config.age";
+    "ssh/default-config".file = "${mysecrets}/ssh/default-config.age";
+    "claude.settings.json".file = "${mysecrets}/claude.settings.json.age";
+    "agents/pi/models.json".file = "${mysecrets}/agents/pi/models.json.age";
+  };
+
+  # pi/models.json 是「age 密钥 ⊕ 明文 overlay」的合并，不是简单拷贝，
+  # 这是唯一真正需要一步生成的 case，保留一个最小的生成 unit。
+  piModels = pkgs.writeShellScriptBin "agenix-pi-models" ''
     set -euo pipefail
-
-    XDG_RUNTIME_DIR="''${XDG_RUNTIME_DIR:-/run/user/$(${pkgs.coreutils}/bin/id -u)}"
-    export XDG_RUNTIME_DIR
-
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets.authinfo.path} > /home/${username}/.authinfo
-    ${pkgs.coreutils}/bin/chmod 0600 /home/${username}/.authinfo
-    ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.config/rclone
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets."rclone.conf".path} > /home/${username}/.config/rclone/rclone.conf
-    ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.config/topsap
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets."topsap/env.ini".path} > /home/${username}/.config/topsap/env.ini
-
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets.netrc.path} > /home/${username}/.netrc
-
-    ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.kube
-
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/milvzn.kube".path} > /home/${username}/.kube/config-milv-default.yml
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/sinopec.milv.kube".path} > /home/${username}/.kube/config-milv-sinopec.yml
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets."work/k8s/k0s.kube".path} > /home/${username}/.kube/config-k0s.yml
-
-
-    ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.codex
-    ${pkgs.coreutils}/bin/cat ${config.age.secrets."codex/auth.json".path} > /home/${username}/.codex/auth.json
-
-    if [ -r ${config.age.secrets."ccr.config.json".path} ]; then
-      ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.claude-code-router
-      ${pkgs.coreutils}/bin/cat ${config.age.secrets."ccr.config.json".path} > /home/${username}/.claude-code-router/config.json
+    secret=${config.age.secrets."agents/pi/models.json".path}
+    overlay=${home}/.config/pi/models-overlay.json
+    out=${home}/.pi/agent/models.json
+    mkdir -p "$(dirname "$out")"
+    if [ -f "$overlay" ]; then
+      ${pkgs.jq}/bin/jq -s '.[0] * .[1]' "$secret" "$overlay" > "$out"
+    else
+      ${pkgs.coreutils}/bin/cp -- "$secret" "$out"
     fi
-
-    if [ -r ${config.age.secrets."agents/pi/models.json".path} ]; then
-      ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.pi/agent
-      overlay=/home/${username}/.config/pi/models-overlay.json
-      if [ -f "$overlay" ]; then
-        # age 钶密（provider 主体/密钥）+ nix 声明的非钶密 overlay（如 modelOverrides）深合并，overlay 优先
-        ${pkgs.jq}/bin/jq -s '.[0] * .[1]' \
-          ${config.age.secrets."agents/pi/models.json".path} \
-          "$overlay" > /home/${username}/.pi/agent/models.json
-      else
-        # overlay 缺失时回退为原样拷贝，不破坏 age 内容
-        ${pkgs.coreutils}/bin/cat ${config.age.secrets."agents/pi/models.json".path} > /home/${username}/.pi/agent/models.json
-      fi
-      ${pkgs.coreutils}/bin/chmod 0600 /home/${username}/.pi/agent/models.json
-    fi
-
-    if [ -r ${config.age.secrets."agents/pi/auth.json".path} ]; then
-      ${pkgs.coreutils}/bin/mkdir -p /home/${username}/.pi/agent
-      ${pkgs.coreutils}/bin/cat ${config.age.secrets."agents/pi/auth.json".path} > /home/${username}/.pi/agent/auth.json
-      ${pkgs.coreutils}/bin/chmod 0600 /home/${username}/.pi/agent/auth.json
-    fi
+    chmod 0600 "$out"
   '';
 in
 {
-
   config = {
+    age.identityPaths = [ "${home}/.ssh/id_ed25519" ];
+    age.secrets = placed // plain;
 
-    age.identityPaths = [ "/home/${username}/.ssh/id_ed25519" ];
-    age.secrets.authinfo.file = "${mysecrets}/authinfo.age";
-    age.secrets."rclone.conf".file = "${mysecrets}/rclone.conf.age";
-    age.secrets."topsap/env.ini".file = "${mysecrets}/topsap/env.ini.age";
-    age.secrets."ssh/topsap-config".file = "${mysecrets}/ssh/topsap-config.age";
-    age.secrets."ssh/work-config".file = "${mysecrets}/ssh/work-config.age";
-    age.secrets."ssh/default-config".file = "${mysecrets}/ssh/default-config.age";
+    home.packages = [ piModels ];
 
-    age.secrets.netrc.file = "${mysecrets}/netrc.age";
-    age.secrets."work/k8s/milvzn.kube".file = "${mysecrets}/work/k8s/milvzn.kube.age";
-    age.secrets."work/k8s/sinopec.milv.kube".file = "${mysecrets}/work/k8s/milvzn.sinopec.kube.age";
-    age.secrets."work/k8s/k0s.kube".file = "${mysecrets}/work/k8s/k0s.kube.age";
-
-    age.secrets."claude.settings.json".file = "${mysecrets}/claude.settings.json.age";
-
-    age.secrets."codex/auth.json".file = "${mysecrets}/codex/auth.json.age";
-
-    age.secrets."ccr.config.json".file = "${mysecrets}/ccr.config.age";
-    age.secrets."agents/pi/models.json".file = "${mysecrets}/agents/pi/models.json.age";
-    age.secrets."agents/pi/auth.json".file = "${mysecrets}/agents/pi/auth.json.age";
-
-    home.packages = [
-      #inputs.agenix.packages.${system}.agenix
-      mystuff # so now in the terminal running `echo-secret` runs the above command
-    ];
-
-    systemd.user.services."agenix-echo-secret" = {
+    systemd.user.services."agenix-pi-models" = {
       Unit = {
-        Description = "agenix in home";
+        Description = "merge agenix pi models into ~/.pi/agent/models.json";
         Requires = [ "agenix.service" ];
         After = [ "agenix.service" ];
       };
       Service = {
         Type = "oneshot";
-        ExecStart = "${mystuff}/bin/echo-secret";
+        ExecStart = "${piModels}/bin/agenix-pi-models";
       };
       Install.WantedBy = [ "default.target" ];
     };
   };
-
 }
