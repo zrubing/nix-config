@@ -25,7 +25,7 @@ let
     "netrc"                     = place "${mysecrets}/netrc.age"                    "/.netrc"                       M;
     "work/k8s/milvzn.kube"      = place "${mysecrets}/work/k8s/milvzn.kube.age"     "/.kube/config-milv-default.yml" M;
     "work/k8s/sinopec.milv.kube" = place "${mysecrets}/work/k8s/milvzn.sinopec.kube.age" "/.kube/config-milv-sinopec.yml" M;
-    "work/k8s/k0s.kube"         = place "${mysecrets}/work/k8s/k0s.kube.age"        "/.kube/config-k0s.yml"         M;
+    "work/k8s/k0s.kube"         = place "${mysecrets}/work/k8s/k0s.kube.age"        "/.kube/config"         M;
     "codex/auth.json"           = place "${mysecrets}/codex/auth.json.age"          "/.codex/auth.json"             M;
     "ccr.config.json"           = place "${mysecrets}/ccr.config.age"               "/.claude-code-router/config.json" M;
     "agents/pi/auth.json"       = place "${mysecrets}/agents/pi/auth.json.age"      "/.pi/agent/auth.json"          M;
