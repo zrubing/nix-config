@@ -238,11 +238,11 @@
     "deepseek-harness-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1788513383,
-        "narHash": "sha256-7gje0bGlfRbo6qEubnKt3z8a6UjDGNW90g7phGU+s6g=",
+        "lastModified": 1788781535,
+        "narHash": "sha256-lORF4FwGFBJlXOsbhILhj4olWJZL+sO2pRKtOYtX8/4=",
         "owner": "deepseek-ai",
         "repo": "deepseek-harness",
-        "rev": "d347e703908d0406b7a7ef80e3a0e594d86b2215",
+        "rev": "82a5fd61a7cf5c293cec4bdff68f455398d685e9",
         "type": "github"
       },
       "original": {
@@ -726,11 +726,11 @@
     "mysecrets": {
       "flake": false,
       "locked": {
-        "lastModified": 1788610917,
-        "narHash": "sha256-YHZqbihku3NqP0EpHTJTcdgAG1EA/9tptUbCWZwj964=",
+        "lastModified": 1788832213,
+        "narHash": "sha256-jjpuGpp88JzZUzMJ3AuSV7+fkZIcD6j5rWGFdGoaXwc=",
         "ref": "main",
-        "rev": "7c4f1b15d2973016e9659916d7f48e285075fc42",
-        "revCount": 365,
+        "rev": "76f7242b542d7b6bb57ed35e3eb4c495c32dcc0a",
+        "revCount": 366,
         "type": "git",
         "url": "ssh://git@github.com/zrubing/nix-secrets.git"
       },
