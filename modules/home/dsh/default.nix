@@ -723,13 +723,14 @@ let
 
   '';
 
-  # 竞态修复：dsh 的 baseURL/密钥依赖 sops 渲染的 envFile（~/.config/dsh.env，symlink 指向
-  # sops-nix 渲染产物）。sops 模板渲染与 systemd user 服务启动之间没有排序保证，服务可能在
-  # env 未就绪时先跑，而 EnvironmentFile 是 unit 启动时一次性读取（缺失只告警、不阻塞，
-  # 也不会在 ExecStartPre 重读），于是 process.env 取不到 baseURL → llm-pi-ai 插件树加载失败
-  # → 服务崩溃（Restart=on-failure 5s 后重启；停机窗口里浏览器执行 command → "Failed to
-  # fetch"，即 command.execute.failed 的 toast）。这里改为在真正 exec dsh 的同一进程里先等
-  # env 就绪再 source 进来：exec 让 dsh 取代该 bash（PID 不变，Type=simple 语义保持）。
+  # dsh 的 baseURL/密钥来自 sops 渲染的 envFile（~/.config/dsh.env →
+  # sops-nix 的 secrets.d/<gen>/rendered/dsh.env；/run 是 tmpfs，boot 后须等重新渲染）。
+  # boot 时 dsh-web 与 sops-nix 同由 default.target 拉起、彼此无排序，实测 dsh-web 比
+  # sops-nix 早 88ms 启动（2026-09-07 09:28:41.068839 vs .069953）→ env 尚未就绪。
+  # 就绪由 systemd 保证：dsh-web.service 声明 After/Wants=sops-nix.service（见下方 unit），
+  # 本脚本只负责在同一进程里 source 后 exec（exec 让 dsh 取代 bash，PID 不变，
+  # Type=simple 语义保持）。不在此处轮询：那是手工重造 systemd ordering，且一旦就绪
+  # 判据（某个变量名）与实际配置脱钩，服务会永久起不来。
   dshWebStart = pkgs.writeShellScript "dsh-web-start" ''
     # 防御性清理：第三方插件（曾用的 dsh-web-startup-auth 等）的 pnpm 传递依赖会把
     # @deepseek-ai/dsh-host-webserver@0.1.1-rc.2 等旧版实体目录装进 web profile 的
@@ -741,20 +742,6 @@ let
     done
 
     declare -r env_file=${lib.escapeShellArg cfg.envFile}
-    ready=0
-    i=0
-    while [ "$i" -lt 120 ]; do
-      if [ -s "$env_file" ] && grep -qE '^DEEPSEEK_RELAY_BASE_URL=.+' "$env_file" 2>/dev/null; then
-        ready=1
-        break
-      fi
-      sleep 0.5
-      i=$((i + 1))
-    done
-    if [ "$ready" -ne 1 ]; then
-      echo "dsh-web: env file $env_file not ready (missing/empty DEEPSEEK_RELAY_BASE_URL) after ~60s; aborting start" >&2
-      exit 1
-    fi
     set -a
     . "$env_file"
     set +a
@@ -994,14 +981,20 @@ in
       systemd.user.services.dsh-web = {
         Unit = {
           Description = "DeepSeek Harness web UI";
-          After = [ "network-online.target" "dsh-socks-bridge.service" ];
-          Wants = [ "network-online.target" "dsh-socks-bridge.service" ];
+          # sops-nix.service 是 Type=oneshot，负责渲染 secrets.d/<gen>。boot 时它和
+          # dsh-web 都由 default.target 并行拉起、彼此无排序（实测 dsh-web 先跑 88ms，
+          # 见 dshWebStart 注释）；缺这条依赖 → envFile 未渲染 → 服务无 env 启动即崩。
+          # 与 systems/x86_64-linux/zen14 的 aliyun-credentials 同法（after = sops-nix.service）。
+          After = [ "network-online.target" "dsh-socks-bridge.service" ]
+            ++ lib.optional (cfg.envFile != null) "sops-nix.service";
+          Wants = [ "network-online.target" "dsh-socks-bridge.service" ]
+            ++ lib.optional (cfg.envFile != null) "sops-nix.service";
         };
         Install.WantedBy = [ "default.target" ];
         Service = {
           Type = "simple";
-          # envFile 非空时用 dshWebStart 包装（先等 sops 渲染的 env 就绪再 exec dsh），
-          # 否则直接启动（无 env 依赖）。理由见 dshWebStart 注释。
+          # envFile 非空时用 dshWebStart 包装（同进程 source env 后 exec dsh；就绪由上面的
+          # After=sops-nix.service 保证），否则直接启动（无 env 依赖）。见 dshWebStart 注释。
           ExecStart = if (cfg.envFile != null) then dshWebStart else
             "${lib.getExe dshPackage} web --host ${cfg.web.host} --port ${toString cfg.web.port}"
             + (lib.concatMapStrings (h: " --trusted-host ${h}") cfg.web.trustedHosts);
