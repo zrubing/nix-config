@@ -231,6 +231,10 @@ in
         # GH_TOKEN 复用 github-mcp/api_token 同一份 PAT（clan/zen14.nix github-mcp-token），
         # 供 gh CLI / git 等读标准 GH_TOKEN 完成认证。单一来源，随 MCP token 一起轮换。
         export GH_TOKEN="${config.sops.placeholder."github-mcp/api_token"}"
+        # Context7 MCP：pi 侧（npx stdio 版）读 CONTEXT7_API_KEY，pi-mcp-adapter
+        # 连接时对 env 做 ''${VAR} 插值，故必须出现在启动 pi 的 shell 环境里；
+        # dsh 侧同名变量由 dsh.env 提供（同一份 context7/api_key）。
+        export CONTEXT7_API_KEY="${config.sops.placeholder."context7/api_key"}"
       '';
     };
 

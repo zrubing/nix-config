@@ -1,28 +1,20 @@
 {
   config,
+  lib,
   pkgs,
   namespace,
   ...
 }: let
-  # nix 管理的 MCP server 定义（纯 nix attrset，类型安全、可读、可注释）
-  # 新增 server 只需在这里加条目，rebuild 后自动 merge 进各 agent 的 MCP 配置。
-  # 注：含密钥的 server（如 context7/github PAT）放在 agenix secret 里，
-  # 这里只放纯 nix 可表达的条目。
-  nixMcpServers = {
-    "chrome-devtools" = {
-      # nix 包锁版本（flake 锁定），路径随 rebuild 自动更新，无需手动维护
-      command = "${pkgs.${namespace}.chrome-devtools-mcp}/bin/chrome-devtools-mcp";
-      args = [
-        "-e"
-        # NixOS 上 Puppeteer 下载的 Chrome-for-Testing 跑不了，必须指向系统 Chrome
-        "${pkgs.unstable.google-chrome}/bin/google-chrome-stable"
-      ];
-    };
-  };
+  # 统一 MCP server 定义（pi / dsh / claude 共用源，见该文件头部注释）。
+  # 新增或修改 server 只改 modules/home/mcp-servers/servers.nix 一处，
+  # pi 侧由此处的 piServers 渲染，dsh 侧由 modules/home/dsh 的同一份渲染。
+  # 密钥不写明文：pi 视图用 ${VAR} 引用（pi-mcp-adapter 对 env/headers/url
+  # 插值），值来自 shell 的 ~/.config/default.env（sops 渲染）。
+  mcpServers = import ../mcp-servers/servers.nix {inherit lib pkgs namespace;};
 
   # 序列化为 JSON 供 activation 脚本 merge（替代 runCommand+jq 拼接）
   mcpServersJson = pkgs.writeText "nix-mcp-servers.json" (
-    builtins.toJSON {mcpServers = nixMcpServers;}
+    builtins.toJSON {mcpServers = mcpServers.piServers;}
   );
 in {
   home.file = {
@@ -32,6 +24,11 @@ in {
   # 把 nix 管理的 mcpServers merge 进各 agent 的 MCP 配置文件。
   # 合并顺序：用户手写条目 × agenix secret × nix 管理（后者优先级最高）。
   # 保留用户手写部分，所以用 activation + jq 而非整文件覆盖。
+  #
+  # 2026-09 起 nix 源已覆盖全部 5 个 server（含 github/context7/zai/搜索），
+  # 且密钥字段（env/args/headers）整体重写为 ${VAR} 引用，故 agenix secret 里的
+  # 明文 mcpServers 不再出现在最终文件中，仅作「nix 源漏配时的兜底」保留。
+  # 新增 server 的正确做法是改 modules/home/mcp-servers/servers.nix，不是改 secret。
   home.activation.mergeMcpConfigs = config.lib.dag.entryAfter ["writeBoundary"] ''
     # 设置 XDG_RUNTIME_DIR 默认值，避免在 systemd 服务中报错
     export XDG_RUNTIME_DIR=''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
