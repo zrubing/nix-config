@@ -24,20 +24,20 @@ let
 in
 buildNpmPackage (finalAttrs: {
   pname = "dsh-workspace";
-  version = "0.1.3-alpha.1";
+  version = "0.1.3-alpha.2";
 
   __structuredAttrs = true;
   strictDeps = true;
 
-  # 源码：fetchFromGitHub 拉 dsh-v0.1.3-alpha.1（其派生源带 .name，供 dsh-landlock-run 取 sourceRoot）。
+  # 源码：fetchFromGitHub 拉 dsh-v0.1.3-alpha.2（其派生源带 .name，供 dsh-landlock-run 取 sourceRoot）。
   src = fetchFromGitHub {
     owner = "deepseek-ai";
     repo = "deepseek-harness";
     tag = "dsh-v${finalAttrs.version}";
-    hash = "sha256-7gje0bGlfRbo6qEubnKt3z8a6UjDGNW90g7phGU+s6g=";
+    hash = "sha256-lORF4FwGFBJlXOsbhILhj4olWJZL+sO2pRKtOYtX8/4=";
   };
 
-  env.DSH_CLIENT_COMMIT_HASH = "d347e703908d0406b7a7ef80e3a0e594d86b2215";
+  env.DSH_CLIENT_COMMIT_HASH = "82a5fd61a7cf5c293cec4bdff68f455398d685e9";
 
   nodejs = nodejs-slim;
   disallowedReferences = [
