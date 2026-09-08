@@ -30,6 +30,11 @@ let
   username = config.snowfallorg.user.name;
   userBin = "/etc/profiles/per-user/${username}/bin";
 
+  # 统一 MCP server 定义（pi / dsh 共用源，见该文件头部注释）：新增或修改
+  # server 只改那一个文件；此处把同一份源渲染成 cordis insert 条目，密钥走
+  # !!js process.env.VAR（值由 dsh.env 注入），与 pi 侧的 ${VAR} 引用同源。
+  mcpServers = import ../mcp-servers/servers.nix { inherit lib pkgs namespace; };
+
   # dsh web 服务跑在无 DISPLAY 的 systemd user 环境里（has_display=false），xdg-open 会
   # 跳过 mime 关联查找、直接走 BROWSER 兜底；BROWSER 空 + 无终端浏览器（www-browser 等全
   # 未装）→ "no method available for opening '...'"，GUI 点文件路径即报这个错。给服务注入
@@ -642,53 +647,14 @@ let
               gpt-5.6-sol:
                 contextWindow: 272000
 
-    # ApiPost 开放平台 MCP：远程 streamable-http server，认证走 api-token 头。
-    # token 由 clan vars 加密管理（apipost-mcp-token generator），经 home sops
-    # 解密渲染进 dsh.env，dsh-web 服务 EnvironmentFile 注入后在此运行时求值，
-    # 本 patch 文件不含明文密钥。插件包由下方 activation 装入 web profile；
-    # headless 未装此包，加载该条目时仅告警跳过（failOnStartupError 默认 false）。
-    - insert:
-        - id: mcp-apipost
-          name: '@deepseek-ai/dsh-mcp-client'
-          config:
-            serverName: apipost
-            transport: streamable-http
-            url: https://open.apipost.net/mcp
-            headers:
-              api-token: !!js process.env.APIPOST_MCP_TOKEN
-
-    # GitHub 远程 MCP server（官方托管 https://api.githubcopilot.com/mcp/，
-    # streamable-http，认证 Authorization: Bearer <PAT>）。PAT 由 clan vars 加密
-    # 管理（clan/zen14.nix github-mcp-token），渲染进 dsh.env 的 GITHUB_MCP_TOKEN，
-    # 此处运行时求值，patch 文件不含明文。远程托管免 docker，dsh-web 服务里最稳；
-    # 工具面由服务端默认 toolset 决定（与 pi 侧 docker 版 GITHUB_DYNAMIC_TOOLSETS=1
-    # 不同）。
-    - insert:
-        - id: mcp-github
-          name: '@deepseek-ai/dsh-mcp-client'
-          config:
-            serverName: github
-            transport: streamable-http
-            url: https://api.githubcopilot.com/mcp/
-            headers:
-              Authorization: !!js '"Bearer " + process.env.GITHUB_MCP_TOKEN'
-
-    # Context7 文档 MCP server（Upstash 托管 https://mcp.context7.com/mcp，
-    # streamable-http，认证 CONTEXT7_API_KEY 请求头；无 key 可用但限流）。key 由
-    # clan vars 加密管理（clan/zen14.nix context7-api-key，自 claude 侧 agenix 的
-    # stdio 版配置迁移），渲染进 dsh.env 的 CONTEXT7_API_KEY，此处运行时求值，
-    # patch 文件不含明文。给 agent 提供 resolve-library-id / get-library-docs
-    # 两个工具（当前版本的库文档与代码示例）。2026-09 实测：无 key initialize/
-    # tools/call 均 200（限流），带 key 正常配额。
-    - insert:
-        - id: mcp-context7
-          name: '@deepseek-ai/dsh-mcp-client'
-          config:
-            serverName: context7
-            transport: streamable-http
-            url: https://mcp.context7.com/mcp
-            headers:
-              CONTEXT7_API_KEY: !!js process.env.CONTEXT7_API_KEY
+    # MCP server 条目：由 modules/home/mcp-servers/servers.nix 统一渲染
+    # （pi 侧同一份源生成 ~/.pi/agent/mcp.json）。密钥一律走 !!js
+    # process.env.VAR，值由 dsh.env（sops 渲染）注入，本 patch 文件不含明文。
+    # 当前 dsh 侧启用 apipost / github / context7 / zai-mcp-server /
+    # web-search-prime；chrome-devtools 需 DISPLAY（dsh-web 服务无），仅 pi。
+    # headless profile 未装 dsh-mcp-client 时这些条目仅告警跳过
+    # （failOnStartupError 默认 false）。
+    ${mcpServers.dshPatchEntries}
 
     # 工具描述花括号清洗（见上方 bracesSanitizePlugin 注释）。waterfall listener
     # 在 next() 之后改写权威 assembly，注册顺序无关；headless 未装包时本条目
