@@ -34,6 +34,8 @@ let
       "npm:context-mode@1.0.169"
       "npm:@aliou/pi-processes@0.9.5"
       "npm:pi-deepseek-search@1.0.15"
+      # DeepSeek prefix-cache 扩展：命中率遥测 + prefix 守卫 + cache 友好的 compaction
+      "npm:pi-deepseek-cache@0.2.1"
       runinfraPackage
       # NVIDIA NIM 网关 provider（integrate.api.nvidia.com/v1，100+ 模型，
       # 运行时 live discovery）。dsh 侧对应 data/nvidia-nim-models.json 静态
