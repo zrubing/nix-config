@@ -16,6 +16,37 @@ let
   # 注意：pi 的 git 包 pin ref 用 @ref 后缀（见 pi 文档 packages.md）
   runinfraRev = flakeLock.nodes."pi-runinfra-provider-src".locked.rev;
   runinfraPackage = "git:github.com/monotykamary/pi-runinfra-provider@${runinfraRev}";
+
+  # ── pi-deepseek-cache：禁用其 P3（cache-friendly compaction）后本地加载 ──
+  # 冲突事实（2026-09-08 实证）：该扩展与 pi-blackhole 都注册 session_before_compact，
+  # 而 pi 的 runner 对 session_before_* 事件是「覆盖」语义、非合并——
+  # core/extensions/runner.js 的 isSessionBeforeEvent 分支里 `result = handlerResult`
+  # （仅 cancel 会短路）。扩展按包名字母序加载（旧 pi-debug.log 的 [Extensions] 段可验：
+  # @aliou/… → context-mode → monotykamary/… → pi-blackhole → pi-deepseek-search →
+  # pi-mcp-adapter），故 pi-blackhole 先注册、pi-deepseek-cache 后注册并覆盖，
+  # blackhole 的 OM 折叠内容（`summary + "\n\n" + omContent`）被整段丢弃，
+  # details.compactor/sections/om.folded 一并丢失；/blackhole 手动路径同样被覆盖
+  # （该扩展不检查 customInstructions）。
+  # 上游 0.2.1 已是最新且无任何开关（源码无 config/env 读取），故从 npm tarball
+  # 构建一份禁用 P3 的副本，经本地扩展目录加载（pi 支持 ~/.pi/agent/extensions/*/index.ts，
+  # 且 loader.js 的 _aliases 表对本地扩展同样生效，裸导入 @earendil-works/* 可解析），
+  # 保留 P1 命中率遥测与 P2 前缀守卫。
+  # patch 手法：把 session_before_compact 的注册改成 `if (false) …`（单行、版本无关），
+  # 该 handler 从此不注册 → 对 compaction 结果弃权 → blackhole 的返回值存活。
+  # 上游若加开关，改回 settings.json 的 packages 引用并删掉本段即可。
+  deepseekCacheVersion = "0.2.1";
+  deepseekCacheTarball = pkgs.fetchurl {
+    url = "https://registry.npmjs.org/pi-deepseek-cache/-/pi-deepseek-cache-${deepseekCacheVersion}.tgz";
+    hash = "sha256-biTininOQyEQrdTq40+7ojlpTnVnO+DuRkffm2Ykg3Y=";
+  };
+  deepseekCacheExt = pkgs.runCommand "pi-deepseek-cache-nocompact-${deepseekCacheVersion}" { } ''
+    mkdir -p $out
+    tar xzf ${deepseekCacheTarball} -C $out --strip-components=1
+    substituteInPlace $out/index.ts --replace-fail \
+      '  pi.on("session_before_compact", async (event, ctx) => {' \
+      '  if (false) pi.on("session_before_compact", async (event, ctx) => {'
+  '';
+
   # pi-blackhole 三个 memory worker 共用的模型（deepseek-v4-flash 便宜快，适合后台任务）
   # contextWindow 显式声明 1M，OM pipeline 会在调用前检查输入是否放得下
   # 注意：provider 与 id 是分开的字段，id 只写模型名（不带 provider 前缀），
@@ -34,8 +65,8 @@ let
       "npm:context-mode@1.0.169"
       "npm:@aliou/pi-processes@0.9.5"
       "npm:pi-deepseek-search@1.0.15"
-      # DeepSeek prefix-cache 扩展：命中率遥测 + prefix 守卫 + cache 友好的 compaction
-      "npm:pi-deepseek-cache@0.2.1"
+      # pi-deepseek-cache 不在此声明：其 P3 compaction 与 pi-blackhole 冲突（覆盖语义），
+      # 改用 deepseekCacheExt 经本地扩展目录加载，理由见上方 deepseekCacheExt 注释。
       runinfraPackage
       # NVIDIA NIM 网关 provider（integrate.api.nvidia.com/v1，100+ 模型，
       # 运行时 live discovery）。dsh 侧对应 data/nvidia-nim-models.json 静态
@@ -125,6 +156,11 @@ in
       text = blackholeConfig;
       force = true;
     };
+    # pi-deepseek-cache：本地 patched 副本（P3 已禁用），不再经 settings.json 的 packages。
+    # 该目录同时是扩展自身的 STATS_DIR（stats.json / history.json / summary-cache.json），
+    # 故只 link index.ts，不动目录内其余运行时文件。
+    home.file.".pi/agent/extensions/deepseek-cache/index.ts".source =
+      "${deepseekCacheExt}/index.ts";
     # skills 统一放 ~/.agents/skills（单一目录，DSH 与 pi 共用读取）：
     # pi docs/skills.md Locations 的 Global 区列了 ~/.pi/agent/skills/ 和
     # ~/.agents/skills/，DSH 的 skill-filesystem 也扫 ~/.agents/skills（rank 500）。
