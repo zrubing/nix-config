@@ -137,6 +137,9 @@ in
 
     modules = {
       codex.enable = true;
+      # 共享 skill 声明：一份清单同时投放到 ~/.agents/skills（pi/DSH/Codex）
+      # 与 ~/.claude/skills（Claude Code），源见 modules/home/skills。
+      skills.enable = true;
       fcitx5.enable = true;
       fuzzel.enable = true;
       packages = {

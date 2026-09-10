@@ -946,24 +946,39 @@ in
         force = true;
       };
 
-      # ── DSH skill：woodpecker-ci（声明式）───────────────────────────────
-      # DSH 的本地 skill 由 @deepseek-ai/dsh-skill-filesystem 从若干根目录发现，
-      # 每个 skill 是一个目录 bundle（内含 SKILL.md，frontmatter 必有 name + description）。
-      # 用户级根取 ~/.agents/skills（$DSH_AGENTS_HOME 或 ~/.agents 的 skills 子目录，
-      # rank 500）——与 DSH 现有用户 skill（agent-browser、gitbutler）同处该活跃根，
-      # 已被本会话目录证明被扫描（本会话里 agent-browser/but 均由此根提供）。
-      # 与 pi 侧 <pi/agent/skills/woodpecker-ci> 同源（.pi/skill-sources/woodpecker-ci，
-      # git 权威源）：此处用同一 source，DSH 与 pi 各自读取自己根目录下的这份副本，
-      # 互不干扰。rebuild 后 home-manager 在 ~/.agents/skills/woodpecker-ci 建 symlink
-      # （该根已存在、chokidar 监听中），运行中的 dsh-web 立即发现；无需重启。
-      # force：接管以普通目录形式已存在的同名目录。~/.agents/skills/woodpecker-ci
-      # 已作为普通目录存在（内只有同一份 SKILL.md），home-manager 默认拒绝覆盖
-      # 非空真实目录，须显式 force 才允许替换为 symlink。来源与现有内容一致
-      # （均为 .pi/skill-sources/woodpecker-ci 的 2999 字节 SKILL.md），接管无破坏。
-      home.file.".agents/skills/woodpecker-ci" = {
-        source = ../../../.pi/skill-sources/woodpecker-ci;
-        force = true;
-      };
+      # ── router-standard（实验）：dsh-routing-suite 的阶段路由预设 ───────────
+      # 来源 github:yjh051108/dsh-routing-suite 的 preset/router-standard（整目录快照；
+      # 作者的 agent.cordis.yml 是自包含组合：persona + 工具行 + plan/compaction/
+      # delegation 分组 + ./router-bootstrap-v34.mjs 挂载点，不是上游 minimal/ptc 的
+      # 求值产物，所以不走 myMinimalComposition 那套文本拼接）。
+      # id = 目录名 router-standard（user root；shipped root 无同名，不会被遮蔽），
+      # picker 显示 preset.yml 的 "Router Standard"。
+      #
+      # 为什么不能用 home.file（两条路都实测断）：
+      # ① 整目录 source → home-manager 生成 symlink 目录；dsh-agent-presets 的
+      #    scanRoot 用 readdir(withFileTypes) + Dirent.isDirectory() 过滤
+      #    （lib/types/discovery.js:293），symlink 的 isDirectory() 是 false，
+      #    preset 根本不出现在 picker 里。
+      # ② 逐文件 source → 目录是真的，但 home-manager 把每个文件复制成**各自独立**
+      #    的 store 文件（/nix/store/<hash>-hm_routerbootstrapv34.mjs），realpath 的
+      #    兄弟目录不再含 router-core-v34.mjs，bootstrap 的
+      #    `import './router-core-v34.mjs'` 解析成 /nix/store/router-core-v34.mjs →
+      #    Cannot find module。
+      # activation 复制成真实文件：目录真实（能被发现）+ 文件同目录（相对 import
+      # 成立）。副产品是文件可写，作者的 dev_reload_preset_live 热重载（把 ?v=N 写回
+      # agent.cordis.yml）也能用；代价是每次 switch 覆盖回 store 版本。
+      # 升级：从 routing-suite 重新拷 router-*.mjs / agent.cordis.yml 到本目录。
+      home.activation.dshRouterStandardPreset = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        rm -rf $HOME/.dsh/.agent-presets/router-standard
+        mkdir -p $HOME/.dsh/.agent-presets/router-standard
+        cp -r ${./agent-presets/router-standard}/. $HOME/.dsh/.agent-presets/router-standard/
+        chmod -R u+w $HOME/.dsh/.agent-presets/router-standard
+      '';
+
+      # ── DSH skill：woodpecker-ci ────────────────────────────────────────
+      # 声明已移到 modules/home/skills（共享 skill 模块）：DSH 的 skill 根仍是
+      # ~/.agents/skills（dsh-skill-filesystem rank 500），与 pi / Codex 同一份源；
+      # 该模块同时把同一批 skill 投放到 ~/.claude/skills。
     })
 
     (lib.mkIf cfg.enable {

@@ -192,8 +192,23 @@ in
       path = "/home/${username}/.dsh/AGENTS.md";
     };
 
+    # anysearch CLI 运行时从 skill 目录读 .env（anysearch_cli.{sh,py,js} 的
+    # _load_env：先 <script_dir>/.env，再 <script_dir>/../.env）。skill 由
+    # modules/home/skills 投放到 ~/.agents/skills（pi / DSH / Codex）与
+    # ~/.claude/skills（Claude Code），两个根各要一份 .env，否则 CLI 只拿到
+    # 匿名额度。home-manager 的 recursive 投放走 lndir，只补源目录里存在的
+    # 文件，不会删这里放进去的 .env。
+    # bashrc 也 source 同一份（见 modules/home/bash 的 anysearch 块，路径取自本
+    # 模板的 path），终端里启动的 agent 另有环境变量兜底。
     sops.templates."anysearch-env" = {
-      path = "/home/${username}/.pi/agent/skills/anysearch/.env";
+      path = "/home/${username}/.agents/skills/anysearch/.env";
+      content = ''
+        export ANYSEARCH_API_KEY="${config.sops.placeholder."anysearch/api_key"}"
+      '';
+    };
+
+    sops.templates."anysearch-env-claude" = {
+      path = "/home/${username}/.claude/skills/anysearch/.env";
       content = ''
         export ANYSEARCH_API_KEY="${config.sops.placeholder."anysearch/api_key"}"
       '';
