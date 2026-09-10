@@ -27,7 +27,11 @@
 /** Cordis plugin name used by loader diagnostics. */
 const name = "deepseek-relay-autosync";
 
-/** Timer mixin is a hard dependency: first pass + periodic pass use ctx.timeout/ctx.interval. */
+/**
+ * Timer mixin is a hard dependency: first pass + periodic pass use ctx.timeout/ctx.interval.
+ * The settings service is resolved through `ctx.inject(["settings"], ...)` so activation
+ * waits for the provider instead of racing it with a fixed startup timer.
+ */
 const inject = ["timer"];
 
 /** The settings namespace owning the provider routes (matches dsh-llm-pi-ai). */
@@ -40,9 +44,16 @@ const DEFAULT_API = "openai-completions";
 const DEFAULT_API_KEY_ENV = "DEEPSEEK_RELAY_API_KEY";
 /** 12h check interval; override via the plugin row's `config.intervalMs`. */
 const DEFAULT_INTERVAL_MS = 12 * 60 * 60 * 1000;
-/** Capacities applied to id the listing discloses but whose figures it hides. */
-const DEFAULT_CONTEXT_WINDOW = 128000;
-const DEFAULT_MAX_TOKENS = 32000;
+/**
+ * Capacities applied to an id the listing discloses but whose figures it hides.
+ * The relay's /v1/models carries ids only, so figures cannot be discovered; these
+ * defaults must therefore stay neutral-but-useful rather than smallest-possible.
+ * The deepseek family on this relay is 1M/384k (probe-verified for deepseek-flash);
+ * ids the relay ships later may differ, in which case correct the entry here or in
+ * the route's settings section.
+ */
+const DEFAULT_CONTEXT_WINDOW = 1000000;
+const DEFAULT_MAX_TOKENS = 384000;
 /**
  * Relay-specific compat applied to *newly adopted* id: the relay 400s the
  * `developer` role and serves everything over openai-completions. Existing
@@ -53,6 +64,11 @@ const NEW_MODEL_COMPAT = {
 	supportsDeveloperRole: false,
 	supportsStore: false,
 	maxTokensField: "max_tokens",
+	// The relay serves the deepseek family with thinking enabled on
+	// openai-completions; without these the harness would not round-trip
+	// reasoning_content, which the relay requires on assistant turns.
+	thinkingFormat: "deepseek",
+	requiresReasoningContentOnAssistantMessages: true,
 };
 
 /**
@@ -280,11 +296,11 @@ async function apply(ctx, config) {
 	};
 	// Guard against overlapping runs that would each re-read and rewrite.
 	let running = false;
-	const run = async () => {
+	const run = async (runCtx) => {
 		if (running) return;
 		running = true;
 		try {
-			const report = await syncOnce(ctx, opts);
+			const report = await syncOnce(runCtx, opts);
 			console.log(`[${name}] ${JSON.stringify(report)}`);
 		} catch (error) {
 			console.error(`[${name}] ${messageOf(error)}`);
@@ -292,10 +308,19 @@ async function apply(ctx, config) {
 			running = false;
 		}
 	};
-	// First pass shortly after activation (lets the settings/llm services settle),
-	// then a periodic pass. Both are owned by this plugin's fiber.
-	ctx.timeout(() => void run(), 2000);
-	ctx.effect(() => ctx.interval(() => void run(), opts.intervalMs), `${name}.interval`);
+	// The settings service is a hard dependency: `inject` defers activation until
+	// the provider has installed it, so this pass still runs at startup but never
+	// races it (a 2s timer did race it, and the failed pass then waited a full
+	// interval). The injected child fiber also disposes the interval if the
+	// service goes away, and re-arms it when it returns.
+	ctx.inject(["settings"], (settingsCtx) => {
+		// First pass shortly after activation (lets the llm service settle), then
+		// a periodic pass. `settingsCtx` keeps both timers on the injected child
+		// fiber, so losing the settings service disposes them and regaining it
+		// re-arms them.
+		settingsCtx.timeout(() => void run(settingsCtx), 2000);
+		settingsCtx.effect(() => settingsCtx.interval(() => void run(settingsCtx), opts.intervalMs), `${name}.interval`);
+	});
 }
 
 export { name, inject, apply };
