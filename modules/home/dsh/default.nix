@@ -507,6 +507,13 @@ let
     ++ [ "  compat: ${nimYamlVal compat}" ];
   nimModelsYaml = yamlIndent10 (lib.concatStringsSep "\n" (lib.concatMap nimModelYaml nimModelsRaw));
 
+  # CodeBuddy Code CLI（Linux）实际写登录态的文件。dsh-codebuddy-cli 自带的
+  # 默认探测是 ~/.config/CodeBuddyExtension/Data/Public/auth（插件
+  # src/auth.ts 的 defaultAuthDirCandidates，作者自述 Linux 未实测），而 CLI
+  # 2.148.0 在本机写的是 ~/.local/share/...（实测依据见 providerPatch 里
+  # llm-codebuddy-cli 行注释），所以要在 patch 层显式给 authFile。
+  codebuddyAuthFile = "${config.home.homeDirectory}/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info";
+
   # 静态 patch 层：cordis.patch.yml 只被 dsh 只读加载（从不写回），
   # 所以可以安全地由 nix 托管（软链接到 store）。provider 模型路由放这里。
   providerPatch = pkgs.writeText "dsh-cordis.patch.yml" ''
@@ -650,6 +657,27 @@ let
             modelOverrides:
               gpt-5.6-sol:
                 contextWindow: 272000
+
+    # CodeBuddy 模型 provider（插件 dsh-codebuddy-cli，见下方
+    # configureDshCodebuddyCli 安装块）。插件包自带 cordis.patch.yml
+    # （dsh.bundle.patch），装成依赖后 dsh plugin 的 reconcile 按已装状态把它
+    # 追加进 web profile 的 dsh.profile.bundles，行 id 是 llm-codebuddy-cli，
+    # 所以这里只需按 id 补 config，不写 insert。
+    #
+    # authFile 必须显式声明：插件 src/auth.ts 的 Linux 默认候选是
+    # ~/.config/CodeBuddyExtension/Data/Public/auth；而 CodeBuddy Code CLI
+    # 2.148.0 在 Linux 实际写 ~/.local/share/CodeBuddyExtension/Data/Public/
+    # auth/Tencent-Cloud.coding-copilot.info（CLI bundle 内 default 分支
+    # join(home,'.local','share','CodeBuddyExtension') + Data/Public/auth +
+    # <product>.info；2026-09-10 实测该文件存在、当日 16:47 刷新、结构与
+    # 插件 parseCodeBuddyAuth 的 {auth,account} 形状一致）。缺这条时 provider
+    # 仍会注册，但每次请求都抛 "no signed-in CodeBuddy account found"——插件
+    # 只在 CLI 文件缺位时才回落到自己那份 $DSH_HOME/.codebuddy-cli-auth.json。
+    # 运行期优先级：Web 设置卡片的 authFile（settings.yaml）> 本行 > 环境变量
+    # CODEBUDDY_CLI_AUTH_FILE > 平台默认。CLI 将来换目录时同步 codebuddyAuthFile。
+    - id: llm-codebuddy-cli
+      config:
+        authFile: ${codebuddyAuthFile}
 
     # MCP server 条目：由 modules/home/mcp-servers/servers.nix 统一渲染
     # （pi 侧同一份源生成 ~/.pi/agent/mcp.json）。密钥一律走 !!js
@@ -1092,6 +1120,43 @@ in
     })
 
     (lib.mkIf cfg.enable {
+      # dsh-codebuddy-cli（第三方插件，github:fu827707013/dsh-codebuddy-cli）：
+      # 复用本机 CodeBuddy Code CLI（pkgs.${namespace}.codebuddy-code，见
+      # modules/home/packages）的登录态，把 CodeBuddy 的模型接进 dsh 的模型
+      # 选择器与设置卡片（provider id codebuddy-cli：host 半区注册 provider +
+      # 本地 loopback shim，client 半区是 web 平台插件 → 只装 web profile）。
+      # 与 dsh-opencode-models 同款 github: 依赖路线：activation 幂等安装，
+      # 首次需联网；装成功才置 dshReloadWeb=1（统一在 configureDshReloadWeb
+      # 里重启一次 dsh-web）。钉 v0.1.8 的 tag commit；上游更新 = 换下面的 rev
+      # （releases: https://github.com/fu827707013/dsh-codebuddy-cli/releases）。
+      # 不加 preset 行也不需要 cordis insert 行：插件包自带
+      # dsh.bundle.patch（cordis.patch.yml 里的 llm-codebuddy-cli 行），装成
+      # 依赖后由 dsh plugin 的 reconcile 自动进 profile 的 bundle 层；它只注册
+      # LLM provider / 设置 section / 会话内积分条（src/index.ts 的 apply），
+      # 不给 agent 加工具、子代理或命令。
+      # 只装 web：client 半区声明 platform: web（TUI/headless 无这一半，插件
+      # README 亦警告 TUI 下会导致 dsh 启动崩溃：events is not iterable）。
+      # 注意插件自带的 status/doctor CLI（dsh plugin --profile web exec
+      # dsh-codebuddy-cli status）在本 profile 下跑不起来：profile 的
+      # pnpm-workspace.yaml 是 autoInstallPeers=false（防旧版 @deepseek-ai/*
+      # 遮蔽 kernel），它的 @deepseek-ai/* 依赖因此不在 profile node_modules；
+      # host 半区不受影响（实测 provider 注册 + 卡片正常），要看登录态直接读
+      # 同源路由：curl http://127.0.0.1:<web.port>/plugins/dsh-codebuddy-cli/status
+      home.activation.configureDshCodebuddyCli = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        want="github:fu827707013/dsh-codebuddy-cli#041e932e465bdd0161fc7aeadce6c9fd044039f4"
+        if ! grep -q "$want" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
+            dshReloadWeb=1
+          else
+            echo "WARN: dsh-codebuddy-cli 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+    })
+
+    (lib.mkIf cfg.enable {
       # ApiPost MCP 桥接：把 @deepseek-ai/dsh-mcp-client 装入 web profile，
       # 配合 cordis.patch.yml 里 mcp-apipost 插件条目（token 走环境变量）。
       # 同上走 activation 幂等安装；安装成功后重启服务让插件生效。
@@ -1230,6 +1295,7 @@ in
       # file://（永远 grep 不命中 → 每次 switch 都重装+重启）。
       home.activation.configureDshReloadWeb = inputs.home-manager.lib.hm.dag.entryAfter [
         "configureDshOpencodeModels"
+        "configureDshCodebuddyCli"
         "configureDshMcpClient"
         "configureDshBracesSanitize"
         "configureDshOpenbaoShellEnv"
