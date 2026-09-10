@@ -132,7 +132,8 @@ in {
         #pkgs-nix-ai.coding-agent-search
         #pkgs-nix-ai.claude-code-acp
         pkgs-nix-ai.openspec
-        pkgs-nix-ai.cc-switch-cli
+        # cc-switch-cli disabled: Codex provider/catalog config is managed by
+        # modules/home/codex instead.
         #pkgs.${namespace}.trojan-go
         pkgs-nix-ai.eca
       ]

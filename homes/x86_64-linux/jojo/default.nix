@@ -136,6 +136,7 @@ in
     #fish.provider = "Qwen";
 
     modules = {
+      codex.enable = true;
       fcitx5.enable = true;
       fuzzel.enable = true;
       packages = {
