@@ -1,0 +1,3 @@
+name: My Router Standard
+description: "Router Standard (routing-suite v34) + 本地增量：ast_grep 结构化搜索、pi-blackhole recall 记忆与 /blackhole* 命令、确定性压缩后端。不加 start_process——官方 bash 的 run_in_background + job_* 已覆盖后台起进程。渐进式阶段解锁 / 二级披露 / delivery_check 交付门禁保持原样。"
+order: 2
