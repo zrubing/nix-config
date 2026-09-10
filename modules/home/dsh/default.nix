@@ -975,6 +975,28 @@ in
         chmod -R u+w $HOME/.dsh/.agent-presets/router-standard
       '';
 
+      # ── my-router-standard：router-standard 的本地派生副本（+ 自定义工具）────
+      # 同样走 activation 真实复制（理由见上：home.file 的两种托管都要么被
+      # scanRoot 跳过、要么把相对 import 拆散）。目录本体是
+      # agent-presets/my-router-standard 的快照，另外三件来自 store：
+      #   tool-ast-grep.js  ← toolAstGrepPlugin（源码 + node_modules shim 的产物）
+      #   dsh-blackhole/    ← blackholePlugin（recall 工具 + OM worker + 命令 + 确定性压缩后端）
+      #   node_modules      ← 目录级 shim：preset 目录向上没有 node_modules，散装
+      #                        @deepseek-ai/* 裸导入靠它解析（与 my-minimal 的单文件
+      #                        插件同一机制）。
+      # 与 router-standard 的差别只有三处（都写进了那一份 agent.cordis.yml /
+      # router-bootstrap-v34.mjs 的 LOCAL PATCH 注释）：加 ast_grep + recall 两行、
+      # 阶段 0 归属、compaction-basic → blackhole-compact。不加 start_process。
+      home.activation.dshMyRouterStandardPreset = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        rm -rf $HOME/.dsh/.agent-presets/my-router-standard
+        mkdir -p $HOME/.dsh/.agent-presets/my-router-standard
+        cp -r ${./agent-presets/my-router-standard}/. $HOME/.dsh/.agent-presets/my-router-standard/
+        cp ${toolAstGrepPlugin}/tool-ast-grep.js $HOME/.dsh/.agent-presets/my-router-standard/
+        cp -r ${blackholePlugin} $HOME/.dsh/.agent-presets/my-router-standard/dsh-blackhole
+        chmod -R u+w $HOME/.dsh/.agent-presets/my-router-standard
+        ln -sfn ${dshNodeModules} $HOME/.dsh/.agent-presets/my-router-standard/node_modules
+      '';
+
       # ── DSH skill：woodpecker-ci ────────────────────────────────────────
       # 声明已移到 modules/home/skills（共享 skill 模块）：DSH 的 skill 根仍是
       # ~/.agents/skills（dsh-skill-filesystem rank 500），与 pi / Codex 同一份源；
