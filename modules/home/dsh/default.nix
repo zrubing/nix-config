@@ -535,52 +535,18 @@ let
             baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
             compat:
               supportsDeveloperRole: false
+            # 2026-09-10 relay 侧收敛：/v1/models 只剩 deepseek-flash
+            # （= 官方 deepseek-official 的 DeepSeek-V41-Flash，多模态）。旧的
+            # v4-flash / v4-flash-vision-exp / v4-pro / v4.1-flash 已下架，本表
+            # 只留种子；增删由 dsh-deepseek-relay-autosync 对 /v1/models 同步。
+            # 但 /v1/models 只给 id，能力（contextWindow/maxTokens/input 模态）
+            # 探针实测：1M 上下文、384k 输出、纯红 1x1 PNG 探针 200（认图）。
             models:
-              - id: deepseek-v4-flash
-                name: DeepSeek V4 Flash
-                contextWindow: 1000000
-                maxTokens: 384000
-                input: [text]
-                reasoningEfforts:
-                  high: high
-                  max: max
-                compat:
-                  thinkingFormat: deepseek
-                  maxTokensField: max_tokens
-                  requiresReasoningContentOnAssistantMessages: true
-              - id: deepseek-v4-flash-vision-exp
-                name: DeepSeek V4 Flash Vision Exp
-                contextWindow: 1000000
-                maxTokens: 384000
-                input: [text, image]
-                reasoningEfforts:
-                  high: high
-                  max: max
-                compat:
-                  thinkingFormat: deepseek
-                  maxTokensField: max_tokens
-                  requiresReasoningContentOnAssistantMessages: true
-              - id: deepseek-v4-pro
-                name: DeepSeek V4 Pro
-                contextWindow: 1000000
-                maxTokens: 384000
-                input: [text]
-                reasoningEfforts:
-                  high: high
-                  max: max
-                compat:
-                  thinkingFormat: deepseek
-                  maxTokensField: max_tokens
-                  requiresReasoningContentOnAssistantMessages: true
-              # deepseek-v4.1-flash：2026-09-10 由 expires-on-0910 别名换成正式名
-              # （relay /models 实测两者并存，正式名无过期）。视输入未探针，先保守
-              # 声明 [text]。本表只是种子：后续 relay 上新/改名/下架由
-              # dsh-deepseek-relay-autosync 插件对 /v1/models 增删同步，无需手补。
-              - id: deepseek-v4.1-flash
+              - id: deepseek-flash
                 name: DeepSeek V4.1 Flash
                 contextWindow: 1000000
                 maxTokens: 384000
-                input: [text]
+                input: [text, image]
                 reasoningEfforts:
                   high: high
                   max: max
@@ -1192,11 +1158,11 @@ in
       # runinfra-autosync 的 file: + store-hash 幂等安装；loader 行在
       # cordis.patch.yml 的 deepseek-relay-autosync insert 条目。装完重启 dsh-web 生效。
       home.activation.configureDshRelayAutosync = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$D{PATH}"
-        pkgJson="$D{D}HOME/.dsh/profiles/web/package.json"
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
         want="file:${deepseekRelayAutosyncPlugin}"
-        if ! grep -qF "$D{want}" "$D{pkgJson}" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$D{want}"; then
+        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
             dshReloadWeb=1
           else
             echo "WARN: dsh-deepseek-relay-autosync 安装失败（离线？），下次重建重试"
