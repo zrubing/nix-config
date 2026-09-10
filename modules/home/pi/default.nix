@@ -188,6 +188,15 @@ in
     };
     home.file.".agents/skills/grill-me".source = "${inputs.mattpocock-skills}/skills/productivity/grill-me";
     # grilling：已按需移除（2026-08-31），不再声明。
+    # ADHD 系 skill（2026-09-09 从手动真实目录转为声明式，rev pin 在 flake.nix）：
+    # adhd 自动触发（brainstorm/ideate/design/naming 等），单次约 10 次 Agent 调用；
+    # i-have-adhd 的 SKILL.md 带 disable-model-invocation，只经用户显式调用
+    # （pi: /skill:i-have-adhd；DSH: 输入框 / 的 Skills 分组）。
+    # 二者与 caveman 同属输出风格压缩，不要与 caveman 同时启用。
+    # i-have-adhd 目录含 agents/ 子目录（gemini.toml / openai.yaml），
+    # 默认整目录 symlink 即覆盖，无需 recursive。
+    home.file.".agents/skills/adhd".source = "${inputs.adhd-skill}/skills/adhd";
+    home.file.".agents/skills/i-have-adhd".source = "${inputs.i-have-adhd-skill}/skills/i-have-adhd";
     home.file.".agents/skills/anysearch" = {
       source = "${inputs.anysearch-skill}";
       recursive = true;
@@ -202,6 +211,21 @@ in
         if [ -e "$target" ] && [ ! -L "$target" ]; then
           rm -rf "$target.pre-nix.bak"
           mv "$target" "$target.pre-nix.bak"
+        fi
+      done
+    '';
+
+    home.activation.migrateAdhdSkillDirectories = config.lib.dag.entryBefore [ "checkLinkTargets" ] ''
+      # adhd / i-have-adhd 在 2026-09-09 之前是手动复制的真实目录，转 nix 管理前
+      # 移到 ~/.agents/skill-backups/（该目录不在 skills/ 下，任何 agent 都不扫）。
+      # 不能原地留 <skill>.pre-nix.bak：pi 的 loadSkillsFromDir 会递归发现子目录里的
+      # SKILL.md，DSH 的目录包规则同理，frontmatter name 与父目录名不符会变成噪音。
+      for skill in adhd i-have-adhd; do
+        target="$HOME/.agents/skills/$skill"
+        if [ -e "$target" ] && [ ! -L "$target" ]; then
+          mkdir -p "$HOME/.agents/skill-backups"
+          rm -rf "$HOME/.agents/skill-backups/$skill.realdir-2026-09-09"
+          mv "$target" "$HOME/.agents/skill-backups/$skill.realdir-2026-09-09"
         fi
       done
     '';

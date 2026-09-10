@@ -11,7 +11,9 @@ let
   cfg = config.${namespace}.modules.dsh;
   # dsh 二进制来源：默认用 llm-agents 打包的 npm 版（@deepseek-ai/dsh 0.1.1-rc.2）；
   # useDshSource=true 改用从 deepseek-harness 源码构建的本仓库包（packages/dsh-source，
-  # 即 Moraxyc 式 kernel 方案产出的 dsh-kernel，追 master/0.1.3-alpha.2，npm 尚无此版）。
+  # 即 Moraxyc 式 kernel 方案产出的 dsh-kernel，版本/源码单一来源 =
+  # flake input deepseek-harness-src（当前锁 tag dsh-v0.1.5-rc.1，升级见
+  # pkgs/dsh-moraxyc/dsh-workspace/package.nix 注释）。
   # llm-agents 更新后把 useDshSource 改回 false 即切回。
   dshPackage =
     if cfg.useDshSource
@@ -156,6 +158,17 @@ let
     mkdir -p $out/lib
     cp ${./plugins/runinfra-autosync/package.json} $out/package.json
     cp ${./plugins/runinfra-autosync/lib/index.js} $out/lib/index.js
+  '';
+
+  # 自动发现 deepseek-relay 实时模型（见 plugins/deepseek-relay-autosync/lib/index.js
+  # 注释）。dsh-runinfra-autosync 的克隆，仅默认端点/路由/凭据 env 不同：
+  # relay /v1/models 是权威，reconcile（增删同步）deepseek-relay 路由——中转侧
+  # 改名（如 v4.1-flash-expires-on-0910 → v4.1-flash）、上新、下架都自动跟随，
+  # 不再需要手动改 providerPatch 种子表。headless 未装包时该行仅告警跳过。
+  deepseekRelayAutosyncPlugin = pkgs.runCommand "dsh-deepseek-relay-autosync" { } ''
+    mkdir -p $out/lib
+    cp ${./plugins/deepseek-relay-autosync/package.json} $out/package.json
+    cp ${./plugins/deepseek-relay-autosync/lib/index.js} $out/lib/index.js
   '';
 
   # pi-processes（aliou）的 agent 侧移植。pi extension（@earendil-works/* 契约 +
@@ -506,12 +519,15 @@ let
           # deepseek 路由与之完全重复，导致模型选择器同时出现 DeepSeek（官方）和
           # deepseek（catalog id 兜底名）两项；已移除。dsh-web-search-deepseek
           # 也只认 deepseek-official，不受影响。
-          # deepseek-relay 路由 = 企业 relay（与官方 DeepSeek 分开；该 key
-          # key/baseURL 走 clan vars openai-relay 渲染进 dsh.env 的
-          # DEEPSEEK_RELAY_* 独立 env，不影响原 OPENAI_API_KEY）。非 catalog 路由，models 必须全量
-          # 显式列出（实测可用 3 个，元数据对齐 opencode-go catalog 同家族条目）。
+          # deepseek-relay 路由 = 企业 relay（与官方 DeepSeek 分开；key 走 clan
+          # vars deepseek-relay/api-key、baseURL 复用 openai-relay/base-url，
+          # 渲染进 dsh.env 的 DEEPSEEK_RELAY_* 独立 env，不影响原 OPENAI_API_KEY）。非 catalog 路由，models 必须全量
+          # 显式列出（实测可用 4 个，元数据对齐 opencode-go catalog 同家族条目）。
           # relay 角色白名单无 developer（实测 400）→ 路由级 supportsDeveloperRole。
-          # relay /models 共 123 个，后续要加其他模型在此补。
+          # relay /models 共 128 个，后续要加其他模型在此补。
+          # v4.1-flash-expires-on-0910：2026-09-08 加，多模态（纯红 1x1 PNG 探针
+          # 答 #FF0000）+ deepseek thinking wire 200 实测通过。id 里的
+          # expires-on-0910 是 relay 侧命名，到期后请求会失败，届时删本条目即可。
           deepseek-relay:
             apiKeyEnv: DEEPSEEK_RELAY_API_KEY
             displayName: DeepSeek Relay
@@ -546,6 +562,22 @@ let
                   requiresReasoningContentOnAssistantMessages: true
               - id: deepseek-v4-pro
                 name: DeepSeek V4 Pro
+                contextWindow: 1000000
+                maxTokens: 384000
+                input: [text]
+                reasoningEfforts:
+                  high: high
+                  max: max
+                compat:
+                  thinkingFormat: deepseek
+                  maxTokensField: max_tokens
+                  requiresReasoningContentOnAssistantMessages: true
+              # deepseek-v4.1-flash：2026-09-10 由 expires-on-0910 别名换成正式名
+              # （relay /models 实测两者并存，正式名无过期）。视输入未探针，先保守
+              # 声明 [text]。本表只是种子：后续 relay 上新/改名/下架由
+              # dsh-deepseek-relay-autosync 插件对 /v1/models 增删同步，无需手补。
+              - id: deepseek-v4.1-flash
+                name: DeepSeek V4.1 Flash
                 contextWindow: 1000000
                 maxTokens: 384000
                 input: [text]
@@ -719,6 +751,19 @@ let
             baseURL: https://api.runinfra.ai/v1
             api: openai-completions
             apiKeyEnv: RUNINFRA_GATEWAY_KEY
+            intervalMs: 43200000
+
+    # 自动发现 deepseek-relay 实时模型（见上方 deepseekRelayAutosyncPlugin 注释）。
+    # 启动 + 每 intervalMs 拉 relay /v1/models 清单，reconcile deepseek-relay 路由。
+    # headless 未装包时仅告警跳过。
+    - insert:
+        - id: deepseek-relay-autosync
+          name: dsh-deepseek-relay-autosync
+          config:
+            route: deepseek-relay
+            baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
+            api: openai-completions
+            apiKeyEnv: DEEPSEEK_RELAY_API_KEY
             intervalMs: 43200000
 
   '';
@@ -1143,6 +1188,22 @@ in
         fi
       '';
 
+      # 自动发现 deepseek-relay 模型（见上方 deepseekRelayAutosyncPlugin 注释）：同
+      # runinfra-autosync 的 file: + store-hash 幂等安装；loader 行在
+      # cordis.patch.yml 的 deepseek-relay-autosync insert 条目。装完重启 dsh-web 生效。
+      home.activation.configureDshRelayAutosync = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$D{PATH}"
+        pkgJson="$D{D}HOME/.dsh/profiles/web/package.json"
+        want="file:${deepseekRelayAutosyncPlugin}"
+        if ! grep -qF "$D{want}" "$D{pkgJson}" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$D{want}"; then
+            dshReloadWeb=1
+          else
+            echo "WARN: dsh-deepseek-relay-autosync 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+
       # 所有 configureDsh* 插件步骤共用一个"需要时是否重启 dsh-web"标记 dshReloadWeb：
       # 任何插件真正安装后置 1，全部装完统一在此重启一次。之前每个 configureDsh* 都各
       # 重启一次 dsh-web（310+ task/2G 的 node 进程，停起一次 3~4s，单次激活里被重启 6 次），
@@ -1158,6 +1219,7 @@ in
         "configureDshModelSelectPlus"
         "configureDshOpencodeAutosync"
         "configureDshRuninfraAutosync"
+        "configureDshRelayAutosync"
         # dsh.env 内容变更守卫：必须在 sops-nix 重渲染 dsh.env 之后运行，才能读到新内容。
         "sops-nix"
       ] ''

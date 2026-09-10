@@ -17,7 +17,7 @@
 #      与 kernel 同 rev；若上游 master 已领先 tag 会告警）
 #   4. 上游 pnpm-lock.yaml -> pnpm-lock.json（yq-go 取自本 flake 锁定的 nixpkgs）
 #   5. 更新 dsh-workspace/package.nix：version / hash / DSH_CLIENT_COMMIT_HASH / 注释
-#   6. 同步 dsh-landlock-run 版本（上游 native/landlock-run/package.json 变化时）
+#   6. 同步 dsh-landlock-run 版本（上游 native/system/packages/entry/package.json 变化时）
 #   7. 同步 modules/home/dsh/default.nix 的版本备注
 #   8. 校验：flake.lock 落点 rev、nix eval dsh-source.version；--build 时全量构建
 set -euo pipefail
@@ -154,7 +154,7 @@ pkg_sed "s|^  env\\.DSH_CLIENT_COMMIT_HASH = .*;$|  env.DSH_CLIENT_COMMIT_HASH =
 pkg_sed "s|拉 dsh-v$cur_ver|拉 dsh-v$new_ver|" "$pkg_file"
 
 # ── 6. dsh-landlock-run 版本同步 ──────────────────────────────────────────────
-land_new="$("$yq_bin/bin/yq" -r '.version' "$src/native/landlock-run/package.json" 2>/dev/null | head -1 || true)"
+land_new="$("$yq_bin/bin/yq" -r '.version' "$src/native/system/packages/entry/package.json" 2>/dev/null | head -1 || true)"
 land_cur="$(sed -n 's/^  version = "\([^"]*\)";$/\1/p' "$landlock_file" | head -1)"
 if [ -n "$land_new" ] && [ "$land_new" != "$land_cur" ]; then
   pkg_sed "s|^  version = \"[^\"]*\";$|  version = \"$land_new\";|" "$landlock_file"

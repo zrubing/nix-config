@@ -56,14 +56,9 @@
     '';
   };
 
-  # 企业 openai relay 的 API key + base URL。
-  # 新 key 属于 relay 全目录分组（123 模型，含 deepseek-v4 系 / claude / gemini /
-  # kimi / qwen / gpt 全家族）；旧 codex_pro 分组 key（6 个 gpt）弃用。
-  # 消费方：home sops 渲染进 dsh.env（DEEPSEEK_RELAY_API_KEY /
-  # DEEPSEEK_RELAY_BASE_URL），两个 dsh provider 共用：
-  #   - deepseek-relay 路由（apiKeyEnv=DEEPSEEK_RELAY_API_KEY）；
-  #   - 内置 catalog 路由 openai 的 baseURL 重定向（认证仍走 OPENAI_API_KEY，
-  #     见 modules/home/dsh 的 cordis patch providers.openai）。
+  # 企业 openai relay 的历史 API key + 共享 base URL。
+  # api-key 保留给 openai-relay 自身，不跟随 deepseek-relay 轮换；base-url 仍由
+  # dsh 的 deepseek-relay 与内置 catalog 路由 openai 共同消费。
   # 换值：clan vars set zen14 openai-relay/api-key（或 /base-url）
   clan.core.vars.generators.openai-relay = {
     prompts.api-key = {
@@ -80,6 +75,21 @@
     script = ''
       cat $prompts/api-key > $out/api-key
       cat $prompts/base-url > $out/base-url
+    '';
+  };
+
+  # DeepSeek relay 的独立 API key，与 openai-relay/api-key 完全解耦。
+  # 消费方：home sops 渲染进 dsh.env 的 DEEPSEEK_RELAY_API_KEY，仅供
+  # deepseek-relay 路由使用。换值：clan vars set zen14 deepseek-relay/api-key
+  clan.core.vars.generators.deepseek-relay = {
+    prompts.api-key = {
+      description = "DeepSeek relay API key (sk-...)";
+      type = "hidden";
+    };
+    files.api-key.secret = true;
+
+    script = ''
+      cat $prompts/api-key > $out/api-key
     '';
   };
 

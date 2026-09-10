@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "adhd-skill": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788023889,
+        "narHash": "sha256-aJbyu0Dp1G6n/55dHMjxz9anb6Q/vRVEgr+3cPkacbQ=",
+        "owner": "UditAkhourii",
+        "repo": "adhd",
+        "rev": "16dc239ff186b869372e75095cfa58fc0ee89927",
+        "type": "github"
+      },
+      "original": {
+        "owner": "UditAkhourii",
+        "repo": "adhd",
+        "rev": "16dc239ff186b869372e75095cfa58fc0ee89927",
+        "type": "github"
+      }
+    },
     "agenix": {
       "inputs": {
         "darwin": "darwin",
@@ -238,15 +255,16 @@
     "deepseek-harness-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1788781535,
-        "narHash": "sha256-lORF4FwGFBJlXOsbhILhj4olWJZL+sO2pRKtOYtX8/4=",
+        "lastModified": 1789004208,
+        "narHash": "sha256-UPjEF7R3OCO5o+grTuHXaY9zGOSPSDXKBDtzVliSiPA=",
         "owner": "deepseek-ai",
         "repo": "deepseek-harness",
-        "rev": "82a5fd61a7cf5c293cec4bdff68f455398d685e9",
+        "rev": "183f08e9c6dde7e36cd2318eaee70b0da08fb35e",
         "type": "github"
       },
       "original": {
         "owner": "deepseek-ai",
+        "ref": "dsh-v0.1.5-rc.1",
         "repo": "deepseek-harness",
         "type": "github"
       }
@@ -646,6 +664,23 @@
         "type": "github"
       }
     },
+    "i-have-adhd-skill": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788887334,
+        "narHash": "sha256-xTVs8SFhJEil8yjx3ODB7Gn3h1rg4QSq4zHPncWvV3c=",
+        "owner": "ayghri",
+        "repo": "i-have-adhd",
+        "rev": "24d22f783e57cb73c957848b588c6f651b6f9cd8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ayghri",
+        "repo": "i-have-adhd",
+        "rev": "24d22f783e57cb73c957848b588c6f651b6f9cd8",
+        "type": "github"
+      }
+    },
     "k0s-nix": {
       "inputs": {
         "nixpkgs": "nixpkgs_6"
@@ -674,11 +709,11 @@
         "treefmt-nix": "treefmt-nix_3"
       },
       "locked": {
-        "lastModified": 1788735733,
-        "narHash": "sha256-npkzAcX/J3995/MvyWANeSHGBbt20JcIesPLHpHR/uI=",
+        "lastModified": 1789012107,
+        "narHash": "sha256-ykJRnaTqcTxPrUTdhVwpd3nLT3p+PvitmhbxZbgo5HI=",
         "owner": "numtide",
         "repo": "llm-agents.nix",
-        "rev": "1934b1c8633923a327ef4491be44e7a424379e6d",
+        "rev": "e320800dd9dc2b156bfa77fbeeb00e9e7295f3a9",
         "type": "github"
       },
       "original": {
@@ -1010,11 +1045,11 @@
     },
     "nixpkgs_7": {
       "locked": {
-        "lastModified": 1788549839,
-        "narHash": "sha256-kOrCcSIA6w9J1hX5DqHy2k9pDTJymExTsbV74U9UtCA=",
+        "lastModified": 1788982683,
+        "narHash": "sha256-PJCTsE4I20CrJJPcye9/z6brRFysG5+aygr/dZK097k=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "17de0b976395537756f30a3e78f2f06e5cec89ed",
+        "rev": "5052d7ccbcfb7e4ae1586cb2ecf95a2e3707dce9",
         "type": "github"
       },
       "original": {
@@ -1162,6 +1197,7 @@
     },
     "root": {
       "inputs": {
+        "adhd-skill": "adhd-skill",
         "agenix": "agenix",
         "antigravity-nix": "antigravity-nix",
         "anysearch-skill": "anysearch-skill",
@@ -1180,6 +1216,7 @@
         "flake-utils-plus": "flake-utils-plus",
         "gpui-shell": "gpui-shell",
         "home-manager": "home-manager_2",
+        "i-have-adhd-skill": "i-have-adhd-skill",
         "k0s-nix": "k0s-nix",
         "llm-agents": "llm-agents",
         "mattpocock-skills": "mattpocock-skills",

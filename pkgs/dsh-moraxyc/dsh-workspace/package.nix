@@ -12,6 +12,7 @@
   pnpmConfigHook,
   pnpm_11,
   python3,
+  runCommand,
   stdenv,
   dsh-landlock-run,
   yq-go,
@@ -24,20 +25,25 @@ let
 in
 buildNpmPackage (finalAttrs: {
   pname = "dsh-workspace";
-  version = "0.1.3-alpha.2";
+  # 版本与源码单一事实来源 = flake input deepseek-harness-src（flake.lock 锁 rev/tag）。
+  # 升级只做 nix flake update deepseek-harness-src + rebuild；不再各自硬编码
+  # version/tag/hash/commit——此前第二数据源（fetchFromGitHub 硬编码 alpha.2）
+  # 落后于 flake.lock，导致"锁文件已更新、实际构建还是旧版"。
+  version = (builtins.fromJSON (builtins.readFile (deepseek-harness-src + "/package.json"))).version;
 
   __structuredAttrs = true;
   strictDeps = true;
 
-  # 源码：fetchFromGitHub 拉 dsh-v0.1.3-alpha.2（其派生源带 .name，供 dsh-landlock-run 取 sourceRoot）。
-  src = fetchFromGitHub {
-    owner = "deepseek-ai";
-    repo = "deepseek-harness";
-    tag = "dsh-v${finalAttrs.version}";
-    hash = "sha256-lORF4FwGFBJlXOsbhILhj4olWJZL+sO2pRKtOYtX8/4=";
-  };
+  # 源码：直接消费 flake input（已是干净 store path）。包一层命名派生，让产物带
+  # deepseek-harness-<version> 名字（dsh-landlock-run 取 sourceRoot 依赖 .name）。
+  src = runCommand "deepseek-harness-${finalAttrs.version}" { } ''
+    cp -r --no-preserve=mode,ownership "${deepseek-harness-src}" "$out"
+  '';
 
-  env.DSH_CLIENT_COMMIT_HASH = "82a5fd61a7cf5c293cec4bdff68f455398d685e9";
+  # 客户端内嵌 commit：取 flake.lock 里 deepseek-harness-src 的锁定 rev（同源）。
+  env.DSH_CLIENT_COMMIT_HASH =
+    (builtins.fromJSON (builtins.readFile ../../../flake.lock))
+    .nodes."deepseek-harness-src".locked.rev;
 
   nodejs = nodejs-slim;
   disallowedReferences = [
@@ -76,10 +82,24 @@ buildNpmPackage (finalAttrs: {
     ' pnpm-workspace.yaml
   ''
   + lib.optionalString (lib.meta.availableOn stdenv.hostPlatform dsh-landlock-run) ''
-    install -Dm755 ${dsh-landlock-run}/bin/landlock-run native/landlock-run/packages/${platformKey}/bin/landlock-run
+    install -Dm755 ${dsh-landlock-run}/bin/landlock-run native/system/packages/${platformKey}/bin/landlock-run
   '';
 
   preConfigure = "patchDshWorkspace kernel";
+
+  # 上游 build:native-system（build:official 的第一步）以
+  # `dirname(process.execPath)/../include/node` 定位 Node-API 头文件来编译 flock
+  # 原生插件。nixpkgs 把 node 可执行文件与头文件分在 nodejs-slim 的 out/dev 两个
+  # 输出，且 process.execPath 会把符号链接解析回真实 store 路径，所以这里复制一份
+  # node、把 dev 输出的 include 放在它旁边，并将该前缀置于 PATH 最前，使 tsx 及其
+  # 重新 exec 的 node 都用这份带头文件的 node（见 native/system/scripts/build.ts）。
+  preBuild = ''
+    nodePrefix="$TMPDIR/node-with-headers"
+    mkdir -p "$nodePrefix/bin"
+    cp ${lib.getExe nodejs-slim} "$nodePrefix/bin/node"
+    ln -s ${nodejs-slim.dev}/include "$nodePrefix/include"
+    export PATH="$nodePrefix/bin:$PATH"
+  '';
 
   pnpmDeps = importPnpmLock {
     inherit (finalAttrs) pname version;
