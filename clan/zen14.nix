@@ -19,9 +19,11 @@
     };
     files.access-key-secret.secret = true;
 
+    # clan 的 prompt 文件以换行结尾，secret 一律 str 类型；单行凭据必须去掉
+    # 结尾换行，否则消费方拿到的值会自带 \n（TOML/请求头等严格上下文直接报错）。
     script = ''
-      cat $prompts/access-key-id > $out/access-key-id
-      cat $prompts/access-key-secret > $out/access-key-secret
+      tr -d '\n' < $prompts/access-key-id > $out/access-key-id
+      tr -d '\n' < $prompts/access-key-secret > $out/access-key-secret
     '';
   };
 
@@ -36,7 +38,7 @@
     files.api-token.secret = true;
 
     script = ''
-      cat $prompts/api-token > $out/api-token
+      tr -d '\n' < $prompts/api-token > $out/api-token
     '';
   };
 
@@ -52,7 +54,7 @@
     files.api-key.secret = true;
 
     script = ''
-      cat $prompts/api-key > $out/api-key
+      tr -d '\n' < $prompts/api-key > $out/api-key
     '';
   };
 
@@ -73,8 +75,8 @@
     files.base-url.secret = true;
 
     script = ''
-      cat $prompts/api-key > $out/api-key
-      cat $prompts/base-url > $out/base-url
+      tr -d '\n' < $prompts/api-key > $out/api-key
+      tr -d '\n' < $prompts/base-url > $out/base-url
     '';
   };
 
@@ -89,7 +91,7 @@
     files.api-key.secret = true;
 
     script = ''
-      cat $prompts/api-key > $out/api-key
+      tr -d '\n' < $prompts/api-key > $out/api-key
     '';
   };
 
@@ -108,7 +110,7 @@
     files.password.secret = true;
 
     script = ''
-      cat $prompts/password > $out/password
+      tr -d '\n' < $prompts/password > $out/password
     '';
   };
 
@@ -119,7 +121,7 @@
     files.username.secret = true;
 
     script = ''
-      cat $prompts/username > $out/username
+      tr -d '\n' < $prompts/username > $out/username
     '';
   };
 
@@ -130,7 +132,7 @@
     files.addr.secret = true;
 
     script = ''
-      cat $prompts/addr > $out/addr
+      tr -d '\n' < $prompts/addr > $out/addr
     '';
   };
 
@@ -146,7 +148,7 @@
     files.api-token.secret = true;
 
     script = ''
-      cat $prompts/api-token > $out/api-token
+      tr -d '\n' < $prompts/api-token > $out/api-token
     '';
   };
 
@@ -164,7 +166,7 @@
     files.api-key.secret = true;
 
     script = ''
-      cat $prompts/api-key > $out/api-key
+      tr -d '\n' < $prompts/api-key > $out/api-key
     '';
   };
 }
