@@ -4,19 +4,29 @@
  * against the live relay `/v1/models` listing.
  *
  * Why this exists. The deepseek-relay route is a plain openai-completions
- * gateway (non-catalog), so — exactly like runinfra — its static Nix-managed
- * model list goes stale the moment the relay renames or ships a model (e.g.
- * `deepseek-v4.1-flash-expires-on-0910` becoming `deepseek-v4.1-flash`).
- * The relay's `/v1/models` is authoritative, so this plugin reconciles the
- * route: keep live models already configured (preserving compat/reasoningEfforts
- * and any user-corrected capacities), append ids the listing discloses but we
- * do not know, and drop ones the relay no longer lists.
+ * gateway (non-catalog), so its Nix-managed model list goes stale the moment
+ * the relay renames or ships a model (2026-09-10: the whole catalog collapsed
+ * to `deepseek-flash`, retiring v4-flash / v4-flash-vision-exp / v4-pro /
+ * v4.1-flash). The relay's `/v1/models` is authoritative for *which ids exist*,
+ * so this plugin reconciles ids: keep in-scope ids still advertised (with their
+ * configured compat/reasoningEfforts/capacity), adopt newly advertised ids,
+ * drop in-scope ids the relay no longer lists.
  *
- * This is a clone of dsh-runinfra-autosync with relay endpoint defaults; see
- * that plugin's header for the full contract (settings namespace, revision-
- * guarded writes, empty-list safety, interval). The only behavioral difference
- * is NEW_MODEL_COMPAT: the relay's role whitelist is system/user/assistant/tool
- * (`developer` is a 400) and it speaks openai-completions.
+ * Two deliberate narrowings over the dsh-runinfra-autosync clone it was
+ * derived from:
+ *   1. Scope. The relay advertises far more than the DeepSeek family, while
+ *      this route is hand-curated; `includePrefixes` (default `["deepseek-"]`)
+ *      confines adoption/dropping to those ids. Entries outside the scope are
+ *      left exactly as configured — never dropped, never overwritten.
+ *   2. Capability defaults. `/v1/models` discloses only ids, so an adopted id
+ *      would otherwise carry no `reasoningEfforts` — and a model without that
+ *      field reports *no* reasoning capability to the harness, which silently
+ *      removes the thinking-effort control from the model picker (exactly the
+ *      regression seen after the rename above). `defaultReasoningEfforts` is
+ *      therefore applied to every in-scope entry that does not declare the
+ *      field (adopted *and* existing ones, so a settings snapshot written
+ *      before this option existed heals), while an explicit
+ *      `reasoningEfforts: false` is respected as a deliberate opt-out.
  *
  * The plugin is host-only and imports nothing outside the module system: every
  * capability is resolved lazily through `ctx.get`. Startup/interval overlap is
@@ -27,11 +37,7 @@
 /** Cordis plugin name used by loader diagnostics. */
 const name = "deepseek-relay-autosync";
 
-/**
- * Timer mixin is a hard dependency: first pass + periodic pass use ctx.timeout/ctx.interval.
- * The settings service is resolved through `ctx.inject(["settings"], ...)` so activation
- * waits for the provider instead of racing it with a fixed startup timer.
- */
+/** Timer mixin is a hard dependency: first pass + periodic pass use ctx.timeout/ctx.interval. */
 const inject = ["timer"];
 
 /** The settings namespace owning the provider routes (matches dsh-llm-pi-ai). */
@@ -42,18 +48,13 @@ const DEFAULT_ROUTE = "deepseek-relay";
 const DEFAULT_BASE_URL = "https://enterprise.hallucodex.chat/v1";
 const DEFAULT_API = "openai-completions";
 const DEFAULT_API_KEY_ENV = "DEEPSEEK_RELAY_API_KEY";
+/** Only ids starting with one of these are adopted/dropped; [] means "every id". */
+const DEFAULT_INCLUDE_PREFIXES = ["deepseek-"];
 /** 12h check interval; override via the plugin row's `config.intervalMs`. */
 const DEFAULT_INTERVAL_MS = 12 * 60 * 60 * 1000;
-/**
- * Capacities applied to an id the listing discloses but whose figures it hides.
- * The relay's /v1/models carries ids only, so figures cannot be discovered; these
- * defaults must therefore stay neutral-but-useful rather than smallest-possible.
- * The deepseek family on this relay is 1M/384k (probe-verified for deepseek-flash);
- * ids the relay ships later may differ, in which case correct the entry here or in
- * the route's settings section.
- */
-const DEFAULT_CONTEXT_WINDOW = 1000000;
-const DEFAULT_MAX_TOKENS = 384000;
+/** Capacities applied to id the listing discloses but whose figures it hides. */
+const DEFAULT_CONTEXT_WINDOW = 128000;
+const DEFAULT_MAX_TOKENS = 32000;
 /**
  * Relay-specific compat applied to *newly adopted* id: the relay 400s the
  * `developer` role and serves everything over openai-completions. Existing
@@ -64,17 +65,11 @@ const NEW_MODEL_COMPAT = {
 	supportsDeveloperRole: false,
 	supportsStore: false,
 	maxTokensField: "max_tokens",
-	// The relay serves the deepseek family with thinking enabled on
-	// openai-completions; without these the harness would not round-trip
-	// reasoning_content, which the relay requires on assistant turns.
-	thinkingFormat: "deepseek",
-	requiresReasoningContentOnAssistantMessages: true,
 };
 
 /**
  * Derive a display name from a model id: split on separators, capitalize words,
- * keep version digits intact (`deepseek-v4.1-flash` → `Deepseek V4.1 Flash`).
- * Mirrors dsh-runinfra-autosync.shared.displayNameFromId.
+ * keep version digits intact (`deepseek-flash` → `Deepseek Flash`).
  */
 function displayNameFromId(id) {
 	return String(id)
@@ -84,6 +79,15 @@ function displayNameFromId(id) {
 		.join(" ");
 }
 
+/** Options stand-in for reads that must not apply capability defaults. */
+const NO_DEFAULTS = {};
+
+/** Whether an id is inside the plugin's managed scope. */
+function inScope(id, prefixes) {
+	if (prefixes.length === 0) return true;
+	return prefixes.some((prefix) => id.startsWith(prefix));
+}
+
 /**
  * Normalize one model entry against the llm-pi-ai schema, filling missing
  * capacity with conservative defaults but never overriding a present value.
@@ -91,9 +95,11 @@ function displayNameFromId(id) {
  * `compat` or `reasoningEfforts`, because relay models carry meaningful
  * per-model protocol metadata that openai-completions does not infer.
  * @param entry - the draft entry (id required).
+ * @param fallbackId - id to use when the draft carries none.
+ * @param opts - resolved plugin options (scope + capability defaults).
  * @returns a plain owned copy carrying the documented fields.
  */
-function normalizeEntry(entry, fallbackId) {
+function normalizeEntry(entry, fallbackId, opts) {
 	const id = typeof entry.id === "string" && entry.id.length > 0 ? entry.id : fallbackId;
 	const name =
 		typeof entry.name === "string" && entry.name.trim().length > 0
@@ -112,6 +118,10 @@ function normalizeEntry(entry, fallbackId) {
 	};
 	if (entry.reasoningEfforts !== undefined && entry.reasoningEfforts !== null) {
 		normalized.reasoningEfforts = entry.reasoningEfforts;
+	} else if (opts.defaultReasoningEfforts !== undefined) {
+		// Absent capability metadata is what hides the effort control; `false`
+		// never reaches this branch, so a deliberate opt-out survives.
+		normalized.reasoningEfforts = { ...opts.defaultReasoningEfforts };
 	}
 	if (entry.compat !== undefined && entry.compat !== null && typeof entry.compat === "object") {
 		normalized.compat = entry.compat;
@@ -120,7 +130,7 @@ function normalizeEntry(entry, fallbackId) {
 }
 
 /** Read the route's configured models as plain owned copies. */
-function readRouteModels(settings, route) {
+function readRouteModels(settings, route, opts) {
 	const section = settings.get(NS);
 	if (section === undefined || section === null || typeof section !== "object") {
 		return { exists: false, models: [] };
@@ -133,10 +143,12 @@ function readRouteModels(settings, route) {
 	if (profile === undefined || profile === null || typeof profile !== "object") {
 		return { exists: false, models: [] };
 	}
+	// Read *without* capability defaults: reconcile owns that step, so it can
+	// tell "undecided" (repair it) from "already declared" (leave it alone).
 	const models = Array.isArray(profile.models)
 		? profile.models
 			.filter((m) => m !== null && typeof m === "object" && typeof m.id === "string")
-			.map((m) => normalizeEntry(m, m.id))
+			.map((m) => normalizeEntry(m, m.id, NO_DEFAULTS))
 		: [];
 	return { exists: true, models };
 }
@@ -170,31 +182,41 @@ async function discoverLive(ctx, opts) {
 }
 
 /**
- * Reconcile the configured models against the live listing, preserving
- * existing entries (compat/reasoningEfforts/capacity) for ids still live,
- * appending new live ids with relay-safe defaults, and dropping configured
- * ids no longer advertised.
- * @returns `{ merged, added, dropped }` where `added`/`dropped` are id lists.
+ * Reconcile the configured models against the live listing: keep in-scope
+ * entries still advertised, drop in-scope entries the relay retired, adopt
+ * newly advertised in-scope ids, and record in-scope entries that had to be
+ * given the configured reasoning defaults.
+ * @returns `{ merged, added, dropped, repaired }` where the latter three are id lists.
  */
-function reconcile(existing, live) {
+function reconcile(existing, live, opts) {
 	const liveIds = new Set(live.map((entry) => (typeof entry?.id === "string" ? entry.id : "")).filter(Boolean));
 	const merged = [];
 	const seen = new Set();
 	const added = [];
 	const dropped = [];
+	const repaired = [];
 
 	for (const entry of existing) {
+		// Out-of-scope entries are the user's business: keep them verbatim.
+		if (!inScope(entry.id, opts.includePrefixes)) {
+			merged.push(entry);
+			seen.add(entry.id);
+			continue;
+		}
 		if (!liveIds.has(entry.id)) {
 			dropped.push(entry.id);
 			continue;
 		}
-		merged.push(normalizeEntry(entry, entry.id));
+		const before = entry.reasoningEfforts;
+		const kept = normalizeEntry(entry, entry.id, opts);
+		if (before === undefined && kept.reasoningEfforts !== undefined) repaired.push(entry.id);
+		merged.push(kept);
 		seen.add(entry.id);
 	}
 
 	for (const liveEntry of live) {
 		const id = typeof liveEntry?.id === "string" ? liveEntry.id.trim() : "";
-		if (id.length === 0 || seen.has(id)) continue;
+		if (id.length === 0 || seen.has(id) || !inScope(id, opts.includePrefixes)) continue;
 		seen.add(id);
 		merged.push(
 			normalizeEntry(
@@ -204,7 +226,8 @@ function reconcile(existing, live) {
 					...(typeof liveEntry.contextWindow === "number" ? { contextWindow: liveEntry.contextWindow } : {}),
 					...(typeof liveEntry.maxTokens === "number" ? { maxTokens: liveEntry.maxTokens } : {}),
 				},
-				id
+				id,
+				opts
 			)
 		);
 		if (compatOf(merged[merged.length - 1]) === undefined) {
@@ -213,7 +236,7 @@ function reconcile(existing, live) {
 		added.push(id);
 	}
 
-	return { merged, added, dropped };
+	return { merged, added, dropped, repaired };
 }
 
 function compatOf(entry) {
@@ -226,7 +249,7 @@ async function syncOnce(ctx, opts) {
 	if (settings === undefined) {
 		return { ok: false, reason: "settings service unavailable" };
 	}
-	const { exists, models: existing } = readRouteModels(settings, opts.route);
+	const { exists, models: existing } = readRouteModels(settings, opts.route, opts);
 	if (exists === false) {
 		return { ok: false, reason: `route "${opts.route}" not declared under ${NS}.providers` };
 	}
@@ -241,8 +264,10 @@ async function syncOnce(ctx, opts) {
 	if (live.length === 0) {
 		return { ok: false, reason: "live listing empty; leaving route untouched" };
 	}
-	const { merged, added, dropped } = reconcile(existing, live);
-	if (added.length === 0 && dropped.length === 0) return { ok: true, addedCount: 0, droppedCount: 0, route: opts.route };
+	const { merged, added, dropped, repaired } = reconcile(existing, live, opts);
+	if (added.length === 0 && dropped.length === 0 && repaired.length === 0) {
+		return { ok: true, addedCount: 0, droppedCount: 0, repairedCount: 0, route: opts.route };
+	}
 	if (settings.writable === false) return { ok: false, reason: "settings provider is read-only" };
 
 	const patch = { providers: { [opts.route]: { models: merged } } };
@@ -267,6 +292,8 @@ async function syncOnce(ctx, opts) {
 		added,
 		droppedCount: dropped.length,
 		dropped,
+		repairedCount: repaired.length,
+		repaired,
 		route: opts.route,
 	};
 }
@@ -281,26 +308,39 @@ function codeOf(error) {
 	return error !== null && typeof error === "object" ? error.code : undefined;
 }
 
+/** Resolve the plugin row's config over the documented defaults. */
+function resolveOptions(config) {
+	const prefixes = Array.isArray(config?.includePrefixes)
+		? config.includePrefixes.filter((prefix) => typeof prefix === "string" && prefix.length > 0)
+		: DEFAULT_INCLUDE_PREFIXES;
+	const efforts = config?.defaultReasoningEfforts;
+	return {
+		route: config?.route ?? DEFAULT_ROUTE,
+		baseURL: config?.baseURL ?? DEFAULT_BASE_URL,
+		api: config?.api ?? DEFAULT_API,
+		apiKeyEnv: config?.apiKeyEnv ?? DEFAULT_API_KEY_ENV,
+		intervalMs: Number.isFinite(config?.intervalMs) ? config.intervalMs : DEFAULT_INTERVAL_MS,
+		includePrefixes: prefixes,
+		...(efforts !== undefined && efforts !== null && typeof efforts === "object"
+			? { defaultReasoningEfforts: { ...efforts } }
+			: {}),
+	};
+}
+
 /**
  * Host plugin entry point.
  * @param ctx - cordis context.
  * @param config - the plugin row's `config` from the host patch.
  */
 async function apply(ctx, config) {
-	const opts = {
-		route: config?.route ?? DEFAULT_ROUTE,
-		baseURL: config?.baseURL ?? DEFAULT_BASE_URL,
-		api: config?.api ?? DEFAULT_API,
-		apiKeyEnv: config?.apiKeyEnv ?? DEFAULT_API_KEY_ENV,
-		intervalMs: Number.isFinite(config?.intervalMs) ? config.intervalMs : DEFAULT_INTERVAL_MS,
-	};
+	const opts = resolveOptions(config);
 	// Guard against overlapping runs that would each re-read and rewrite.
 	let running = false;
-	const run = async (runCtx) => {
+	const run = async () => {
 		if (running) return;
 		running = true;
 		try {
-			const report = await syncOnce(runCtx, opts);
+			const report = await syncOnce(ctx, opts);
 			console.log(`[${name}] ${JSON.stringify(report)}`);
 		} catch (error) {
 			console.error(`[${name}] ${messageOf(error)}`);
@@ -308,19 +348,10 @@ async function apply(ctx, config) {
 			running = false;
 		}
 	};
-	// The settings service is a hard dependency: `inject` defers activation until
-	// the provider has installed it, so this pass still runs at startup but never
-	// races it (a 2s timer did race it, and the failed pass then waited a full
-	// interval). The injected child fiber also disposes the interval if the
-	// service goes away, and re-arms it when it returns.
-	ctx.inject(["settings"], (settingsCtx) => {
-		// First pass shortly after activation (lets the llm service settle), then
-		// a periodic pass. `settingsCtx` keeps both timers on the injected child
-		// fiber, so losing the settings service disposes them and regaining it
-		// re-arms them.
-		settingsCtx.timeout(() => void run(settingsCtx), 2000);
-		settingsCtx.effect(() => settingsCtx.interval(() => void run(settingsCtx), opts.intervalMs), `${name}.interval`);
-	});
+	// First pass shortly after activation (lets the settings/llm services settle),
+	// then a periodic pass. Both are owned by this plugin's fiber.
+	ctx.timeout(() => void run(), 2000);
+	ctx.effect(() => ctx.interval(() => void run(), opts.intervalMs), `${name}.interval`);
 }
 
 export { name, inject, apply };
