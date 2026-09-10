@@ -521,13 +521,10 @@ let
           # 也只认 deepseek-official，不受影响。
           # deepseek-relay 路由 = 企业 relay（与官方 DeepSeek 分开；key 走 clan
           # vars deepseek-relay/api-key、baseURL 复用 openai-relay/base-url，
-          # 渲染进 dsh.env 的 DEEPSEEK_RELAY_* 独立 env，不影响原 OPENAI_API_KEY）。非 catalog 路由，models 必须全量
-          # 显式列出（实测可用 4 个，元数据对齐 opencode-go catalog 同家族条目）。
+          # 渲染进 dsh.env 的 DEEPSEEK_RELAY_* 独立 env，不影响原 OPENAI_API_KEY）。
+          # 非 catalog 路由：pi-ai 没有它的任何内置条目，故 models 条目的能力
+          # 元数据只能手写（这也是 reasoningEfforts 必须显式声明的原因）。
           # relay 角色白名单无 developer（实测 400）→ 路由级 supportsDeveloperRole。
-          # relay /models 共 128 个，后续要加其他模型在此补。
-          # v4.1-flash-expires-on-0910：2026-09-08 加，多模态（纯红 1x1 PNG 探针
-          # 答 #FF0000）+ deepseek thinking wire 200 实测通过。id 里的
-          # expires-on-0910 是 relay 侧命名，到期后请求会失败，届时删本条目即可。
           deepseek-relay:
             apiKeyEnv: DEEPSEEK_RELAY_API_KEY
             displayName: DeepSeek Relay
@@ -535,12 +532,21 @@ let
             baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
             compat:
               supportsDeveloperRole: false
+            # 路由级默认思考强度：dsh 的 llm-pi-ai 把 profile.reasoning 交给
+            # 每个模型当默认档（describableReasoningLevel → defaultEffort），
+            # 模型选择器即以此为初值。前提是模型自己声明了 max 档（见下）。
+            reasoning: max
             # 2026-09-10 relay 侧收敛：/v1/models 只剩 deepseek-flash
             # （= 官方 deepseek-official 的 DeepSeek-V41-Flash，多模态）。旧的
-            # v4-flash / v4-flash-vision-exp / v4-pro / v4.1-flash 已下架，本表
-            # 只留种子；增删由 dsh-deepseek-relay-autosync 对 /v1/models 同步。
-            # 但 /v1/models 只给 id，能力（contextWindow/maxTokens/input 模态）
-            # 探针实测：1M 上下文、384k 输出、纯红 1x1 PNG 探针 200（认图）。
+            # v4-flash / v4-flash-vision-exp / v4-pro / v4.1-flash 已下架。
+            # 职责划分：本表只提供 *能力元数据*（reasoningEfforts/compat/容量），
+            # 因为 /v1/models 只给 id；id 集合的增删由
+            # dsh-deepseek-relay-autosync 对 /v1/models 同步（scope 限
+            # deepseek-*，其余手工条目不受影响）。每条必须显式声明
+            # reasoningEfforts，缺失 = 该模型"无推理能力"→ 选择器不显示思考强度。
+            # 探针实测：1M 上下文、384k 输出、纯红 1x1 PNG 探针 200（认图）；
+            # 不传 thinking 参数也自带 reasoning_content（即 off 档实际仍会思考，
+            # 故不声明 off）。
             models:
               - id: deepseek-flash
                 name: DeepSeek V4.1 Flash
@@ -731,6 +737,15 @@ let
             api: openai-completions
             apiKeyEnv: DEEPSEEK_RELAY_API_KEY
             intervalMs: 43200000
+            # 只管 deepseek-* id：relay 目录还有大量非 DeepSeek 模型，本路由是
+            # 手工 curated，不能被 reconcile 塞满（scope 外的条目原样保留）。
+            includePrefixes: [deepseek-]
+            # /v1/models 只给 id，没有能力元数据。新采纳/待修复的条目用这套
+            # 默认档补齐，否则"无 reasoningEfforts"会被判定为无推理能力，
+            # 模型选择器里的思考强度整条消失（2026-09-10 改名后即此故障）。
+            defaultReasoningEfforts:
+              high: high
+              max: max
 
   '';
 
