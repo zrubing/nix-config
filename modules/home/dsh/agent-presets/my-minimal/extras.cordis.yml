@@ -1,17 +1,24 @@
 # The `my-minimal` agent preset DELTA — the rows this preset adds on top of the
 # shipped `minimal` preset. The generated composition is:
 #
-#   upstream `minimal` (persona / persistent-shell / filesystem)  ← read from the
+#   upstream `minimal` (persona / persistent-shell)  ← read from the
 #   deepseek-harness-src flake input at eval time, so upstream updates flow
 #   through on rebuild
 #   + this file's rows (web_search + web_fetch, skill catalog + loader,
 #   start_process jobs, pi-blackhole, deterministic compaction)
 #
+# Tool surface = upstream `minimal` 的单工具语义：只有按平台选择的持久 shell
+# （bash / pwsh）。上游 dsh-v0.1.5-alpha.2 从 shipped minimal 删掉了 filesystem
+# 组（fs-local + str-replace-editor），见 .agents/notes/implemented/
+# simplification/2026-09-03-minimal-profiles-persistent-shell-only——shell 已能
+# 读写文件，editor 只是第二套接口 + 每次请求多一份 tool schema + 一个只服务它
+# 的文件系统后端。本 preset 跟随该决策，不自行补回。
+#
 # The FULL preset is the shipped `minimal` plus these delta rows. The persona is
 # the complete system prompt, so global identity, Web orientation, tool guidance,
 # and later assembly listeners cannot add prompt text. Runtime context snapshots
 # are suppressed for this preset, and the model composes the persistent shell
-# (`bash` on POSIX, `pwsh` on win32), `str_replace_editor`, `web_search` +
+# (`bash` on POSIX, `pwsh` on win32), `web_search` +
 # `web_fetch`, the `skill` loader (session skill catalog), `start_process`
 # (background processes), and `recall` (session history + file search). Context
 # compaction

@@ -109,6 +109,8 @@ in {
         # pkgs.unstable.claude-code
         pkgs.${namespace}.zli
         pkgs.${namespace}.chrome-devtools-mcp
+        # 腾讯 CodeBuddy Code（npm @tencent-ai/codebuddy-code，见 packages/codebuddy-code）
+        pkgs.${namespace}.codebuddy-code
       ]
       ++ lib.optionals (cfg.tools.ai.enable && cfg.tools.ai.ollama.enable) [
         ollama-rocm

@@ -1,0 +1,15 @@
+{
+  "name": "dsh-deepseek-relay-autosync",
+  "version": "0.1.0",
+  "description": "DSH host plugin: reconcile the 'deepseek-relay' llm-pi-ai route's model list against the live relay /v1/models listing. Runs once at dsh startup and again on an interval; keeps existing configured entries (compat/reasoningEfforts/capacity) for ids still advertised, appends newly listed ids with relay-safe defaults, and drops ids the relay no longer lists. Clone of dsh-runinfra-autosync with relay endpoint defaults.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js"
+  ],
+  "license": "MIT"
+}

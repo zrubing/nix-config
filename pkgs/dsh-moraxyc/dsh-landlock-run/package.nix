@@ -9,11 +9,14 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "dsh-landlock-run";
-  version = "0.1.1";
+  # 与上游 native/system/packages/entry 同版本：landlock 启动器与 flock 插件同属
+  # @deepseek-ai/node-addon-system 家族（flock 由上游 build:native-system 编译，
+  # 这里只负责 npm 发布版才预置的静态 landlock-run 启动器）。
+  version = "0.1.2";
 
   inherit (dsh-workspace) src;
 
-  sourceRoot = "${finalAttrs.src.name}/native/landlock-run";
+  sourceRoot = "${finalAttrs.src.name}/native/system";
 
   buildPhase = ''
     runHook preBuild
@@ -37,7 +40,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   meta = {
     description = "Static Landlock self-restrict-then-exec launcher for dsh";
-    homepage = "https://github.com/deepseek-ai/deepseek-harness/tree/blob/native/landlock-run";
+    homepage = "https://github.com/deepseek-ai/deepseek-harness/tree/blob/native/system";
     license = lib.licenses.bsd3;
     mainProgram = "landlock-run";
     platforms = [

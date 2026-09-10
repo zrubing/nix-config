@@ -16,12 +16,12 @@
 
     llm-agents.url = "github:numtide/llm-agents.nix";
 
-    # 追踪 deepseek-harness 源码的最新版（main）。npm 上 @deepseek-ai/dsh 长期停在
-    # 0.1.1-rc.2（llm-agents 也只会打包 npm 版），想提前用主分支/下一个版本就得从
-    # 源码构建。flake=false 让 flake.lock 锁住 rev，nix flake update deepseek-harness-src
-    # 可随时拉新。packages/dsh-src 消费它。
+    # deepseek-harness 源码。npm 上 @deepseek-ai/dsh 长期滞后（llm-agents 只打包
+    # npm 版），想提前用就得从源码构建。flake=false 让 flake.lock 锁住 rev；
+    # nix flake update deepseek-harness-src 可拉新。packages/dsh-src 消费它。
+    # 当前固定在 tag dsh-v0.1.5-rc.1；想回主分支把 ref 去掉即可。
     deepseek-harness-src = {
-      url = "github:deepseek-ai/deepseek-harness";
+      url = "github:deepseek-ai/deepseek-harness?ref=dsh-v0.1.5-rc.1";
       flake = false;
     };
 
@@ -159,6 +159,19 @@
 
     mattpocock-skills = {
       url = "github:mattpocock/skills?rev=9603c1cc8118d08bc1b3bf34cf714f62178dea3b";
+      flake = false;
+    };
+
+    # ADHD 系 skill（2026-09-09 从手动真实目录转为声明式管理）
+    # adhd：并行发散构思，description 含 brainstorm/design/naming 等触发词，会自动触发
+    # i-have-adhd：输出风格整形，SKILL.md 带 disable-model-invocation，只经用户显式调用
+    adhd-skill = {
+      url = "github:UditAkhourii/adhd?rev=16dc239ff186b869372e75095cfa58fc0ee89927";
+      flake = false;
+    };
+
+    i-have-adhd-skill = {
+      url = "github:ayghri/i-have-adhd?rev=24d22f783e57cb73c957848b588c6f651b6f9cd8";
       flake = false;
     };
 
