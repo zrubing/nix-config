@@ -19,9 +19,9 @@
     # deepseek-harness 源码。npm 上 @deepseek-ai/dsh 长期滞后（llm-agents 只打包
     # npm 版），想提前用就得从源码构建。flake=false 让 flake.lock 锁住 rev；
     # nix flake update deepseek-harness-src 可拉新。packages/dsh-src 消费它。
-    # 当前固定在 tag dsh-v0.1.5-rc.1；想回主分支把 ref 去掉即可。
+    # 当前固定在 tag dsh-v0.1.5-rc.2；想回主分支把 ref 去掉即可。
     deepseek-harness-src = {
-      url = "github:deepseek-ai/deepseek-harness?ref=dsh-v0.1.5-rc.1";
+      url = "github:deepseek-ai/deepseek-harness?ref=dsh-v0.1.5-rc.2";
       flake = false;
     };
 
