@@ -152,7 +152,9 @@ in
     };
 
     # OpenBao LDAP agent 用户名：密文由 clan vars 管理（clan/zen14.nix 的
-    # openbao-ldap-agent-username generator）。与密码配套渲染进 dsh.env 的
+    # openbao-ldap-agent-username generator）。与密码/地址配套渲染进两处 env：
+    # dsh.env（dsh-web 服务，见下方 dsh.env 模板）与 default.env（终端 agent：
+    # codex / pi / Claude Code 等，经 ~/.bashrc source）的
     # OPENBAO_LDAP_AGENT_USERNAME——程序经 OpenBao LDAP auth 零交互取动态
     # MySQL 只读凭证时读取。加密 recipients 同 apipost（machines/zen14 与
     # users/jojo）。
@@ -163,7 +165,8 @@ in
 
     # OpenBao LDAP agent 密码：密文由 clan vars 管理（clan/zen14.nix 的
     # openbao-ldap-agent-password generator，写入
-    # vars/per-machine/zen14/openbao-ldap-agent-password/）。渲染进 dsh.env 的
+    # vars/per-machine/zen14/openbao-ldap-agent-password/）。与用户名/地址配套
+    # 渲染进 dsh.env（dsh-web 服务）与 default.env（终端 agent）的
     # OPENBAO_LDAP_AGENT_PASSWORD——程序经 OpenBao LDAP auth 零交互取动态
     # MySQL 只读凭证时读取。加密 recipients 同 apipost（machines/zen14 与
     # users/jojo）。
@@ -173,11 +176,20 @@ in
     };
 
     # OpenBao 集群访问地址：密文由 clan vars 管理（clan/zen14.nix 的
-    # openbao-addr generator）。渲染进 dsh.env 的 BAO_ADDR——程序执行
-    # bao CLI 时自动带上，无需手动 export。加密 recipients 同 apipost
-    # （machines/zen14 与 users/jojo）。
+    # openbao-addr generator）。与 LDAP agent 凭据配套渲染进 dsh.env 与
+    # default.env 的 BAO_ADDR——程序执行 bao CLI 时自动带上，无需手动
+    # export。加密 recipients 同 apipost（machines/zen14 与 users/jojo）。
     sops.secrets."openbao-addr/addr" = {
       sopsFile = ../../../vars/per-machine/zen14/openbao-addr/addr/secret;
+      format = "binary";
+    };
+
+    # 平台文档 MCP 端点：密文由 clan vars 管理（clan/zen14.nix 的
+    # agent-docs-url generator）。渲染进 default.env / dsh.env 的
+    # AGENT_DOCS_MCP_URL（pi/claude/dsh 的 MCP 配置读它），codex 侧以 sops 占位符
+    # 写进 config.toml 的 mcp_servers.agent-docs.url。加密 recipients 同 apipost。
+    sops.secrets."agent-docs/url" = {
+      sopsFile = ../../../vars/per-machine/zen14/agent-docs-url/url/secret;
       format = "binary";
     };
 
@@ -253,6 +265,19 @@ in
         # 连接时对 env 做 ''${VAR} 插值，故必须出现在启动 pi 的 shell 环境里；
         # dsh 侧同名变量由 dsh.env 提供（同一份 context7/api_key）。
         export CONTEXT7_API_KEY="${config.sops.placeholder."context7/api_key"}"
+
+        # OpenBao LDAP agent 凭据（clan vars openbao-ldap-agent-username /
+        # -password / openbao-addr）：终端 agent（codex 等）与 dsh 走同一套
+        # 「LLDAP agent 用户 + bao login -method=ldap → 动态 MySQL 只读凭证」
+        # 流程，凭据必须出现在 shell 环境里才可用（非交互子进程不会自己 source
+        # 这个文件；codex 的 shell_environment_policy 继承全量 env 且不改默认
+        # 排除表，故 export 后即可见）。dsh-web 另有 dsh.env（同源 secret），
+        # 不经本文件。
+        export OPENBAO_LDAP_AGENT_USERNAME="${config.sops.placeholder."openbao-ldap-agent/username"}"
+        export OPENBAO_LDAP_AGENT_PASSWORD="${config.sops.placeholder."openbao-ldap-agent/password"}"
+        export BAO_ADDR="${config.sops.placeholder."openbao-addr/addr"}"
+        # 平台文档 MCP 端点（终端 agent 的 MCP 配置读取）
+        export AGENT_DOCS_MCP_URL="${config.sops.placeholder."agent-docs/url"}"
       '';
     };
 
@@ -277,6 +302,7 @@ in
         OPENBAO_LDAP_AGENT_USERNAME=${config.sops.placeholder."openbao-ldap-agent/username"}
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
         BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}
+        AGENT_DOCS_MCP_URL=${config.sops.placeholder."agent-docs/url"}
         # woodpecker-cli 凭据：bashrc 只 export 进交互 shell（WOODPECKER_TOKEN
         # 会被 dsh subprocess 的敏感名 scrub 擦除），dsh 侧经 shell-env 受信通道
         # 以 DSH_WOODPECKER_* 注入（见 modules/home/dsh 的 woodpecker-shell-env

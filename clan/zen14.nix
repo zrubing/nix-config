@@ -97,8 +97,9 @@
 
   # OpenBao LDAP agent 用户名 + 密码：OpenBao 的 LDAP auth（LLDAP 用户，agent
   # 通道）用于程序零交互获取动态 MySQL 只读凭证（读 database/creds/...）。
-  # 消费方：home sops 渲染进 dsh.env 的 OPENBAO_LDAP_AGENT_USERNAME /
-  # OPENBAO_LDAP_AGENT_PASSWORD。换值：
+  # 消费方：home sops 渲染进 dsh.env（dsh-web 服务）与 default.env（终端
+  # agent：codex / pi / Claude Code 等，经 ~/.bashrc source）的
+  # OPENBAO_LDAP_AGENT_USERNAME / OPENBAO_LDAP_AGENT_PASSWORD / BAO_ADDR。换值：
   # clan vars set zen14 openbao-ldap-agent-password/password
   # clan vars set zen14 openbao-ldap-agent-username/username
   # clan vars set zen14 openbao-addr/addr
@@ -133,6 +134,21 @@
 
     script = ''
       tr -d '\n' < $prompts/addr > $out/addr
+    '';
+  };
+
+  # 平台文档 MCP 端点。消费方：home sops 渲染进 dsh.env（dsh-web 的通用
+  # MCP 配置）与 default.env（终端 agent：pi / claude / codex，经 ~/.bashrc
+  # source）的 AGENT_DOCS_MCP_URL；codex 侧另以 sops 占位符写进 config.toml。
+  # 换值：clan vars set zen14 agent-docs-url/url
+  clan.core.vars.generators.agent-docs-url = {
+    prompts.url = {
+      description = "平台文档 MCP 端点（HTTPS URL，形如 https://<host>/mcp）";
+    };
+    files.url.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/url > $out/url
     '';
   };
 

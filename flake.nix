@@ -278,7 +278,7 @@
       clanInternals = clanConfig.config.clanInternals;
 
       # 官方形态通用入口：nix run .#clan -- secrets|vars|...
-      # （与 system-manager-hinihao-net 锁同一 clan-core rev，CLI 二进制一致）
+      # （与另一私有仓库锁同一 clan-core rev，CLI 二进制一致）
       apps.x86_64-linux = (snowfall.apps.x86_64-linux or { }) // {
         clan = {
           type = "app";
