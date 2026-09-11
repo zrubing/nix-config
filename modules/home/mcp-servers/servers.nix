@@ -86,8 +86,9 @@ let
     "[mcp_servers.${name}]\n"
     + lib.concatStringsSep "\n" (
       if cfg ? url then
-        [ "url = ${tomlScalar cfg.url}" ]
+        [ "url = ${tomlScalar (codexValue cfg.url)}" ]
         ++ lib.optional (cfg ? headers) "http_headers = ${tomlInlineTable cfg.headers}"
+        ++ lib.optional (cfg ? http_headers_helper) "http_headers_helper = ${tomlScalar cfg.http_headers_helper}"
       else
         [ "command = ${tomlScalar cfg.command}" ]
         ++ lib.optional (cfg ? args) "args = [${lib.concatMapStringsSep ", " tomlScalar cfg.args}]"
@@ -112,7 +113,7 @@ let
             ++ lib.optional (cfg ? env) "env:"
             ++ lib.mapAttrsToList (k: v: "  ${k}: ${dshValue v}") (cfg.env or { })
           else
-            [ "url: ${yamlScalar cfg.url}" ]
+            [ "url: ${dshValue cfg.url}" ]
             ++ lib.optional (cfg ? headers) "headers:"
             ++ lib.mapAttrsToList (k: v: "  ${k}: ${dshValue v}") (cfg.headers or { })
         );
@@ -248,8 +249,12 @@ rec {
     };
 
     # 智谱 web 搜索（远程 HTTP，Bearer 认证）
+    # 只声明 pi / dsh 视图：codex 侧不挂此 server。其 initialized 通知的响应是
+    # 200 + 空 body 且无 Content-Type，codex 内嵌 rmcp 以 "missing-content-type"
+    # 判定握手失败（202/204 或带 Content-Type 才被接受）。codex 改用内置
+    # web_search（见 modules/home/codex）。服务端修好后，补回下方 codex 视图即可。
     web-search-prime = {
-      description = "智谱 web 搜索 MCP（远程 HTTP，Bearer 智谱 key）";
+      description = "智谱 web 搜索 MCP（远程 HTTP，Bearer 智谱 key；codex 改用内置 web_search）";
       pi = {
         type = "http";
         url = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp";
@@ -263,11 +268,51 @@ rec {
           prefix = "Bearer ";
         };
       };
+    };
+
+    # 平台文档 MCP：服务端支持「URL + LLDAP 用户名/密码」直接接入——凭据兑换
+    # 在服务端 sidecar 完成并按用户缓存（首次 ~8s，之后 60min 重签 ~0.5s、
+    # 32 天才重新登录），所以客户端零依赖、不会过期，也不需要本地 helper/桥。
+    # URL 由 clan vars 管理（渲染进 default.env / dsh.env，codex 走 sops 占位符），
+    # 凭据复用 env 里已有的 OpenBao LDAP agent 用户名/密码（sops 渲染），
+    # 仓库内不含明文地址与口令。
+    # 工具：list_docs / search_docs / read_doc / whoami / my_entitlements，
+    # 结果按调用者所属组过滤。
+    agent-docs = {
+      description = "平台文档 MCP（URL + LLDAP 用户名/密码，服务端兑换）";
+      pi = {
+        type = "http";
+        url = "\${AGENT_DOCS_MCP_URL}";
+        headers = {
+          X-Agent-Docs-User = "\${OPENBAO_LDAP_AGENT_USERNAME}";
+          X-Agent-Docs-Password = "\${OPENBAO_LDAP_AGENT_PASSWORD}";
+        };
+      };
+      dsh = {
+        transport = "streamable-http";
+        url = {
+          env = "AGENT_DOCS_MCP_URL";
+        };
+        headers = {
+          X-Agent-Docs-User = {
+            env = "OPENBAO_LDAP_AGENT_USERNAME";
+          };
+          X-Agent-Docs-Password = {
+            env = "OPENBAO_LDAP_AGENT_PASSWORD";
+          };
+        };
+      };
       codex = {
-        url = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp";
-        headers.Authorization = {
-          sops = "anthropic/api_key";
-          prefix = "Bearer ";
+        url = {
+          sops = "agent-docs/url";
+        };
+        headers = {
+          X-Agent-Docs-User = {
+            sops = "openbao-ldap-agent/username";
+          };
+          X-Agent-Docs-Password = {
+            sops = "openbao-ldap-agent/password";
+          };
         };
       };
     };

@@ -22,8 +22,11 @@ in {
   };
 
   # 把 nix 管理的 mcpServers merge 进各 agent 的 MCP 配置文件。
-  # 合并顺序：用户手写条目 × agenix secret × nix 管理（后者优先级最高）。
-  # 保留用户手写部分，所以用 activation + jq 而非整文件覆盖。
+  # 合并顺序：用户手写条目 + agenix secret + nix 管理（后者优先级最高）。
+  # ⚠️ 用 jq `+`（顶层键替换）而不是 `*`（深合并）：nix 管理的 server 整条替换，
+  # 否则改配置形状时旧字段会残留（实测：agent-docs 从 stdio 桥改成远程 HTTP 后，
+  # `command`/`env` 仍留在文件里，客户端会按 stdio 处理，url/headers 形同不存在）。
+  # 非 nix 管理的用户条目原样保留。
   #
   # 2026-09 起 nix 源已覆盖全部 5 个 server（含 github/context7/zai/搜索），
   # 且密钥字段（env/args/headers）整体重写为 ${VAR} 引用，故 agenix secret 里的
@@ -52,12 +55,12 @@ in {
         "$jq_bin" \
           --slurpfile secret "$secret_path" \
           --slurpfile nix "$nix_mcp" \
-          '.mcpServers = ((.mcpServers // {}) * ($secret[0].mcpServers // {}) * ($nix[0].mcpServers // {}))' \
+          '.mcpServers = ((.mcpServers // {}) + ($secret[0].mcpServers // {}) + ($nix[0].mcpServers // {}))' \
           "$target" > "$target.tmp" && "$mv_bin" "$target.tmp" "$target"
       else
         "$jq_bin" \
           --slurpfile nix "$nix_mcp" \
-          '.mcpServers = ((.mcpServers // {}) * ($nix[0].mcpServers // {}))' \
+          '.mcpServers = ((.mcpServers // {}) + ($nix[0].mcpServers // {}))' \
           "$target" > "$target.tmp" && "$mv_bin" "$target.tmp" "$target"
       fi
     }
