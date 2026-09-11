@@ -12,7 +12,7 @@ let
   # dsh 二进制来源：默认用 llm-agents 打包的 npm 版（@deepseek-ai/dsh 0.1.1-rc.2）；
   # useDshSource=true 改用从 deepseek-harness 源码构建的本仓库包（packages/dsh-source，
   # 即 Moraxyc 式 kernel 方案产出的 dsh-kernel，版本/源码单一来源 =
-  # flake input deepseek-harness-src（当前锁 tag dsh-v0.1.5-rc.1，升级见
+  # flake input deepseek-harness-src（当前锁 tag dsh-v0.1.5-rc.2，升级见
   # pkgs/dsh-moraxyc/dsh-workspace/package.nix 注释）。
   # llm-agents 更新后把 useDshSource 改回 false 即切回。
   dshPackage =
