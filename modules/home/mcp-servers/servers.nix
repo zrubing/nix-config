@@ -248,6 +248,51 @@ rec {
       };
     };
 
+    # Figma 设计数据 MCP（Framelink / figma-developer-mcp）。Figma 官方远端
+    # mcp.figma.com 只服务其 catalog 白名单客户端（实测 DCR 按 client_name 放行，
+    # 仅 "Claude Code" / "Codex" 通过，pi / dsh / Cursor / VS Code 均 403），
+    # 故四端统一走这个第三方实现，鉴权用 Figma Personal Access Token（PAT）。
+    # --stdio 必带：否则它会以 HTTP/SSE 模式监听 3333 端口而非作为 MCP stdio 子进程。
+    # 密钥经 env 传（Framelink 的取值链：CLI flag → env → 默认；args 不做插值，
+    # 故 key 只能走 env）。缺 key 时它会在启动期就报
+    # "Either FIGMA_API_KEY or FIGMA_OAUTH_TOKEN is required" 而非拖到首次调用。
+    figma = {
+      description = "Figma 设计数据 MCP（Framelink，PAT 鉴权，三方 npx stdio）";
+      pi = {
+        type = "stdio";
+        command = "npx";
+        args = [
+          "-y"
+          "figma-developer-mcp"
+          "--stdio"
+        ];
+        env.FIGMA_API_KEY = "\${FIGMA_API_KEY}";
+      };
+      dsh = {
+        transport = "stdio";
+        command = "npx";
+        args = [
+          "-y"
+          "figma-developer-mcp"
+          "--stdio"
+        ];
+        env.FIGMA_API_KEY = {
+          env = "FIGMA_API_KEY";
+        };
+      };
+      codex = {
+        command = "npx";
+        args = [
+          "-y"
+          "figma-developer-mcp"
+          "--stdio"
+        ];
+        env.FIGMA_API_KEY = {
+          sops = "figma/api_key";
+        };
+      };
+    };
+
     # 智谱 web 搜索（远程 HTTP，Bearer 认证）
     # 只声明 pi / dsh 视图：codex 侧不挂此 server。其 initialized 通知的响应是
     # 200 + 空 body 且无 Content-Type，codex 内嵌 rmcp 以 "missing-content-type"
