@@ -34,6 +34,17 @@ in
         model_provider = "deepseek"
         preferred_auth_method = "apikey"
         forced_login_method = "api"
+        # 默认思考档 high（= DeepSeek 官方默认档）。必须在此显式写死：实测
+        # codex 0.154 删掉本行后 exec 会回落成 "none"（关掉思考），并不会采纳
+        # models.json 的 default_reasoning_level——catalog 那个字段只喂选择器
+        # 初值（桌面端），不参与 CLI 的缺省解析。
+        # 可选档由 ~/.codex/models.json 的 supported_reasoning_levels 决定，
+        # 当前 low/high/max：DeepSeek 官方文档「Thinking Mode Toggle and Effort
+        # Control」给出的可控取值就是 low/high/max（默认 high），其余写法
+        # （minimal/medium/xhigh/ultra）只是被映射到这三档，多声明无收益且会让
+        # 选择器出现重复档；relay 实测也印证：ultra 直接 400 unknown variant，
+        # 其枚举为 none/minimal/low/medium/high/xhigh/max。
+        # https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/
         model_reasoning_effort = "max"
         # 内置原生 web_search（Responses API 服务端搜索）。
         # codex 侧不再挂智谱 web-search-prime MCP：其服务端对 notifications/initialized
