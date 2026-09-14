@@ -28,7 +28,8 @@ in {
   # `command`/`env` 仍留在文件里，客户端会按 stdio 处理，url/headers 形同不存在）。
   # 非 nix 管理的用户条目原样保留。
   #
-  # 2026-09 起 nix 源已覆盖全部 5 个 server（含 github/context7/zai/搜索），
+  # 2026-09 起 nix 源已覆盖全部 7 个 server（github/context7/zai/figma/搜索/
+  # agent-docs/chrome-devtools），
   # 且密钥字段（env/args/headers）整体重写为 ${VAR} 引用，故 agenix secret 里的
   # 明文 mcpServers 不再出现在最终文件中，仅作「nix 源漏配时的兜底」保留。
   # 新增 server 的正确做法是改 modules/home/mcp-servers/servers.nix，不是改 secret。

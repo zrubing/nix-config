@@ -151,6 +151,16 @@ in
       format = "binary";
     };
 
+    # Figma PAT：密文由 clan vars 管理（clan/zen14.nix 的 figma-api-key
+    # generator）。渲染进 dsh.env 与 default.env 的 FIGMA_API_KEY——
+    # Framelink MCP（figma-developer-mcp）读该变量鉴权，pi / dsh / claude-code
+    # 三处同一个 secret；codex 侧走 config.toml 的 sops 占位符（同 apipost）。
+    # 加密 recipients 同 apipost（machines/zen14 与 users/jojo）。
+    sops.secrets."figma/api_key" = {
+      sopsFile = ../../../vars/per-machine/zen14/figma-api-key/api-key/secret;
+      format = "binary";
+    };
+
     # OpenBao LDAP agent 用户名：密文由 clan vars 管理（clan/zen14.nix 的
     # openbao-ldap-agent-username generator）。与密码/地址配套渲染进两处 env：
     # dsh.env（dsh-web 服务，见下方 dsh.env 模板）与 default.env（终端 agent：
@@ -274,6 +284,10 @@ in
         # 连接时对 env 做 ''${VAR} 插值，故必须出现在启动 pi 的 shell 环境里；
         # dsh 侧同名变量由 dsh.env 提供（同一份 context7/api_key）。
         export CONTEXT7_API_KEY="${config.sops.placeholder."context7/api_key"}"
+        # Figma PAT：Framelink MCP（figma-developer-mcp，npx stdio）读 FIGMA_API_KEY
+        # 鉴权，pi / claude-code 在启动 MCP 子进程时把该变量传下去；dsh 侧同名变量
+        # 由 dsh.env 提供（同一份 figma/api_key）。
+        export FIGMA_API_KEY="${config.sops.placeholder."figma/api_key"}"
 
         # OpenBao LDAP agent 凭据（clan vars openbao-ldap-agent-username /
         # -password / openbao-addr）：终端 agent（codex 等）与 dsh 走同一套
@@ -308,6 +322,7 @@ in
         NVIDIA_NIM_API_KEY=${config.sops.placeholder."nvidia-nim/api_key"}
         GITHUB_MCP_TOKEN=${config.sops.placeholder."github-mcp/api_token"}
         CONTEXT7_API_KEY=${config.sops.placeholder."context7/api_key"}
+        FIGMA_API_KEY=${config.sops.placeholder."figma/api_key"}
         OPENBAO_LDAP_AGENT_USERNAME=${config.sops.placeholder."openbao-ldap-agent/username"}
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
         BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}

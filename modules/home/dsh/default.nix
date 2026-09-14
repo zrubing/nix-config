@@ -681,8 +681,9 @@ let
     # MCP server 条目：由 modules/home/mcp-servers/servers.nix 统一渲染
     # （pi 侧同一份源生成 ~/.pi/agent/mcp.json）。密钥一律走 !!js
     # process.env.VAR，值由 dsh.env（sops 渲染）注入，本 patch 文件不含明文。
-    # 当前 dsh 侧启用 apipost / github / context7 / zai-mcp-server /
-    # web-search-prime；chrome-devtools 需 DISPLAY（dsh-web 服务无），仅 pi。
+    # 当前 dsh 侧启用 agent-docs / apipost / context7 / figma / github /
+    # web-search-prime / zai-mcp-server；chrome-devtools 需 DISPLAY
+    # （dsh-web 服务无），仅 pi。
     # headless profile 未装 dsh-mcp-client 时这些条目仅告警跳过
     # （failOnStartupError 默认 false）。
     ${mcpServers.dshPatchEntries}

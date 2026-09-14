@@ -6,6 +6,16 @@
 # 消费方：snowfall 侧 zen14 配置用 sops-nix 直接引用 vars 生成的加密文件，
 # 解密后渲染 ~/.aliyun/credentials（profile 名 work）；apipost token 则由
 # jojo 的 home 级 sops（modules/home/sops）解密注入 dsh.env。
+#
+# ⚠️ 本文件所有 generator 都是单行凭据，末尾不能带换行——各 script 里的
+# `tr -d '\n'` 只在 `clan vars generate` 路径上生效；`clan vars set` 是
+# 「原样写入」，绕过 script。所以：
+#   - 交互式 `clan vars set <machine> <gen>/<file>`：回车不算值的一部分，安全；
+#   - 管道写入必须用 `printf '%s'`（**不要** `printf '%s\n'`），否则换行会进
+#     值里。实测后果：换行随 sops 占位符进 ~/.codex/config.toml，TOML 字符串
+#     跨行 → codex 报 "missing comma between key-value pairs"，整个 config 拒绝加载；
+#     同理 default.env 的 export 值也会带上换行。
+#   - 已写错时用 `clan vars get ... | tr -d '\n' | ...` 重新 set 修正。
 {
   clan.core.vars.generators.aliyun-work = {
     prompts.access-key-id = {
@@ -86,6 +96,27 @@
   clan.core.vars.generators.deepseek-relay = {
     prompts.api-key = {
       description = "DeepSeek relay API key (sk-...)";
+      type = "hidden";
+    };
+    files.api-key.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/api-key > $out/api-key
+    '';
+  };
+
+  # Figma Personal Access Token（figd_...，Settings → Security → Personal
+  # access tokens）。消费方：Framelink MCP（figma-developer-mcp）以
+  # FIGMA_API_KEY 读取——pi/claude-code 走 default.env，dsh 走 dsh.env，
+  # codex 走 config.toml 的 sops 占位符。三处同一个 secret，轮换只改 clan vars。
+  #
+  # 为什么用 PAT 而非官方 OAuth：Figma 官方远端 mcp.figma.com 只服务其
+  # catalog 白名单客户端（实测 DCR 按 client_name 放行，仅 "Claude Code" /
+  # "Codex" 通过，pi/dsh/Cursor/VS Code 均 403）。PAT 是静态密钥，可声明式管理，
+  # 且四个 agent 共用一套配置。换值：clan vars set zen14 figma-api-key/api-key
+  clan.core.vars.generators.figma-api-key = {
+    prompts.api-key = {
+      description = "Figma Personal Access Token (figd_...)";
       type = "hidden";
     };
     files.api-key.secret = true;
