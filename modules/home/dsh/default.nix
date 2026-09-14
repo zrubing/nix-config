@@ -273,39 +273,90 @@ let
       + "\n"
       + builtins.readFile ./agent-presets/my-ptc/extras.cordis.yml;
 
-  # ── runinfra models adapter ───────────────────────────────────────────
+  # ── 共享的 LLM 路由事实（modules/home/llm-routes/routes.nix）──────────────
+  # relay 的 provider 声明（api / key env / compat / reasoning / models 的能力
+  # 元数据）pi 侧也要读，故放共享模块——两处各写一份会漂移（2026-09-14 实测：
+  # 两侧 relay key 不同，dsh key 对 v4-flash/v4-pro 全部 403）。
+  # runinfra 的模型清单只有本模块需要（pi 侧由扩展运行时注册），故 adapter 留在
+  # 下面；共享的只有两侧都要的那个 maxTokens 修正。
+  llmRoutes = import ../llm-routes/routes.nix { inherit lib; };
+  relayRoute = llmRoutes.relay;
+  # nvidia-nim adapter 与本文件的 emitter 共用同一套级别枚举
+  inherit (llmRoutes) thinkingLevels;
+
+  # relay 路由的 models: 块（YAML，已预缩进到绝对列 10）
+  relayModelsYaml = yamlIndent10 (
+    lib.concatStringsSep "\n" (lib.concatMap yamlScalarModel relayRoute.models)
+  );
+
+
+
+  # ---- YAML emitter（dsh patch 层专用）------------------------------------
+  # 本 nixpkgs 的 toYAML 是 toJSON 别名（JSON flow 风格，会污染人工可读的 patch
+  # 文件）；模型条目结构固定（扁平字段 + 最多二层 map），故手写 block 风格
+  # emitter。indented string 的插值行只有首行继承源缩进、后续行原样落到列 0，
+  # 所以整块必须预缩进到绝对列位（models: 在列 8 → 条目在列 10）。
+  # nvidia-nim adapter 与 relay 路由共用本套规则。
+  yamlScalar = v:
+    if builtins.isInt v then builtins.toString v
+    else if v == true then "true"
+    else if v == false then "false"
+    else if builtins.match "^[A-Za-z0-9._]+( [A-Za-z0-9._]+)*$" (builtins.toString v) != null
+    then builtins.toString v
+    else "\"${builtins.replaceStrings [ "\"" ] [ "\\\"" ] (builtins.toString v)}\"";
+  yamlIndent10 = s: "          " + lib.replaceStrings [ "\n" ] [ "\n          " ] s;
+  yamlScalarModel = m:
+    let
+      efforts = m.reasoningEfforts or { };
+      compat = m.compat or { };
+      effortLevels = lib.filter (l: builtins.hasAttr l efforts) thinkingLevels;
+      compatKeys = lib.filter (k: builtins.hasAttr k compat) llmRoutes.compatKeys;
+    in
+    [
+      "- id: ${yamlScalar m.id}"
+      "  name: ${yamlScalar m.name}"
+      "  contextWindow: ${toString m.contextWindow}"
+      "  maxTokens: ${toString m.maxTokens}"
+      "  input: [${lib.concatMapStringsSep ", " yamlScalar m.input}]"
+    ]
+    ++ lib.optional (effortLevels != [ ]) "  reasoningEfforts:"
+    ++ (lib.map (l: "    ${l}: ${yamlScalar efforts.${l}}") effortLevels)
+    ++ lib.optional (compatKeys != [ ]) "  compat:"
+    ++ (lib.map (k: "    ${k}: ${yamlScalar compat.${k}}") compatKeys);
+
+  # relay 路由的 provider 级 compat 块（YAML，绝对列位：compat 在列 8、键在列 10，
+  # 与 provider 级其他字段对齐）。
+  # 缩进规则（实测）：`''` 会剥掉共同缩进，而插值值**原样插入**、不继承源缩进——
+  # 所以多行插值块必须自带完整绝对缩进，源里 ${...} 前面的空格只参与公共缩进计算。
+  # 与下面 indent10 的模型块同一手法。
+  relayCompatYaml = lib.concatStringsSep "\n" (
+    [ "        compat:" ]
+    ++ lib.map
+      (k: "          ${k}: ${yamlScalar relayRoute.compat.${k}}")
+      (builtins.attrNames relayRoute.compat)
+  );
+
+  # ---- runinfra models adapter -------------------------------------------
   # 单一数据源 = pi 扩展 monotykamary/pi-runinfra-provider（flake input
-  # pi-runinfra-provider-src，flake=false 源码树）。pi 侧扩展安装
-  # （modules/home/pi 的 runinfraPackage）与 dsh 侧本清单共用 flake.lock
-  # 同一 rev：nix flake update pi-runinfra-provider-src → rebuild，两边同步。
+  # pi-runinfra-provider-src，flake=false 源码树），与 pi 侧扩展安装共用
+  # flake.lock 同一 rev。合并管线复刻扩展 index.ts buildModels：
+  # base(models.json) → apply patch.json（compat 一层深合并）→ merge
+  # custom-models.json（覆盖同 id）。deprecated-models.json 是 pi 运行时的
+  # grace-period 概念，不进静态清单。
   #
-  # 合并管线复刻扩展 index.ts buildModels：base(models.json) → apply
-  # patch.json（compat 一层深合并）→ merge custom-models.json（覆盖同 id）。
-  # deprecated-models.json 是 pi 运行时的 grace-period 概念，不进 dsh 静态清单。
+  # 本 adapter 只服务 dsh：pi 侧 provider 由扩展在运行时注册
+  # （stale-while-revalidate），故那些内容不属共享层。两侧共用的只有
+  # routes.nix 的 runinfraModelOverrides（同一个输出上限）。
   #
-  # 字段映射（dsh-llm-pi-ai 0.1.1-rc.2 schema + openai-completions compat
-  # 门控，store 内 lib/index.js 实测）：
-  #   id/name/contextWindow/maxTokens/input 直通；
-  #   thinkingLevelMap → reasoningEfforts（level→wire 值，级别枚举一致；
-  #     只声明了 off 的表按 dsh 规则视为非推理模型，省略字段）；
-  #   compat 仅保留 openai-completions 门控 offer 且 dsh compatProfile
-  #   认识的字段；cost 不在 dsh patch schema，丢弃。
+  # 字段映射：thinkingLevelMap → reasoningEfforts（级别枚举一致）；compat 只保留
+  # 两侧交集的键；cost 不在 dsh patch schema，丢弃。
   runinfraSrc = inputs.pi-runinfra-provider-src;
-  # dsh-llm-pi-ai 级别枚举（lib/index.js 实测）；adapter 与下方 emitter 共用
-  thinkingLevels = [ "off" "minimal" "low" "medium" "high" "xhigh" "max" ];
-  # openai-completions 门控 offer 且 dsh compatProfile 认识的字段白名单
-  allowedCompat = [
-    "thinkingFormat" "supportsReasoningEffort" "supportsDeveloperRole"
-    "supportsStore" "maxTokensField"
-    "requiresReasoningContentOnAssistantMessages" "chatTemplateKwargs"
-  ];
   runinfraModels =
     let
       base = lib.importJSON (runinfraSrc + "/models.json");
       patch = lib.importJSON (runinfraSrc + "/patch.json");
       custom = lib.importJSON (runinfraSrc + "/custom-models.json");
 
-      # index.ts applyPatch：标量字段覆盖，compat 浅深合并（一层）
       applyPatch = model: p:
         model
         // lib.optionalAttrs (p ? name) { name = p.name; }
@@ -314,48 +365,36 @@ let
         // lib.optionalAttrs (p ? contextWindow) { contextWindow = p.contextWindow; }
         // lib.optionalAttrs (p ? maxTokens) { maxTokens = p.maxTokens; }
         // lib.optionalAttrs (p ? thinkingLevelMap) { thinkingLevelMap = p.thinkingLevelMap; }
-        // lib.optionalAttrs (p ? compat) { compat = (model.compat or {}) // p.compat; };
+        // lib.optionalAttrs (p ? compat) { compat = (model.compat or { }) // p.compat; };
 
-      # index.ts buildModels 等价：patch 后 custom 覆盖同 id，保持声明顺序
-      # （base 在前、custom 新增在后；同 id 以列表中靠后者 = custom 为准）
       applyTo = m: if (builtins.hasAttr m.id patch) then applyPatch m (patch.${m.id}) else m;
 
-      # dsh 侧本地补充：网关已上线 glm-5-3-flash（2026-08-27 live /v1/models 实测，
-      # id 是连字符 glm-5-3-flash，context 1M；pi 侧扩展经 live discovery 已能取到），
-      # 但扩展内置 catalog（models.json 10 模型）尚未注册 → 临时在此补齐。
-      # wire 对齐 zai-coding-cn 的 glm-5.3-flash（thinkingFormat: zai；探针实测网关
-      # 接受 thinking{type,clear_thinking}+reasoning_effort，均 200 + reasoning 字段）。
-      # 上游一旦注册，knownIds 命中 → effectiveExtras 过滤掉本条，自动回归单一数据源。
-      # 网关强制 max_tokens <= 32768（2026-08-27 实测 131072 → 400
-      # "Too big: expected number to be <=32768"；/v1/models 报的
-      # max_output_tokens=1048576 是上限声明非请求限制）→ 取 32768。
-      # supportsDeveloperRole: false 与上游 models.json 四个 base 模型一致
-      # （网关 role 白名单只有 system/user/assistant/tool，实测 400）。
+      # 网关已上线但扩展内置 catalog 尚未注册的 id。上游一旦注册，knownIds 命中
+      # → effectiveExtras 过滤掉本条，自动回归单一数据源。
+      # glm-5-3-flash：wire 对齐 zai-coding-cn 的 glm-5.3-flash（thinkingFormat: zai）。
+      # nemotron-3-5-lightning-30b：只在扩展的 patch.json（不在 models.json base），
+      # 扩展 buildModels 只 patch base 已有 id → pi 靠 live revalidate 补上，dsh
+      # 静态清单在此转录 patch.json 的推理元数据。容量取 /v1/models 实测值
+      # （2026-09-14：两者 ctx/maxout 均与下表一致，mt 探针均 200）。
       extraModels = [
         {
           id = "glm-5-3-flash";
           name = "GLM-5.3 Flash";
           contextWindow = 1048576;
-          maxTokens = 32768;
-          # flash 支持图片输入（同 zai-coding-cn 的 glm-5.3-flash）；缺 image
-          # 声明时 dsh 会把附件按纯文本路由处理。
+          maxTokens = 1048576;
           input = [ "text" "image" ];
-          thinkingLevelMap = { low = "high"; medium = "high"; high = "high"; max = "max"; };
-          compat = { thinkingFormat = "zai"; supportsDeveloperRole = false; };
+          thinkingLevelMap = {
+            low = "high";
+            medium = "high";
+            high = "high";
+            max = "max";
+          };
+          compat = {
+            thinkingFormat = "zai";
+            supportsDeveloperRole = false;
+          };
         }
         {
-          # nemotron-3-5-lightning-30b 只在 pi 扩展的 patch.json（不在
-          # models.json base），扩展的 buildModels/applyPatch 同样只 patch base
-          # 已有 id → dsh 静态 adapter 与 pi 静态构建都会漏掉它；pi 靠 live
-          # revalidate（fetchLiveModels + buildModels 再 apply patch）补上，dsh
-          # 之前没有 live 通路，故在此转录 patch.json 的推理元数据。上游一旦
-          # 把它注册进 models.json，knownIds 命中 → effectiveExtras 过滤掉本条，
-          # 自动回归单一数据源（同 glm-5-3-flash 机制）。
-          # contextWindow/maxTokens 取 live /v1/models 实测值（262144/262144，
-          # 网关对 nemotron 实测 mt=262144 仍 200；旧注释"网关强制 ≤32768"已
-          # 过时——glm/deepseek 在 1048576 均 200）。reasoningEfforts 严格转录
-          # patch.json 的 thinkingLevelMap（off=none，off 允许空值；dsh 规则下
-          # 其余 level wire 值须非空且非 off 不可留空）。
           id = "nemotron-3-5-lightning-30b";
           name = "Nemotron 3.5 Lightning 30B";
           contextWindow = 262144;
@@ -375,46 +414,31 @@ let
             supportsReasoningEffort = true;
             requiresReasoningContentOnAssistantMessages = true;
             maxTokensField = "max_tokens";
-            # dev/store false：runinfra 网关 role 白名单只有 system/user/
-            # assistant/tool（developer 实测 400）；supportsStore 与 base
-            # models.json 其余模型一致。patch.json 的 nemotron compat 只有
-            # 上方 4 字段（基础 compat 本应来自 base models.json，但 nemotron
-            # 不在 base），故在此补齐。
+            # runinfra 网关 role 白名单只有 system/user/assistant/tool（developer
+            # 实测 400）；supportsStore 与 base models.json 其余模型一致。
             supportsDeveloperRole = false;
             supportsStore = false;
           };
         }
       ];
+
       orderedBase = lib.map applyTo base;
       orderedCustom = lib.map applyTo custom;
       knownIds = map (m: m.id) (orderedBase ++ orderedCustom);
-      effectiveExtras = lib.filter (m: ! (lib.elem m.id knownIds)) extraModels;
-      orderedRaw = orderedBase ++ orderedCustom ++ (lib.map applyTo effectiveExtras);
+      effectiveExtras = lib.filter (m: !(lib.elem m.id knownIds)) extraModels;
+      orderedRaw = orderedBase ++ orderedCustom ++ effectiveExtras;
       orderedIds = lib.unique (map (m: m.id) orderedRaw);
-      idMap = lib.listToAttrs (map (m: { name = m.id; value = m; }) orderedRaw);
-
-      # dsh-llm-pi-ai 枚举（lib/index.js 实测）
-      supportedThinkingFormats = [
-        "openai" "deepseek" "openrouter" "together"
-        "zai" "qwen" "chat-template" "qwen-chat-template"
-      ];
-      maxTokensFields = [ "max_tokens" "max_completion_tokens" ];
+      idMap = lib.listToAttrs (map (m: {
+        name = m.id;
+        value = m;
+      }) orderedRaw);
 
       toDshModel = m:
         let
-          compat = lib.filterAttrs (n: _: lib.elem n allowedCompat) (m.compat or {});
-          efforts = lib.filterAttrs (l: _: lib.elem l thinkingLevels) (m.thinkingLevelMap or {});
-          hasThinking = (lib.filter (l: l != "off" && builtins.hasAttr l efforts) thinkingLevels) != [];
+          compat = lib.filterAttrs (n: _: lib.elem n llmRoutes.compatKeys) (m.compat or { });
+          efforts = lib.filterAttrs (l: _: lib.elem l thinkingLevels) (m.thinkingLevelMap or { });
+          hasThinking = (lib.filter (l: l != "off" && builtins.hasAttr l efforts) thinkingLevels) != [ ];
         in
-        assert m ? contextWindow && m ? maxTokens;
-        assert lib.all (mod: lib.elem mod [ "text" "image" ]) (m.input or []);
-        assert ! (compat ? thinkingFormat)
-          || lib.elem compat.thinkingFormat supportedThinkingFormats;
-        assert ! (compat ? maxTokensField)
-          || lib.elem compat.maxTokensField maxTokensFields;
-        # dsh：wire 值必须非空字符串，仅 off 允许留空（null）
-        assert (lib.filterAttrs (l: v:
-          !(v == null || (builtins.isString v && (l == "off" || v != "")))) efforts) == {};
         {
           id = m.id;
           name = m.name or m.id;
@@ -423,43 +447,28 @@ let
           input = m.input or [ "text" ];
         }
         // lib.optionalAttrs hasThinking { reasoningEfforts = efforts; }
-        // lib.optionalAttrs (compat != {}) { compat = compat; };
-
+        // lib.optionalAttrs (compat != { }) { inherit compat; };
     in
-    assert (lib.length orderedIds) > 0;
+    assert lib.assertMsg (lib.length orderedIds > 0) "runinfra: 扩展模型清单为空";
     lib.map (id: toDshModel idMap.${id}) orderedIds;
 
-  # 嵌入 providerPatch 的 models: 块。本 nixpkgs 的 toYAML 是 toJSON 别名
-  # （JSON flow 风格，会污染人工可读的 patch 文件）；模型条目结构固定
-  # （扁平字段 + 最多二层 map），手写 block 风格 emitter，风格与既有文件
-  # 一致（models: 在列 8，条目在列 10）。注意：indented string 的插值行
-  # 只有首行继承源缩进，后续行原样落到列 0，所以整块必须预缩进到绝对列位，
-  # 插值行写在与 writeText 去缩进边界对齐的位置（源缩进 4 = 去缩进后 0）。
-  yamlIndent10 = s: "          " + lib.replaceStrings [ "\n" ] [ "\n          " ] s;
-  yamlScalar = v:
-    if builtins.isInt v then builtins.toString v
-    else if v == true then "true"
-    else if v == false then "false"
-    else if builtins.match "^[A-Za-z0-9._]+( [A-Za-z0-9._]+)*$" (builtins.toString v) != null
-    then builtins.toString v
-    else "\"${builtins.replaceStrings [ "\"" ] [ "\\\"" ] (builtins.toString v)}\"";
-  yamlModel = m:
-    let
-      effortLevels = lib.filter (l: builtins.hasAttr l (m.reasoningEfforts or {})) thinkingLevels;
-      compatKeys = lib.filter (k: builtins.hasAttr k (m.compat or {})) allowedCompat;
-    in
-    [
-      "- id: ${yamlScalar m.id}"
-      "  name: ${yamlScalar m.name}"
-      "  contextWindow: ${toString m.contextWindow}"
-      "  maxTokens: ${toString m.maxTokens}"
-      "  input: [${lib.concatMapStringsSep ", " yamlScalar m.input}]"
-    ]
-    ++ lib.optional (m ? reasoningEfforts) "  reasoningEfforts:"
-    ++ (lib.map (l: "    ${l}: ${yamlScalar m.reasoningEfforts.${l}}") effortLevels)
-    ++ lib.optional (m ? compat) "  compat:"
-    ++ (lib.map (k: "    ${k}: ${yamlScalar m.compat.${k}}") compatKeys);
-  runinfraModelsYaml = yamlIndent10 (lib.concatStringsSep "\n" (lib.concatMap yamlModel runinfraModels));
+  # 叠加共享的两侧修正（见 routes.nix 的 runinfraModelOverrides）
+  runinfraModelsFinal = lib.map (
+    m: m // (llmRoutes.runinfraModelOverrides.${m.id} or { })
+  ) runinfraModels;
+  runinfraModelsYaml = yamlIndent10 (
+    lib.concatStringsSep "\n" (lib.concatMap yamlScalarModel runinfraModelsFinal)
+  );
+
+  # runinfra 路由的接入事实。pi 侧不读这些（provider 由扩展运行时注册），
+  # 故不属共享层；providerPatch 与 autosync 行都从这里取，避免两者分叉。
+  runinfraRoute = {
+    name = "runinfra";
+    displayName = "RunInfra";
+    api = "openai-completions";
+    baseURL = "https://api.runinfra.ai/v1";
+    apiKeyEnv = "RUNINFRA_GATEWAY_KEY";
+  };
 
   # ---- nvidia-nim adapter ------------------------------------------------
   # 模型清单来源：data/nvidia-nim-models.json —— 从 pi-nvidia-nim@1.1.23（rev
@@ -530,43 +539,33 @@ let
           # vars deepseek-relay/api-key、baseURL 复用 openai-relay/base-url，
           # 渲染进 dsh.env 的 DEEPSEEK_RELAY_* 独立 env，不影响原 OPENAI_API_KEY）。
           # 非 catalog 路由：pi-ai 没有它的任何内置条目，故 models 条目的能力
-          # 元数据只能手写（这也是 reasoningEfforts 必须显式声明的原因）。
+          # 元数据只能显式声明。
+          # 路由事实（apiKeyEnv / compat / reasoning / models 的能力元数据）全部
+          # 来自 modules/home/llm-routes/routes.nix 的单一来源，此处只做 YAML 传输；
+          # pi 侧从同一份源渲染 models-overlay.json。改模型/改档位只动那一处。
+          # 2026-09-14：两边 key 曾分叉（dsh key 对 v4-flash/v4-pro 全部 403，
+          # pi key 可访问），现已统一到 clan vars 的同一个 secret，模型集合也只
+          # 保留该 key 实际可访问的 deepseek-flash。
           # relay 角色白名单无 developer（实测 400）→ 路由级 supportsDeveloperRole。
           deepseek-relay:
-            apiKeyEnv: DEEPSEEK_RELAY_API_KEY
-            displayName: DeepSeek Relay
-            api: openai-completions
-            baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
-            compat:
-              supportsDeveloperRole: false
-            # 路由级默认思考强度：dsh 的 llm-pi-ai 把 profile.reasoning 交给
-            # 每个模型当默认档（describableReasoningLevel → defaultEffort），
-            # 模型选择器即以此为初值。前提是模型自己声明了 max 档（见下）。
-            reasoning: max
-            # 2026-09-10 relay 侧收敛：/v1/models 只剩 deepseek-flash
-            # （= 官方 deepseek-official 的 DeepSeek-V41-Flash，多模态）。旧的
-            # v4-flash / v4-flash-vision-exp / v4-pro / v4.1-flash 已下架。
-            # 职责划分：本表只提供 *能力元数据*（reasoningEfforts/compat/容量），
+            apiKeyEnv: ${relayRoute.apiKeyEnv}
+            displayName: ${relayRoute.displayName}
+            api: ${relayRoute.api}
+            # baseURL 走运行时 env：pi 的 baseUrl 不支持 env 插值（只能留在 age
+            # 密文），dsh 侧则可以，故这里保持 env 引用而非写死端点。
+            baseURL: !!js process.env.${relayRoute.baseURLEnv}
+    ${relayCompatYaml}
+            # 路由级默认思考档。dsh 的 llm-pi-ai 把 profile.reasoning 交给每个
+            # 模型当默认值（describableReasoningLevel → defaultEffort），模型
+            # 选择器以此为初值；前提是模型自己声明了对应档（见下）。
+            reasoning: ${relayRoute.reasoning}
+            # 职责划分：本表提供 *能力元数据*（reasoningEfforts/compat/容量），
             # 因为 /v1/models 只给 id；id 集合的增删由
             # dsh-deepseek-relay-autosync 对 /v1/models 同步（scope 限
             # deepseek-*，其余手工条目不受影响）。每条必须显式声明
             # reasoningEfforts，缺失 = 该模型"无推理能力"→ 选择器不显示思考强度。
-            # 探针实测：1M 上下文、384k 输出、纯红 1x1 PNG 探针 200（认图）；
-            # 不传 thinking 参数也自带 reasoning_content（即 off 档实际仍会思考，
-            # 故不声明 off）。
             models:
-              - id: deepseek-flash
-                name: DeepSeek V4.1 Flash
-                contextWindow: 1000000
-                maxTokens: 384000
-                input: [text, image]
-                reasoningEfforts:
-                  high: high
-                  max: max
-                compat:
-                  thinkingFormat: deepseek
-                  maxTokensField: max_tokens
-                  requiresReasoningContentOnAssistantMessages: true
+    ${relayModelsYaml}
           # opencode-go 是 pi-ai 内置 catalog 路由（OpenCode Zen Go 网关，
           # 含 deepseek-v4-pro/flash、glm-5.2、kimi-k3、qwen3.7 等模型），
           # 认证环境变量 OPENCODE_API_KEY 与 jojo home 注入一致。
@@ -588,20 +587,20 @@ let
             apiKeyEnv: OPENROUTER_API_KEY
           # ox-alpha（stealth/ox-alpha）已转正为智谱 GLM-5.3-Flash，走 zai-coding-cn
           # 端点，此 openrouter 独立路由已移除（2026-08-26）。
-          # runinfra：openai-completions 网关。模型清单不再手抄——由上方
-          # runinfraModels adapter 从 pi 扩展（pi-runinfra-provider-src，与 pi
-          # 侧同一 rev）生成，单一数据源。
-          # 静态 adapter 无 live 通路，网关新模型（如 nemotron-3-5-lightning-30b、
-          # ornith-1-5-35b、qwen3-8-flash-next）会落伍；由下方 runinfra-autosync
-          # 插件按 /v1/models 做 reconcile（增删同步，保留既有条目 compat）。
-          # key 来自 pi auth.json 的 runinfra 条目（已迁入 sops secrets/env.yaml）。
+          # runinfra：openai-completions 网关。路由事实（apiKeyEnv/baseURL/models）
+          # 全部来自 modules/home/llm-routes/routes.nix 的单一来源，此处只做 YAML
+          # 传输：模型清单由该模块从 pi 扩展源码树（pi-runinfra-provider-src，与
+          # pi 侧同一 rev）的 models.json→patch.json→custom-models.json 合并得出。
+          # key 与 pi 侧同一个 clan var（runinfra/gateway_key）。
+          # 静态清单无 live 通路，网关新模型会落伍；由下方 runinfra-autosync 插件
+          # 按 /v1/models 做 reconcile（增删同步，保留既有条目 compat）。
           # 注意 schema：api/baseURL 在 provider 层（models 条目不接受这些字段）；
-          # cost 不在 dsh patch schema，adapter 已丢弃。
+          # cost 不在 dsh patch schema，渲染器已丢弃。
           runinfra:
-            apiKeyEnv: RUNINFRA_GATEWAY_KEY
-            displayName: RunInfra
-            api: openai-completions
-            baseURL: https://api.runinfra.ai/v1
+            apiKeyEnv: ${runinfraRoute.apiKeyEnv}
+            displayName: ${runinfraRoute.displayName}
+            api: ${runinfraRoute.api}
+            baseURL: ${runinfraRoute.baseURL}
             models:
     ${runinfraModelsYaml}
           # nvidia-nim：NVIDIA NIM 网关（build.nvidia.com）。模型清单转录自
@@ -747,10 +746,10 @@ let
         - id: runinfra-autosync
           name: dsh-runinfra-autosync
           config:
-            route: runinfra
-            baseURL: https://api.runinfra.ai/v1
-            api: openai-completions
-            apiKeyEnv: RUNINFRA_GATEWAY_KEY
+            route: ${runinfraRoute.name}
+            baseURL: ${runinfraRoute.baseURL}
+            api: ${runinfraRoute.api}
+            apiKeyEnv: ${runinfraRoute.apiKeyEnv}
             intervalMs: 43200000
 
     # 自动发现 deepseek-relay 实时模型（见上方 deepseekRelayAutosyncPlugin 注释）。
@@ -760,10 +759,12 @@ let
         - id: deepseek-relay-autosync
           name: dsh-deepseek-relay-autosync
           config:
-            route: deepseek-relay
-            baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
-            api: openai-completions
-            apiKeyEnv: DEEPSEEK_RELAY_API_KEY
+            route: ${relayRoute.name}
+            # baseURL 走运行时 env：值来自 clan vars openai-relay/base-url
+            # （与 providerPatch 的 deepseek-relay.baseURL 同一个 env，单一来源）
+            baseURL: !!js process.env.${relayRoute.baseURLEnv}
+            api: ${relayRoute.api}
+            apiKeyEnv: ${relayRoute.apiKeyEnv}
             intervalMs: 43200000
             # 只管 deepseek-* id：relay 目录还有大量非 DeepSeek 模型，本路由是
             # 手工 curated，不能被 reconcile 塞满（scope 外的条目原样保留）。
@@ -1329,6 +1330,34 @@ in
         ''}
         if [[ "''${dshReloadWeb:-0}" = "1" ]]; then
           systemctl --user try-restart dsh-web.service 2>/dev/null || true
+        fi
+      '';
+
+      # ── codebuddy 登录态 / 模型清单可观测性 ─────────────────────────────
+      # CodeBuddy 是纯运行时 provider：模型清单由上游
+      # copilot.tencent.com/console/enterprises/personal/models 与 agents[cli]
+      # 白名单的交集决定，凭据是 CLI 登录产生的 OAuth refresh token（会轮换）。
+      # 两者都无法声明式管理——插件即真源，nix 侧只有 authFile 路径与插件 rev。
+      # 代价是这套状态对 nix 完全不可见：登录态过期、插件未装、上游改 cli agent
+      # 白名单，全都静默。
+      # 本步骤只做可观测性（不写任何配置）：激活末尾查插件的同源状态路由
+      # （host 半区注册的 /plugins/dsh-codebuddy-cli/status），把登录态与模型
+      # 列表打进激活日志。对比：relay/runinfra 有 autosync 插件对 /v1/models
+      # 做 reconcile；codebuddy 没有也不需要清单托管，缺的是可见性。
+      # 服务未起 / 插件未装 / 未登录 一律只 WARN，不阻塞激活。
+      home.activation.checkDshCodebuddyStatus = inputs.home-manager.lib.hm.dag.entryAfter [ "configureDshReloadWeb" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        url="http://${cfg.web.host}:${toString cfg.web.port}/plugins/dsh-codebuddy-cli/status"
+        status_json="$(${pkgs.curl}/bin/curl -fsS --max-time 10 "$url" 2>/dev/null || true)"
+        if [ -z "$status_json" ]; then
+          echo "WARN: dsh-codebuddy-cli status 不可达（服务未起或插件未装）：$url"
+        else
+          state="$(printf '%s' "$status_json" | ${pkgs.jq}/bin/jq -r '.status // "unknown"')"
+          models="$(printf '%s' "$status_json" | ${pkgs.jq}/bin/jq -r '[.models[].id] | join(", ")')"
+          echo "dsh-codebuddy-cli: status=$state models=[$models]"
+          if [ "$state" != "signed-in" ]; then
+            echo "WARN: CodeBuddy 未登录（status=$state）；在终端跑 codebuddy 登录后 dsh 侧 provider 才会可用"
+          fi
         fi
       '';
     })

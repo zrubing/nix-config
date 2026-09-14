@@ -258,6 +258,15 @@ in
         export OPENCODE_API_KEY="${config.sops.placeholder."opencode/api_key"}"
         export DEEPSEEK_API_KEY="${config.sops.placeholder."deepseek/api_key"}"
         export ZAI_CODING_CN_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
+        # DeepSeek relay：与 dsh.env 的 DEEPSEEK_RELAY_API_KEY 同一个 clan var
+        # （deepseek-relay/api-key），只是渲染到两个 env 文件——dsh-web 读
+        # ~/.config/dsh.env，终端 agent（pi）读本文件。pi 的 models.json 里该
+        # provider 写 apiKey: "$DEEPSEEK_RELAY_API_KEY" 引用（见
+        # modules/home/llm-routes/routes.nix 的 apiKeyEnv），故此处必须 export，
+        # 否则 pi 的 relay 模型会因缺 env 而不可用。
+        # 2026-09-14 之前 pi 侧 key 硬编码在 age 密文里且与 dsh 不同源（dsh key
+        # 对 v4-flash/v4-pro 全部 403，pi key 可访问），现已统一到同一 secret。
+        export DEEPSEEK_RELAY_API_KEY="${config.sops.placeholder."deepseek-relay/api_key"}"
         # GH_TOKEN 复用 github-mcp/api_token 同一份 PAT（clan/zen14.nix github-mcp-token），
         # 供 gh CLI / git 等读标准 GH_TOKEN 完成认证。单一来源，随 MCP token 一起轮换。
         export GH_TOKEN="${config.sops.placeholder."github-mcp/api_token"}"
