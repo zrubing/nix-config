@@ -17,6 +17,37 @@ let
   runinfraRev = flakeLock.nodes."pi-runinfra-provider-src".locked.rev;
   runinfraPackage = "git:github.com/monotykamary/pi-runinfra-provider@${runinfraRev}";
 
+  # 共享的 relay 路由事实（modules/home/llm-routes/routes.nix），与 dsh 侧同源。
+  # baseUrl 不在共享声明里：pi 只对 apiKey / headers 做 "$VAR" env 插值，
+  # baseUrl 原样直读（源码实测 dist/core/provider-composer.js 的 modelFromJson），
+  # 故仍由 age 密文提供——合并时按 provider 整体以 overlay 为准，只补回密文的
+  # baseUrl（规则见 modules/home/agenix）。
+  llmRoutes = import ../llm-routes/routes.nix { inherit lib; };
+  relayRoute = llmRoutes.relay;
+
+  # 共享 schema（dsh 规范式）→ pi models.json 的 provider 条目
+  relayProvider = {
+    name = relayRoute.displayName;
+    api = relayRoute.api;
+    apiKey = "$" + relayRoute.apiKeyEnv;
+    compat = relayRoute.compat;
+    models = lib.map (m: {
+      inherit (m) id name contextWindow maxTokens;
+      input = m.input or [ "text" ];
+      # 缺级补 null = 该级不支持（pi 的 thinkingLevelMap 三态语义）
+      thinkingLevelMap = lib.genAttrs llmRoutes.thinkingLevels (
+        l: if builtins.hasAttr l (m.reasoningEfforts or { }) then m.reasoningEfforts.${l} else null
+      );
+      reasoning = (lib.filter (l: l != "off" && builtins.hasAttr l (m.reasoningEfforts or { })) llmRoutes.thinkingLevels) != [ ];
+      cost = m.cost or {
+        input = 0;
+        output = 0;
+        cacheRead = 0;
+        cacheWrite = 0;
+      };
+    } // lib.optionalAttrs (m ? compat) { inherit (m) compat; }) relayRoute.models;
+  };
+
   # ── pi-deepseek-cache：禁用其 P3（cache-friendly compaction）后本地加载 ──
   # 冲突事实（2026-09-08 实证）：该扩展与 pi-blackhole 都注册 session_before_compact，
   # 而 pi 的 runner 对 session_before_* 事件是「覆盖」语义、非合并——
@@ -82,10 +113,13 @@ let
   # 仅改 deepseek-v4-flash 的 maxTokens，其余字段保留、未知 id 静默忽略。
   piModelsOverlayJson = builtins.toJSON {
     providers = {
+      # relay：字段全部来自 routes.nix；只有 baseUrl 仍需 age 密文提供。
+      "${relayRoute.name}" = relayProvider;
+      # runinfra：provider 由 pi-runinfra-provider 扩展在运行时注册，故只叠加
+      # modelOverrides（两侧同一个输出上限）。不声明 models：pi 的 models 数组
+      # 按 id upsert 且会替换同名项，重复声明等于用静态快照冻结扩展的 live 发现。
       runinfra = {
-        modelOverrides = {
-          "deepseek-v4-flash" = { maxTokens = 65536; };
-        };
+        modelOverrides = llmRoutes.runinfraModelOverrides;
       };
     };
   };
