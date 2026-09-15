@@ -107,9 +107,13 @@ buildNpmPackage (finalAttrs: {
     lockfileJson = ./pnpm-lock.json;
     targetPlatform =
       if stdenv.buildPlatform == stdenv.hostPlatform then stdenv.targetPlatform else null;
+    # 每个 lockfile patchedDependencies 都必须给出补丁源（importPnpmLock 缺一个就
+    # 直接抛错）。0.1.6-alpha.1 新增 @electron/osx-sign（桌面端 macOS 签名，Linux
+    # 构建用不到）——但它是 lockfile 条目，必须照样提供上游 patch 文件。
     patchedDependencySources = {
       "node-pty@1.2.0-beta.15" = "${finalAttrs.src}/patches/node-pty@1.2.0-beta.15.patch";
       "@yao-pkg/pkg@6.21.0" = "${finalAttrs.src}/patches/@yao-pkg__pkg@6.21.0.patch";
+      "@electron/osx-sign@1.3.3" = "${finalAttrs.src}/patches/@electron__osx-sign@1.3.3.patch";
     };
   };
 

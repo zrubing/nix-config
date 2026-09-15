@@ -12,7 +12,7 @@ let
   # dsh 二进制来源：默认用 llm-agents 打包的 npm 版（@deepseek-ai/dsh 0.1.1-rc.2）；
   # useDshSource=true 改用从 deepseek-harness 源码构建的本仓库包（packages/dsh-source，
   # 即 Moraxyc 式 kernel 方案产出的 dsh-kernel，版本/源码单一来源 =
-  # flake input deepseek-harness-src（当前锁 tag dsh-v0.1.5-rc.2，升级见
+  # flake input deepseek-harness-src（当前锁 tag dsh-v0.1.6-alpha.1，升级见
   # pkgs/dsh-moraxyc/dsh-workspace/package.nix 注释）。
   # llm-agents 更新后把 useDshSource 改回 false 即切回。
   dshPackage =
@@ -657,26 +657,14 @@ let
               gpt-5.6-sol:
                 contextWindow: 272000
 
-    # CodeBuddy 模型 provider（插件 dsh-codebuddy-cli，见下方
-    # configureDshCodebuddyCli 安装块）。插件包自带 cordis.patch.yml
-    # （dsh.bundle.patch），装成依赖后 dsh plugin 的 reconcile 按已装状态把它
-    # 追加进 web profile 的 dsh.profile.bundles，行 id 是 llm-codebuddy-cli，
-    # 所以这里只需按 id 补 config，不写 insert。
-    #
-    # authFile 必须显式声明：插件 src/auth.ts 的 Linux 默认候选是
-    # ~/.config/CodeBuddyExtension/Data/Public/auth；而 CodeBuddy Code CLI
-    # 2.148.0 在 Linux 实际写 ~/.local/share/CodeBuddyExtension/Data/Public/
-    # auth/Tencent-Cloud.coding-copilot.info（CLI bundle 内 default 分支
-    # join(home,'.local','share','CodeBuddyExtension') + Data/Public/auth +
-    # <product>.info；2026-09-10 实测该文件存在、当日 16:47 刷新、结构与
-    # 插件 parseCodeBuddyAuth 的 {auth,account} 形状一致）。缺这条时 provider
-    # 仍会注册，但每次请求都抛 "no signed-in CodeBuddy account found"——插件
-    # 只在 CLI 文件缺位时才回落到自己那份 $DSH_HOME/.codebuddy-cli-auth.json。
-    # 运行期优先级：Web 设置卡片的 authFile（settings.yaml）> 本行 > 环境变量
-    # CODEBUDDY_CLI_AUTH_FILE > 平台默认。CLI 将来换目录时同步 codebuddyAuthFile。
-    - id: llm-codebuddy-cli
-      config:
-        authFile: ${codebuddyAuthFile}
+    # CodeBuddy 的 llm-codebuddy-cli 行**不在这里**：本文件是 deployment 层
+    # （$DSH_HOME/cordis.patch.yml），对**所有** profile 生效，而 llm-codebuddy-cli
+    # 这一行由第三方插件 dsh-codebuddy-cli 自带（且只装进 web profile）。0.1.6 起
+    # 按 id patch 一个不存在的行会让该 profile 的 `--dump-config` 直接报
+    # `patch: entry "llm-codebuddy-cli" not found` 退出（实测；web profile 因为装了
+    # 插件才看不出来）。故该行的 config 改放 web profile 自己的 user layer：
+    # $DSH_HOME/profiles/web/cordis.patch.yml（见下方 webProfilePatch），
+    # 那里 patch 只作用于装了插件的 profile，语义与生命周期都对得上。
 
     # MCP server 条目：由 modules/home/mcp-servers/servers.nix 统一渲染
     # （pi 侧同一份源生成 ~/.pi/agent/mcp.json）。密钥一律走 !!js
@@ -777,6 +765,28 @@ let
               high: high
               max: max
 
+  '';
+
+  # web profile 的 user layer（$DSH_HOME/profiles/web/cordis.patch.yml，dsh 自己把它
+  # 描述为 "Your patch layer for this dsh profile"：只读加载、从不回写——实测两个真实
+  # profile 至今仍是首次 seed 的 []）。放这里的 patch 行只作用于 web profile，正好匹配
+  # "只有该 profile 装了对应插件"的 config 补丁；放进 deployment 层（$DSH_HOME/cordis.patch.yml）
+  # 会让没装该插件的 profile patch 不到行而报错。
+  #
+  # 当前唯一内容 = CodeBuddy authFile：插件 src/auth.ts 的 Linux 默认候选是
+  # ~/.config/CodeBuddyExtension/Data/Public/auth；而 CodeBuddy Code CLI 2.148.0 在 Linux
+  # 实际写 ~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
+  # （CLI bundle 内 default 分支 join(home,'.local','share','CodeBuddyExtension') +
+  # Data/Public/auth + <product>.info；2026-09-10 实测该文件存在、当日 16:47 刷新、结构与
+  # 插件 parseCodeBuddyAuth 的 {auth,account} 形状一致）。缺这条时 provider 仍会注册，
+  # 但每次请求都抛 "no signed-in CodeBuddy account found"——插件只在 CLI 文件缺位时才
+  # 回落到自己那份 $DSH_HOME/.codebuddy-cli-auth.json。运行期优先级：Web 设置卡片的
+  # authFile（settings.yaml）> 本行 > 环境变量 CODEBUDDY_CLI_AUTH_FILE > 平台默认。
+  # CLI 将来换目录时同步 codebuddyAuthFile。
+  webProfilePatch = pkgs.writeText "dsh-web-cordis.patch.yml" ''
+    - id: llm-codebuddy-cli
+      config:
+        authFile: ${codebuddyAuthFile}
   '';
 
   # dsh 的 baseURL/密钥来自 sops 渲染的 envFile（~/.config/dsh.env →
@@ -895,6 +905,15 @@ in
       # patch 层是 base，settings 分节按提供方合并覆盖，互不冲突。
       home.file.".dsh/cordis.patch.yml" = {
         source = providerPatch;
+        force = true;
+      };
+
+      # web profile 的 user layer（见 webProfilePatch 注释）：只对 web profile 生效，
+      # 所以"只有 web 装了插件才存在的行"的 config 补丁放这里，不会让 headless/tui 等
+      # profile 因 patch 不到行而 `--dump-config` 失败。profile 目录可能尚不存在（首次
+      # boot 前）——实测预置本文件不影响 dsh 初始化：dsh 只补它缺的 seed 文件，保留本文件。
+      home.file.".dsh/profiles/web/cordis.patch.yml" = {
+        source = webProfilePatch;
         force = true;
       };
 
@@ -1158,10 +1177,11 @@ in
       '';
     })
 
-    (lib.mkIf cfg.enable {
-      # ApiPost MCP 桥接：把 @deepseek-ai/dsh-mcp-client 装入 web profile，
-      # 配合 cordis.patch.yml 里 mcp-apipost 插件条目（token 走环境变量）。
-      # 同上走 activation 幂等安装；安装成功后重启服务让插件生效。
+    (lib.mkIf (cfg.enable && !cfg.useDshSource) {
+      # npm 版 dsh 不带 mcp-client，才需要把 @deepseek-ai/dsh-mcp-client 装进 web
+      # profile（配合 cordis.patch.yml 里的 mcp-* 插件条目，token 走环境变量）。
+      # 源码构建（useDshSource=true）时 kernel 自带该插件，本块不跑——见下方
+      # removeStaleDshMcpClient。
       home.activation.configureDshMcpClient = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
         pkgJson="$HOME/.dsh/profiles/web/package.json"
@@ -1171,6 +1191,34 @@ in
             dshReloadWeb=1
           else
             echo "WARN: dsh-mcp-client 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+    })
+
+    (lib.mkIf (cfg.enable && cfg.useDshSource) {
+      # 一次性迁移：清掉 web profile 里历史遗留的 npm 版 dsh-mcp-client。
+      # 为什么必须清（2026-09-15 实测，两个证据）：
+      #   ① profile 本地副本优先于 kernel 链接被解析——在 profile 目录里对
+      #      @deepseek-ai/dsh-mcp-client 做 require.resolve，命中的是
+      #      profiles/web/node_modules/...（0.0.1-rc.1），不是
+      #      profiles/node_modules/...（→ kernel 自带那份）；给本地副本塞一行
+      #      console.log 标记后 boot，标记确实打印 = 跑的是旧 npm 副本。
+      #   ② 旧守卫是 name-only grep，永远命中 → 即使改 want 的版本也永不重装，
+      #      于是升级 dsh 后 MCP 插件仍停在 0.0.1-rc.1（对 0.1.6 只是实测仍可用，
+      #      但属双源漂移：内核 0.1.6-alpha.1 那份才是随 flake.lock 走的那份）。
+      # 实测 `dsh plugin --profile web remove` 会删掉本地副本并回落 kernel 链接；
+      # 删完本块因 grep 不命中自动变 no-op，可长期保留（也为将来切回 npm 版留出
+      # configureDshMcpClient 的对称入口）。
+      home.activation.removeStaleDshMcpClient = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        if grep -q '"@deepseek-ai/dsh-mcp-client"' "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web remove @deepseek-ai/dsh-mcp-client; then
+            echo "dsh: 已移除 web profile 里的 npm 版 dsh-mcp-client（改用 kernel 自带副本）"
+            dshReloadWeb=1
+          else
+            echo "WARN: dsh-mcp-client 移除失败，本地仍是旧 npm 副本（下次重建重试）"
           fi
         fi
       '';
@@ -1299,6 +1347,7 @@ in
         "configureDshOpencodeModels"
         "configureDshCodebuddyCli"
         "configureDshMcpClient"
+        "removeStaleDshMcpClient"
         "configureDshBracesSanitize"
         "configureDshOpenbaoShellEnv"
         "configureDshWoodpeckerShellEnv"

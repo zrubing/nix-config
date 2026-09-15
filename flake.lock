@@ -255,16 +255,16 @@
     "deepseek-harness-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1789048219,
-        "narHash": "sha256-CV8At5KlOibYlIW0qTBki05ArJwDrCVYbd6wv3j3JkQ=",
+        "lastModified": 1789440153,
+        "narHash": "sha256-vlCnBbaUPtMBs+9do1QQ/71bWkgxOTXlP27CZeCRbCI=",
         "owner": "deepseek-ai",
         "repo": "deepseek-harness",
-        "rev": "fb2c4b9e698e30edb738bca4cf0618587db7d203",
+        "rev": "0a15e36e7f82b6ed45af6fa9759f29b40dcd965d",
         "type": "github"
       },
       "original": {
         "owner": "deepseek-ai",
-        "ref": "dsh-v0.1.5-rc.2",
+        "ref": "dsh-v0.1.6-alpha.1",
         "repo": "deepseek-harness",
         "type": "github"
       }

@@ -270,7 +270,7 @@
       config:
         provider: codex
         toolName: subagent_codex
-        enableRunInBackground: false
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
     - id: tool-subagent-claude-code
@@ -279,11 +279,15 @@
       config:
         provider: claude-code
         toolName: subagent_claude_code
-        enableRunInBackground: false
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
-    - id: workflow-worker-thread
-      name: '@deepseek-ai/dsh-workflow-worker-thread'
+    # dsh 0.1.6-alpha.1 把 workflow 引擎行改名：dsh-workflow-worker-thread →
+    # dsh-workflow-ptc（上游 shipped standard/cordis/ptc 三份 preset 同款改名，
+    # 行 id 与包名一起换；config.provider: spawn 不变）。旧包名在新版本里已不存在，
+    # 不改这一行整个 preset 挂载即失败（missing module）。
+    - id: workflow-ptc
+      name: '@deepseek-ai/dsh-workflow-ptc'
       config:
         provider: spawn
 
