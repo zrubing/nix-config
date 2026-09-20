@@ -105,6 +105,28 @@
     '';
   };
 
+  # DeepSeek 官方平台（api.deepseek.com）的 API key。原先存私有 nix-secrets 仓库的
+  # sops env.yaml（deepseek/api_key），2026-09-20 迁入 clan vars——官方 key 与
+  # relay key 各自单一来源，轮换只改 clan vars，不再需要改私有仓库 + 更新
+  # flake.lock 的 mysecrets input。
+  # 消费方：home sops 渲染进 dsh.env 的 DEEPSEEK_API_KEY（dsh 内置
+  # deepseek-official 路由与 dsh-web-search-deepseek）、default.env（终端 agent：
+  # pi / codex / claude 经 ~/.bashrc source）、tradingagents.env。
+  # 注意：nova13 的 hermes-agent / tradingagents 仍从私有仓库 env.yaml 读同名
+  # key（另一台机器、另一套 age recipients），换值时要单独同步那台机器。
+  # 换值：clan vars set zen14 deepseek-api-key/api-key
+  clan.core.vars.generators.deepseek-api-key = {
+    prompts.api-key = {
+      description = "DeepSeek 官方 API key (sk-..., api.deepseek.com)";
+      type = "hidden";
+    };
+    files.api-key.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/api-key > $out/api-key
+    '';
+  };
+
   # Figma Personal Access Token（figd_...，Settings → Security → Personal
   # access tokens）。消费方：Framelink MCP（figma-developer-mcp）以
   # FIGMA_API_KEY 读取——pi/claude-code 走 default.env，dsh 走 dsh.env，
