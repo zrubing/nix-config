@@ -78,8 +78,15 @@ in
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
 
+    # DeepSeek 官方平台 key（api.deepseek.com）：密文由 clan vars 管理
+    # （clan/zen14.nix 的 deepseek-api-key generator，写入
+    # vars/per-machine/zen14/deepseek-api-key/）。原先读私有 nix-secrets 的
+    # env.yaml；消费方不变——dsh.env / default.env / tradingagents.env 的
+    # DEEPSEEK_API_KEY（dsh 内置 deepseek-official 路由 + dsh-web-search-deepseek）。
+    # 换 key：clan vars set zen14 deepseek-api-key/api-key
     sops.secrets."deepseek/api_key" = {
-      sopsFile = "${mysecrets}/secrets/env.yaml";
+      sopsFile = ../../../vars/per-machine/zen14/deepseek-api-key/api-key/secret;
+      format = "binary";
     };
 
     sops.secrets."alphavantage/api_key" = {
