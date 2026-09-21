@@ -255,16 +255,16 @@
     "deepseek-harness-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1789440153,
-        "narHash": "sha256-vlCnBbaUPtMBs+9do1QQ/71bWkgxOTXlP27CZeCRbCI=",
+        "lastModified": 1789651159,
+        "narHash": "sha256-zoO7+AFR5KiNgmA+4agclQm7oPiE+T0WgMCM0j4Vcdw=",
         "owner": "deepseek-ai",
         "repo": "deepseek-harness",
-        "rev": "0a15e36e7f82b6ed45af6fa9759f29b40dcd965d",
+        "rev": "ddefc45fbc7f8e46dd73185e68295696d1297887",
         "type": "github"
       },
       "original": {
         "owner": "deepseek-ai",
-        "ref": "dsh-v0.1.6-alpha.1",
+        "ref": "dsh-v0.1.6-alpha.2",
         "repo": "deepseek-harness",
         "type": "github"
       }
@@ -709,11 +709,11 @@
         "treefmt-nix": "treefmt-nix_3"
       },
       "locked": {
-        "lastModified": 1789362887,
-        "narHash": "sha256-nFZknmHIyB1pkwUTZTTPuey8wwnAIgc4nV8d3qypG4o=",
+        "lastModified": 1789691614,
+        "narHash": "sha256-KS42GmPlu+Z+9fzGtE7zpwd5yyGujI6DNo9lBVtASRE=",
         "owner": "numtide",
         "repo": "llm-agents.nix",
-        "rev": "37c72726a6d3554a56412c7e2694fdfc475ebe02",
+        "rev": "05d654aca595e85555ef34d8207c3a83a6e3b5eb",
         "type": "github"
       },
       "original": {
@@ -1045,11 +1045,11 @@
     },
     "nixpkgs_7": {
       "locked": {
-        "lastModified": 1789073787,
-        "narHash": "sha256-xfX/toC2QV707s06GbP4II/TxYF0fNQj7s5/LClNDKc=",
+        "lastModified": 1789370336,
+        "narHash": "sha256-6RSEDHIWQtesQKWSu5qRai8L2h4KgCgMEfJHstW99G4=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "aff8a0b28396750446e5537a96461bc4facdb287",
+        "rev": "c7def046b9a883d46974757852106483d741586f",
         "type": "github"
       },
       "original": {

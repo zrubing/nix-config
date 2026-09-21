@@ -18,6 +18,9 @@ let
   };
   dsh-landlock-run = pkgs.callPackage ../../pkgs/dsh-moraxyc/dsh-landlock-run/package.nix { inherit dsh-workspace; };
   dsh-kernel = pkgs.callPackage ../../pkgs/dsh-moraxyc/dsh-kernel/package.nix { inherit dsh-workspace; };
+  # 运行时专用的官方 Node 二进制（见该文件注释：nixpkgs Node 会让
+  # node-addon-require-builtin 的机器码扫描失败）。
+  dsh-nodejs-bin = pkgs.callPackage ../../pkgs/dsh-moraxyc/dsh-nodejs-bin/package.nix { };
 
   # ---- composition 层：官方 bundles + dsh 组合 -------
   buildDshBundle = (import ../../pkgs/dsh-moraxyc-lib/mk-dsh-bundle.nix {
@@ -54,7 +57,7 @@ let
 
   dshBundleCheckHook = pkgs.callPackage ../../pkgs/dsh-moraxyc/dshBundleCheckHook/package.nix { };
   dsh = pkgs.callPackage ../../pkgs/dsh-moraxyc/dsh/package.nix {
-    inherit buildDshBundle bundles dsh-kernel dshBundleCheckHook;
+    inherit buildDshBundle bundles dsh-kernel dshBundleCheckHook dsh-nodejs-bin;
     inherit dsh;
   };
 in

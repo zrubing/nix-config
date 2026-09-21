@@ -8,7 +8,6 @@
   linkFarm,
   makeWrapper,
   nodejs,
-  nodejs-slim,
   runCommand,
   symlinkJoin,
   util-linux,
@@ -21,6 +20,7 @@
   dsh,
   dshBundleCheckHook,
   dsh-kernel,
+  dsh-nodejs-bin,
 
   bundles,
 
@@ -138,7 +138,10 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     mv "$appDir/package.json.tmp" "$appDir/package.json"
 
     mkdir -p $out/bin
-    makeWrapper ${lib.getExe nodejs-slim} $out/bin/dsh \
+    # 运行时用官方 Node 二进制而非 nixpkgs nodejs-slim：dsh 0.1.6-alpha.2 起
+    # boot 阶段必经 node-addon-require-builtin，而该 addon 扫描不了 nixpkgs 构建的
+    # Node 二进制（Unsupported/no-getter），详见 dsh-nodejs-bin/package.nix。
+    makeWrapper ${lib.getExe dsh-nodejs-bin} $out/bin/dsh \
       ${
         lib.optionalString (
           finalAttrs.passthru.runtimeDeps != [ ]
