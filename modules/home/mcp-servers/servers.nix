@@ -132,6 +132,33 @@ in
 rec {
   # ------------------------------------------------------------------ 统一源
   servers = {
+    # ------------------------------------------------------- 仅 dsh（本地开发）
+    # Godot 编辑器 MCP：让 AI 直接在编辑器里操作场景/节点/资源。
+    #
+    # 与其它 server 的关键差异：**它不是纯客户端**，需要先有一个
+    # 常驻的 Godot 编辑器在监听 127.0.0.1:6550。缺了这一步，
+    # MCP 握手能建立但一个工具都调不动（连接被拒）。
+    #
+    # 启动编辑器（无需显示器）：
+    #   /home/jojo/tmp/infinity-gd/tools/godot_mcp_editor.sh start
+    #
+    # 为什么能 headless：godot_mcp 是纯 EditorPlugin，没有 DisplayServer
+    # 依赖 —— add_control_to_bottom_panel() 在 headless 下是 no-op，
+    # 而 WebSocket server 照常监听。实测握手成功，列出 21 个工具。
+    #
+    # ⚠️ 一个编辑器只能接一个客户端：dsh 连上后，编辑器 GUI 就连不进了。
+    godot = {
+      description = "Godot 编辑器 MCP（需先启 headless 编辑器监听 :6550）";
+      dsh = {
+        transport = "stdio";
+        command = "npx";
+        args = [
+          "-y"
+          "@satelliteoflove/godot-mcp"
+        ];
+      };
+    };
+
     # ---------------------------------------------------- pi + dsh + codex 共用
     github = {
       description = "GitHub MCP（pi: docker stdio 本地；dsh/codex: 官方远程托管，免 docker）";
