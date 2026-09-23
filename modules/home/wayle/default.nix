@@ -159,7 +159,18 @@ in
       ];
 
       # 窗口规则：自动打开到特定工作区
+      # 规则按出现顺序处理，窗口匹配「任一 match」即命中，故 DSH 专属规则必须排在
+      # 下面通用 Brave 规则之前，否则会先被 open-on-workspace "web" 吃掉。
       window-rules = [
+        # ── DSH 专用浏览器实例（app-id 由 modules/home/dsh 的 dsh-browser 用
+        # --class=brave-dsh 显式指定，单独 user-data-dir）→ 固定到 code 工作区。
+        # 主 Brave 窗口 app-id 仍是 brave-browser，不受影响。
+        {
+          matches = [
+            { app-id = "^brave-dsh$"; }
+          ];
+          open-on-workspace = "code";
+        }
         # ── X11 应用锁定到主屏（eDP-1）──
         # xwayland-satellite 0.8 在混合 DPI 下，X11 应用在低 DPI 屏上容易偏大/偏小，
         # 把常见 X11 应用锁定到高 DPI 主屏可获得最佳体验。

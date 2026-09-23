@@ -70,6 +70,29 @@ let
     emacsclient --eval "(progn (let* ((cur (selected-frame)) (gf (or (and (display-graphic-p cur) cur) (let ((found nil)) (dolist (f (frame-list) found) (when (and (frame-live-p f) (display-graphic-p f)) (setq found f)))))) (frame (or gf (make-frame (list (cons 'display \":0\")))))) (with-selected-frame frame (find-file \"$path\")) (select-frame-set-input-focus frame) (raise-frame frame)) t)"
   '';
 
+  # ── DSH 专用浏览器实例 ────────────────────────────────────────────────
+  # 目的：让 Web UI 的窗口能被 niri 单独识别（固定到 code 工作区），同时主 Brave
+  # 窗口不受任何影响。niri 只按 app-id/title 匹配窗口，而 Brave 所有窗口 app-id 都是
+  # brave-browser —— 靠窗口标题区分会在标题变化时失效，所以从根上给这个实例独立身份：
+  # 单独 user-data-dir + 显式 --class。
+  #
+  # 不用 modules/home/linux-desktop 的 brave-wrapper：那个 wrapper 无条件追加
+  # ~/.config/brave-flags.conf（内含 --remote-debugging-port=9222），第二个实例带同
+  # 端口起不来；而 9222 又是主实例专属、brave-tab-switcher-v2 依赖的调试端口。
+  #
+  # --class 是 Chromium 的窗口类开关，Wayland 下即 app_id。首次启动后用
+  # `niri msg pick-window` 点该窗口确认 app_id 是否为 brave-dsh；若 Brave 实际落在
+  # XWayland（app-id 变成 brave-browser），只需把 wayle 模块里对应 niri 规则的
+  # match app-id 换成 match title，启动器本身不用动。
+  dshBrowser = pkgs.writeShellScriptBin "dsh-browser" ''
+    exec ${lib.getExe pkgs.brave} \
+      --user-data-dir="$HOME/.local/share/dsh-brave" \
+      --class=brave-dsh \
+      --no-first-run \
+      --no-default-browser-check \
+      "$@"
+  '';
+
   # 本地 dsh 插件：中和 MCP 工具描述带进 prompt section 的未注册 {{...}} 组
   # （如 apipost get_target_detail 的字面示例 {{paramName}}），否则
   # dsh-system-prompt 严格渲染器抛 "malformed prompt variable reference"
@@ -933,7 +956,11 @@ in
 
   config = lib.mkMerge [
     (lib.mkIf cfg.enable {
-      home.packages = [ dshPackage dshFileOpener ];
+      home.packages = [
+        dshPackage
+        dshFileOpener
+        dshBrowser
+      ];
 
       # 文本/源码文件默认用 emacs（用户默认 editor）打开。dsh-web 服务现带 WAYLAND_DISPLAY
       # （has_display=true），xdg-open 走 mime 查找而非 BROWSER 兜底；而 emacsclient.desktop
@@ -960,6 +987,21 @@ in
         "application/json" = [ "dsh-file-open.desktop" ];
         "text/x-python" = [ "dsh-file-open.desktop" ];
         "text/markdown" = [ "dsh-file-open.desktop" ];
+      };
+
+      # ── DSH 专用浏览器实例的 .desktop（启动器 dshBrowser 见文件顶部 let）──
+      home.file."${config.xdg.dataHome}/applications/dsh-browser.desktop" = {
+        text = ''
+          [Desktop Entry]
+          Type=Application
+          Name=DSH (DeepSeek Harness)
+          Comment=DeepSeek Harness Web UI，独立浏览器实例，固定在 code 工作区
+          Exec=${dshBrowser}/bin/dsh-browser http://${cfg.web.host}:${toString cfg.web.port}
+          Icon=brave-browser
+          Terminal=false
+          Categories=Development;
+          StartupWMClass=brave-dsh
+        '';
       };
 
       # 静态配置走 cordis.patch.yml（dsh 只读、应用所有 profile），模型路由声明在这里；
