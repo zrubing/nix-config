@@ -276,7 +276,7 @@ window.__ModuleLoader__.load({
 								className: ModelSelectPlus_module_css_default.triggerEffort,
 								children: effortLabel
 							}),
-							(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutline14, { className: cx(ModelSelectPlus_module_css_default.chevron, open && ModelSelectPlus_module_css_default.chevronOpen) })
+							(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronDownOutlineRegular, { className: cx(ModelSelectPlus_module_css_default.chevron, open && ModelSelectPlus_module_css_default.chevronOpen) })
 						]
 					}),
 					open && (0, react_jsx_runtime.jsxs)("div", {
@@ -303,7 +303,7 @@ window.__ModuleLoader__.load({
 										className: ModelSelectPlus_module_css_default.cellValue,
 										children: triggerText
 									}),
-									(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutline14, { className: ModelSelectPlus_module_css_default.cellChevron })
+									(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutlineRegular, { className: ModelSelectPlus_module_css_default.cellChevron })
 								]
 							}), reasoning !== void 0 && (0, react_jsx_runtime.jsxs)("button", {
 								ref: itemRef(),
@@ -322,7 +322,7 @@ window.__ModuleLoader__.load({
 										className: ModelSelectPlus_module_css_default.cellValue,
 										children: effortLabel
 									}),
-									(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutline14, { className: ModelSelectPlus_module_css_default.cellChevron })
+									(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutlineRegular, { className: ModelSelectPlus_module_css_default.cellChevron })
 								]
 							})] }),
 							pane === "model" && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
@@ -398,7 +398,7 @@ window.__ModuleLoader__.load({
 												})]
 											}), (0, react_jsx_runtime.jsx)("span", {
 												className: ModelSelectPlus_module_css_default.check,
-												children: selected ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutline16, {}) : null
+												children: selected ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutlineRegular, {}) : null
 											})]
 										}, `${group.id}/${model.id}`);
 									}))
@@ -444,14 +444,14 @@ window.__ModuleLoader__.load({
 									})]
 								}), (0, react_jsx_runtime.jsx)("span", {
 									className: ModelSelectPlus_module_css_default.check,
-									children: effectiveEffort === level.effort ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutline16, {}) : null
+									children: effectiveEffort === level.effort ? (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutlineRegular, {}) : null
 								})]
 							}, level.key))] })
 						]
 					}),
 					toast !== null && (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Toast, {
 						text: toast.text,
-						icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconWarningOutline16, {}),
+						icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconWarningOutlineRegular, {}),
 						anchor: rootRef.current?.closest("[data-composer-card]") ?? null,
 						onDone: () => {
 							setToast(null);
