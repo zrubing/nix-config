@@ -1,0 +1,8 @@
+{
+  "name": "dsh-hf-shell-env",
+  "version": "0.1.0",
+  "description": "DSH plugin: inject the HuggingFace access token into every model shell call as DSH_HF_TOKEN via the dsh-shell-env trusted registry (HF_TOKEN matches the KEY|PASSWORD|SECRET|TOKEN scrub, so it cannot reach the agent any other way).",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT"
+}

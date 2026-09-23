@@ -174,6 +174,20 @@ in
     # git 权威源仍是 .pi/skill-sources/*；此处不再单独声明。
     home.file.".pi/agent/extensions/guardrails.json".source = ../../../.pi/extensions/guardrails.json;
 
+    # pi 的全局指令（~/.pi/agent/AGENTS.md）：pi 每个目录只取一个 context
+    # file（源码 loadContextFileFromDir 依次试 AGENTS.override.md → AGENTS.md
+    # → AGENTS.MD → CLAUDE.md → CLAUDE.MD，首个命中即返回），没有 include
+    # 机制，故用 sops 模板合成——本模块同目录的 AGENTS.md（pi 专属偏好，
+    # 明文入库）+ 共享加密文档（sops.secrets."agents/AGENTS.md" = 通用协作
+    # 偏好，渲染在 ~/.agents/AGENTS.md）。改内容 = 改仓库后 switch；
+    # 原先手写的 ~/.pi/agent/AGENTS.md 已备份为
+    # ~/.pi/agent/AGENTS.md.pre-nix-backup（含其末尾的明文数据库口令段，
+    # 未随本文件入库）。
+    sops.templates."pi-agents-md" = {
+      path = "/home/${config.snowfallorg.user.name}/.pi/agent/AGENTS.md";
+      content = builtins.readFile ./AGENTS.md + "\n\n" + config.sops.placeholder."agents/AGENTS.md";
+    };
+
     # nvidia-nim key：clan vars（nvidia-nim-api-key generator）→ home sops
     # （nvidia-nim/api_key）→ 合并进 ~/.pi/agent/auth.json。pi-nvidia-nim
     # 扩展 resolveRequiredNimApiKey 先查 pi 的 auth 注册表（auth.json），再回退
