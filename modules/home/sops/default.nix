@@ -160,10 +160,13 @@ in
 
     # HuggingFace access token（hf_...）：密文由 clan vars 管理（clan/zen14.nix 的
     # huggingface-token generator，写入 vars/per-machine/zen14/huggingface-token/）。
-    # 渲染进 default.env 的 HF_TOKEN——hf CLI（huggingface_hub，终端里经
-    # `uvx --from huggingface_hub hf` 或自装 python 环境）与 transformers /
-    # datasets 等库读该变量自动鉴权，无需 `hf auth login`（后者会把明文写到
-    # ~/.cache/huggingface/token，脱离声明式管理）。加密 recipients 同 apipost
+    # 渲染进 default.env（终端）与 dsh.env（dsh-web 宿主进程）的 HF_TOKEN——
+    # hf CLI（huggingface_hub，终端里经 `uvx --from huggingface_hub hf` 或自装
+    # python 环境）与 transformers / datasets 等库读该变量自动鉴权，无需
+    # `hf auth login`（后者会把明文写到 ~/.cache/huggingface/token，脱离声明式
+    # 管理）。dsh 侧 agent shell 还要过一层：HF_TOKEN 命中 subprocess 敏感名
+    # scrub，由 hf-shell-env 插件（modules/home/dsh）以受信通道注入
+    # DSH_HF_TOKEN，再经 BASH_ENV 桥接回 HF_TOKEN。加密 recipients 同 apipost
     # （machines/zen14 与 users/jojo）。换值：clan vars set zen14 huggingface-token/token
     sops.secrets."huggingface/token" = {
       sopsFile = ../../../vars/per-machine/zen14/huggingface-token/token/secret;
@@ -222,16 +225,36 @@ in
       format = "binary";
     };
 
-    # dsh agent 全局指令（~/.dsh/AGENTS.md）：所有 dsh agent 的用法说明都
-    # 放这里（当前为 OpenBao 操作指南）。全文 sops 加密（仓库内 .sops.yaml
-    # zen14 规则，systems/x86_64-linux/zen14/secrets/AGENTS.md），激活时解密
-    # 渲染并 symlink 到 dsh-agent-instructions 的全局指令位置。内容含集群
-    # 地址等不宜明文入库的信息；不含密码（密码经 env 注入）。
-    sops.secrets."dsh-agents/AGENTS.md" = {
+    # 全局 agent 指令（~/.agents/AGENTS.md，当前内容为通用协作偏好：先对齐
+    # 再输出 / KISS / 优先根源重构 / 多步骤用有序列表 等）：全文 sops 加密
+    # （仓库内 .sops.yaml zen14 规则，
+    # systems/x86_64-linux/zen14/secrets/AGENTS.md），激活时解密渲染到共享
+    # 根 ~/.agents/（与 ~/.agents/skills 同一约定根）。内容含集群地址等不宜
+    # 明文入库的信息；不含密码（密码经 env 注入）。
+    #
+    # 消费方（各家全局指令路径不同，且 dsh/codex/pi 都没有 include 机制）：
+    #   - dsh  : ~/.dsh/AGENTS.md（$DSH_HOME/AGENTS.md，dsh-agent-instructions 插件）
+    #   - codex: ~/.codex/AGENTS.md（$CODEX_HOME/AGENTS.md；官方文档：优先
+    #            AGENTS.override.md，缺省读 AGENTS.md）
+    #   - pi   : ~/.pi/agent/AGENTS.md（pi 每目录只取一个 context file，
+    #            无 include；由 sops 模板合成「pi 专属明文 + 本文档」，
+    #            见 modules/home/pi 的 sops.templates."pi-agents-md"）
+    # 前两者由下方 home.activation.linkSharedAgentsMd 建 symlink 指向真源；
+    # claude（~/.claude/CLAUDE.md，支持 @import）本次未接。
+    sops.secrets."agents/AGENTS.md" = {
       sopsFile = ../../../systems/x86_64-linux/zen14/secrets/AGENTS.md;
       format = "binary";
-      path = "/home/${username}/.dsh/AGENTS.md";
+      path = "/home/${username}/.agents/AGENTS.md";
     };
+
+    # 共享 AGENTS.md 的消费方软链（dsh / codex），必须在 sops-nix 渲染出真源
+    # 之后执行。~/.dsh/AGENTS.md 在本改动前是 sops 直接管理的 symlink（secret
+    # path 指向它），ln -sfn 会覆盖为新真源的链接，不留旧指向。
+    home.activation.linkSharedAgentsMd = inputs.home-manager.lib.hm.dag.entryAfter [ "sops-nix" ] ''
+      mkdir -p "$HOME/.agents" "$HOME/.dsh" "$HOME/.codex"
+      ln -sfn "$HOME/.agents/AGENTS.md" "$HOME/.dsh/AGENTS.md"
+      ln -sfn "$HOME/.agents/AGENTS.md" "$HOME/.codex/AGENTS.md"
+    '';
 
     # anysearch CLI 运行时从 skill 目录读 .env（anysearch_cli.{sh,py,js} 的
     # _load_env：先 <script_dir>/.env，再 <script_dir>/../.env）。skill 由
@@ -347,6 +370,11 @@ in
         GITHUB_MCP_TOKEN=${config.sops.placeholder."github-mcp/api_token"}
         CONTEXT7_API_KEY=${config.sops.placeholder."context7/api_key"}
         FIGMA_API_KEY=${config.sops.placeholder."figma/api_key"}
+        # HuggingFace token（clan vars huggingface-token）：宿主进程读 HF_TOKEN
+        # 交给 hf-shell-env 插件的 contributor；名字含 TOKEN 会被 agent
+        # subprocess 的敏感名 scrub 擦除，agent 侧只能经受信通道
+        # （DSH_HF_TOKEN）+ BASH_ENV 桥接拿回原名。
+        HF_TOKEN=${config.sops.placeholder."huggingface/token"}
         OPENBAO_LDAP_AGENT_USERNAME=${config.sops.placeholder."openbao-ldap-agent/username"}
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
         BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}

@@ -45,6 +45,26 @@ in
           export PATH="$JAVA_HOME/bin:$PATH"
         fi
 
+        # NO_PROXY 方括号 IPv6 清洗：dsh-http-proxy 给 spawn 的子进程追加
+        # "[::1]"（undici 兼容所需），但 Python httpx 解析带方括号的 IPv6 会
+        # 构造出坏 pattern（InvalidURL: Invalid port ':1]'），hf CLI 等 httpx
+        # 工具在 dsh 的交互 shell 里同样直接崩。这里抹掉方括号条目、保留裸
+        # ::1；非 dsh 环境下是幂等空操作。与 ~/.dsh/dsh-bash-env.sh 同一逻辑。
+        _np_fix() {
+          local name="$1" wrapped
+          wrapped="''${!1}"
+          [ -n "$wrapped" ] || return 0
+          wrapped=",$wrapped,"
+          wrapped="''${wrapped//,\[::1\],/,}"
+          wrapped="''${wrapped#,}"
+          wrapped="''${wrapped%,}"
+          printf -v "$name" '%s' "$wrapped"
+          export "$name"
+        }
+        _np_fix NO_PROXY
+        _np_fix no_proxy
+        unset -f _np_fix
+
         if [ -f ${config.sops.secrets."woodpecker/server".path} ]; then
           export WOODPECKER_SERVER="$(cat ${config.sops.secrets."woodpecker/server".path} | xargs)"
           export WOODPECKER_TOKEN="$(cat ${config.sops.secrets."woodpecker/token".path} | xargs)"
