@@ -120,6 +120,12 @@ let
 
   makeAgentPresetTemplate =
     id: definition:
+    # 注意：dsh 0.1.7-alpha.2 起上游删除了目录式 Agent Preset（$DSH_HOME/.agent-presets
+    # 与 shipped config/agent-presets 目录），preset 改为 profile patch 里的
+    # @deepseek-ai/dsh-agent-preset 声明行。本仓库因此不再使用这段模板机制
+    # （agentPresets 默认为空、无人配置）；modules/home/dsh 改为在 web profile 的
+    # user layer 生成声明行。若将来要通过本包的 profiles 选项投递 preset，需要按
+    # 声明行重写这里而不是再生成目录。
     let
       sourceDir = "${dsh-kernel}/lib/deepseek-harness/config/agent-presets/${definition.source}";
       shippedRoot = "${dsh-kernel}/lib/deepseek-harness/config/agent-presets";

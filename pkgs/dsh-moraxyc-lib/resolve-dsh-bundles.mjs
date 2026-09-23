@@ -66,8 +66,18 @@ function bundleMetadata(packageRoot, root) {
   if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) {
     die(`${manifestPath} has an invalid dsh.bundle value`);
   }
-  if (typeof bundle.patch !== "string" || bundle.patch.length === 0) {
-    die(`${manifestPath} must declare dsh.bundle.patch as a non-empty string`);
+  // Since 0.1.7-alpha.2 upstream allows dsh.bundle.patch to be one path or a
+  // list of paths (app-boot's bundlePatchFiles); accept both and keep the
+  // declared shape so the manifest round-trips unchanged.
+  const declaredPatches = typeof bundle.patch === "string" ? [bundle.patch] : bundle.patch;
+  if (
+    !Array.isArray(declaredPatches) ||
+    declaredPatches.length === 0 ||
+    declaredPatches.some((file) => typeof file !== "string" || file.length === 0)
+  ) {
+    die(
+      `${manifestPath} must declare dsh.bundle.patch as a non-empty string or a non-empty list of strings`,
+    );
   }
   if (typeof manifest.name !== "string" || manifest.name.length === 0) {
     die(`${manifestPath} must declare a non-empty name`);
@@ -83,16 +93,18 @@ function bundleMetadata(packageRoot, root) {
     );
   }
 
-  if (!bundle.patch.startsWith("./") || bundle.patch.includes("\\")) {
-    die(`${manifestPath} dsh.bundle.patch must be a relative './...' path`);
-  }
-  const patchPath = path.resolve(packageRoot, bundle.patch);
-  const relativePatch = path.relative(packageRoot, patchPath);
-  if (relativePatch.startsWith("..") || path.isAbsolute(relativePatch)) {
-    die(`${manifestPath} dsh.bundle.patch escapes the package root`);
-  }
-  if (!fs.existsSync(patchPath) || !fs.statSync(patchPath).isFile()) {
-    die(`${manifestPath} dsh.bundle.patch does not exist: ${bundle.patch}`);
+  for (const declared of declaredPatches) {
+    if (!declared.startsWith("./") || declared.includes("\\")) {
+      die(`${manifestPath} dsh.bundle.patch must be a relative './...' path: ${declared}`);
+    }
+    const patchPath = path.resolve(packageRoot, declared);
+    const relativePatch = path.relative(packageRoot, patchPath);
+    if (relativePatch.startsWith("..") || path.isAbsolute(relativePatch)) {
+      die(`${manifestPath} dsh.bundle.patch escapes the package root: ${declared}`);
+    }
+    if (!fs.existsSync(patchPath) || !fs.statSync(patchPath).isFile()) {
+      die(`${manifestPath} dsh.bundle.patch does not exist: ${declared}`);
+    }
   }
 
   return {
@@ -110,7 +122,7 @@ function mergeMetadata(metadataGroups) {
     if (previous) {
       if (
         previous.version !== metadata.version ||
-        previous.patch !== metadata.patch
+        JSON.stringify(previous.patch) !== JSON.stringify(metadata.patch)
       ) {
         die(
           `conflicting bundle metadata for ${metadata.name}: ` +
@@ -153,11 +165,16 @@ function readManifest(file) {
   }
 
   for (const bundle of manifest.bundles) {
+    const validPatch =
+      typeof bundle?.patch === "string" ||
+      (Array.isArray(bundle?.patch) &&
+        bundle.patch.length > 0 &&
+        bundle.patch.every((file) => typeof file === "string" && file.length > 0));
     if (
       !bundle ||
       typeof bundle.name !== "string" ||
       typeof bundle.version !== "string" ||
-      typeof bundle.patch !== "string" ||
+      !validPatch ||
       typeof bundle.packageRoot !== "string"
     ) {
       die(`${file} contains invalid bundle metadata`);

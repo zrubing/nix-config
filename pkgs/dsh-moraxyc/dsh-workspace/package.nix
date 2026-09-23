@@ -108,13 +108,21 @@ buildNpmPackage (finalAttrs: {
     targetPlatform =
       if stdenv.buildPlatform == stdenv.hostPlatform then stdenv.targetPlatform else null;
     # 每个 lockfile patchedDependencies 都必须给出补丁源（importPnpmLock 缺一个就
-    # 直接抛错）。0.1.6-alpha.1 新增 @electron/osx-sign（桌面端 macOS 签名，Linux
-    # 构建用不到）——但它是 lockfile 条目，必须照样提供上游 patch 文件。
-    patchedDependencySources = {
-      "node-pty@1.2.0-beta.15" = "${finalAttrs.src}/patches/node-pty@1.2.0-beta.15.patch";
-      "@yao-pkg/pkg@6.21.0" = "${finalAttrs.src}/patches/@yao-pkg__pkg@6.21.0.patch";
-      "@electron/osx-sign@1.3.3" = "${finalAttrs.src}/patches/@electron__osx-sign@1.3.3.patch";
-    };
+    # 直接抛错）。补丁文件按 pnpm patch 的命名约定（scope 的 "/" 换成 "__"）存在
+    # 上游源码树 patches/ 里，这里直接从锁文件条目推导，所以上游新增 patched
+    # dependency（0.1.6-alpha.1 的 @electron/osx-sign、0.1.7-alpha.2 的
+    # @earendil-works/pi-ai、@fortune-sheet/*、exceljs 等）升级时无需手工同步；
+    # 万一上游改了补丁命名，会在求值期指名报错，而不是留到构建才失败。
+    patchedDependencySources = lib.mapAttrs (
+      id: _:
+      let
+        patchFile =
+          deepseek-harness-src + "/patches/${lib.replaceStrings [ "/" ] [ "__" ] id}.patch";
+      in
+      lib.throwIfNot (builtins.pathExists patchFile)
+        "dsh-workspace: lockfile patched dependency `${id}` has no upstream patch (expected ${patchFile})"
+        patchFile
+    ) (builtins.fromJSON (builtins.readFile ./pnpm-lock.json)).patchedDependencies;
   };
 
   nativeBuildInputs = [
@@ -166,16 +174,21 @@ buildNpmPackage (finalAttrs: {
     runtimeBundlesDir="$workspaceDir/runtime-bundles"
     for packageJson in packages/*/*/package.json; do
       [ -f "$packageJson" ] || continue
+      # 0.1.7-alpha.2 起 dsh.bundle.patch 可以是字符串或字符串列表（与上游
+      # app-boot 的 bundlePatchFiles 同口径），这里两种都要接受。
       bundlePatchTag=$(yq -r '.dsh.bundle.patch | tag' "$packageJson")
       case "$bundlePatchTag" in
         "!!null")
           continue
           ;;
         "!!str")
-          bundlePatch=$(yq -r '.dsh.bundle.patch' "$packageJson")
+          bundlePatches=("$(yq -r '.dsh.bundle.patch' "$packageJson")")
+          ;;
+        "!!seq")
+          mapfile -t bundlePatches < <(yq -r '.dsh.bundle.patch[]' "$packageJson")
           ;;
         *)
-          printf 'dsh-workspace: bundle patch must be a string: %s\n' "$packageJson" >&2
+          printf 'dsh-workspace: bundle patch must be a string or a list of strings: %s\n' "$packageJson" >&2
           exit 1
           ;;
       esac
@@ -185,10 +198,16 @@ buildNpmPackage (finalAttrs: {
         printf 'dsh-workspace: bundle package has no name: %s\n' "$packageJson" >&2
         exit 1
       }
-      [ -n "$bundlePatch" ] || {
+      [ "''${#bundlePatches[@]}" -gt 0 ] || {
         printf 'dsh-workspace: bundle patch is empty: %s\n' "$packageJson" >&2
         exit 1
       }
+      for patchFile in "''${bundlePatches[@]}"; do
+        [ -n "$patchFile" ] || {
+          printf 'dsh-workspace: bundle patch entry is empty: %s\n' "$packageJson" >&2
+          exit 1
+        }
+      done
 
       bundleDir="$runtimeBundlesDir/$packageName"
       mkdir -p "$(dirname "$bundleDir")"
@@ -199,7 +218,7 @@ buildNpmPackage (finalAttrs: {
         --config.link-workspace-packages=true \
         "$bundleDir"
 
-      for artifact in package.json "$bundlePatch" lib; do
+      for artifact in package.json lib "''${bundlePatches[@]}"; do
         [ -e "$bundleDir/$artifact" ] || {
           printf 'dsh-workspace: deployed bundle artifact is missing: %s\n' "$bundleDir/$artifact" >&2
           exit 1
