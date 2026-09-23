@@ -59,7 +59,8 @@ let
 
       # Aggregators keep child manifests for dependency resolution, even when
       # a published package omitted its declared canonical patch file.
-      if [ -f "$1/cordis.patch.yml" ] || jq -e '.dsh?.bundle?.patch? == "./cordis.patch.yml"' "$1/package.json" >/dev/null 2>&1; then
+      # Since 0.1.7-alpha.2 dsh.bundle.patch may also be a list of paths.
+      if [ -f "$1/cordis.patch.yml" ] || jq -e '(.dsh?.bundle?.patch? // null) as $patch | $patch == "./cordis.patch.yml" or (($patch | type) == "array" and ($patch | index("./cordis.patch.yml")) != null)' "$1/package.json" >/dev/null 2>&1; then
         cp ${emptyCordisPatch} "$1/cordis.patch.yml"
       fi
     }

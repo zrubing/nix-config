@@ -12,7 +12,7 @@ let
   # dsh 二进制来源：默认用 llm-agents 打包的 npm 版（@deepseek-ai/dsh 0.1.1-rc.2）；
   # useDshSource=true 改用从 deepseek-harness 源码构建的本仓库包（packages/dsh-source，
   # 即 Moraxyc 式 kernel 方案产出的 dsh-kernel，版本/源码单一来源 =
-  # flake input deepseek-harness-src（当前锁 tag dsh-v0.1.6-alpha.2，升级见
+  # flake input deepseek-harness-src（当前锁 tag dsh-v0.1.7-alpha.2，升级见
   # pkgs/dsh-moraxyc/dsh-workspace/package.nix 注释）。
   # llm-agents 更新后把 useDshSource 改回 false 即切回。
   dshPackage =
@@ -114,6 +114,20 @@ let
     cp ${./plugins/woodpecker-shell-env/index.js} $out/index.js
   '';
 
+  # HuggingFace token 注入（shell-env 注册表）：hf CLI（huggingface_hub）与
+  # transformers/datasets 读 HF_TOKEN，但该名字命中 dsh subprocess 的敏感名
+  # scrub（/KEY|PASSWORD|SECRET|TOKEN/i）——即便 dsh.env 渲染了它
+  # （dsh-web-start source 后进程内有），agent 的 shell 也拿不到。同 woodpecker
+  # 插件：注册 contributor（resolve 从宿主进程 env 读回 HF_TOKEN，注入为
+  # DSH_HF_TOKEN）。dsh-bash-env.sh 自动把 DSH_HF_TOKEN 转回 HF_TOKEN，模型
+  # 直接 `hf download` 开箱即用。装载 = activation 以 file: 依赖装入 web
+  # profile + 本文件 providerPatch 的 insert 行；同 openbao/woodpecker 双件套。
+  hfShellEnvPlugin = pkgs.runCommand "dsh-hf-shell-env" { } ''
+    mkdir -p $out
+    cp ${./plugins/hf-shell-env/package.json} $out/package.json
+    cp ${./plugins/hf-shell-env/index.js} $out/index.js
+  '';
+
   # composer 模型座位替换（可搜索 + Provider 前缀）。client-ui 插件：host 半区
   # 空 apply 占位，浏览器半区 lib/client.js 是手写的 __ModuleLoader__.load 单文件
   # 产物（vendor seed 模块 react / jsx-runtime / ui-primitives 之外零依赖）。
@@ -176,21 +190,19 @@ let
   # 适配层，不是 extension 宿主。这里移植对 agent 真正有用的半区：start_process
   # 工具后台起进程不阻塞对话，进程句柄注册进 host 的 ctx.jobs（完成通知 /
   # job_output 增量读 / job_kill 终止 / web UI jobs 面板全部复用），收集工具由
-  # preset 里的 tool-jobs 行提供。preset 行用相对说明符 ./tool-processes.js 加载
-  # （dsh-agent-presets：preset 自带文件随 preset 走），但 preset 目录向上没有
-  # node_modules，裸 @deepseek-ai/* 导入会失败——故把插件源码与一个 node_modules
-  # shim（符号链接回 dsh 包自身的 node_modules——这个包的依赖嵌套在
-  # @deepseek-ai/dsh/node_modules，不在 lib/node_modules 顶层）构建进同一 store
-  # 路径，dsh 升级（flake.lock 变更）时随 input 重建。
+  # preset 里的 tool-jobs 行提供。preset 声明行用相对说明符
+  # ./nix-presets/tool-processes.js 加载（baseUrl = web profile 目录，见下方
+  # presetAssets），该目录的 node_modules 目录级 shim 解析裸 @deepseek-ai/* 导入
+  # （本 derivation 自带的 shim 只对单文件部署的老布局有用，留着不影响）。
   toolProcessesPlugin = pkgs.runCommand "dsh-tool-processes" { } ''
     mkdir -p $out
     cp ${./agent-presets/my-minimal/tool-processes.js} $out/tool-processes.js
     ln -s ${dshNodeModules} $out/node_modules
   '';
 
-  # ast-grep 结构化搜索/改写工具（`ast_grep`）。同 tool-processes 的 preset 内
-  # 相对说明符模式：源码 + node_modules shim 构建进同一 store 路径，my-minimal
-  # 与 my-ptc 共用本产物（home.file 各自链接 tool-ast-grep.js）。命令必须是
+  # ast-grep 结构化搜索/改写工具（`ast_grep`）。同 tool-processes：源码 + node_modules
+  # shim 构建进同一 store 路径，再由 presetAssets 以 ./nix-presets/tool-ast-grep.js
+  # 供 my-minimal / my-ptc / my-router-standard 三个 preset 共用。命令必须是
   # `ast-grep` 全名——本机 `sg` 被 shadow 的组切换命令占用，且 dsh-web 服务的
   # PATH 里 system sw/bin 在 per-user bin 之前。
   toolAstGrepPlugin = pkgs.runCommand "dsh-tool-ast-grep" { } ''
@@ -209,69 +221,97 @@ let
   # tool-result pruner 沿用 dsh。
   blackholePlugin = import ./plugins/dsh-blackhole/build.nix { inherit lib pkgs inputs dshNodeModules; };
 
-  # ── my-minimal preset 组合：上游 shipped `minimal` + 本地增量行 ────────────
-  # dsh 的 preset composition（@deepseek-ai/dsh-agent-presets + 底层
-  # cordis-plugin-include）没有 extends/继承/合并机制：`PresetTree`/`Include`
-  # 只读一个顶层插件行数组，行的 `name` 被解析成一个模块，`cordis:group` 只是
-  # 嵌套、`patches` 是宿主级（cordis.patch.yml）而非 preset 级。所以「my-minimal
-  # = shipped minimal + 我的新增」无法在 agent.cordis.yml 里表达，只能在 Nix
-  # 求值期把两边文本拼成一份合法 composition。
+  # ── 本地 Agent Preset（dsh 0.1.7 起为声明式，目录机制已删除）──────────────
+  # 0.1.7 起上游删除了 $DSH_HOME/.agent-presets 目录机制（上游 note
+  # .agents/notes/implemented/architecture/2026-09-18-declarative-agent-presets.md
+  # 与随包发布的 editing-cordis-compositions skill）：preset 不再是目录，而是
+  # bundle/profile patch 里的一条 @deepseek-ai/dsh-agent-preset 声明行
+  # （Loader 行 id 约定 preset-<id>，config.plugins 是普通 cordis 行数组）。
   #
-  # 基础部分（persona / persistent-shell / filesystem）直接读 flake input
-  # deepseek-harness-src 的源码树 `packages/preset/agent-presets/presets/minimal/`，
-  # 与 useDshSource=true（源码构建）共享同一 rev（flake.lock）：上游更新 minimal
-  # → nix flake update deepseek-harness-src + rebuild → 基础行自动跟随，不再手抄
-  # 快照。增量行（web_search / start_process 后台进程 / pi-blackhole /
-  # 确定性压缩）是你本地维护的 extras.cordis.yml，真正属于你的部分。
-  # 若将来切回 useDshSource=false（llm-agents npm 版），此路径需按 npm 版布局调整。
+  # 本模块把 4 个本地 preset 的声明写进 web profile 的 user layer
+  # （$DSH_HOME/profiles/web/cordis.patch.yml，见下方 webProfilePatch）。该层是
+  # dsh 定义的 "the user's own patch layer, applied after every bundle layer"，
+  # 正好叠在 shipped minimal/ptc 之上；声明行所在配置树的 baseUrl = profile 目录
+  # （apps/cli 的 PROFILE_ROOT_FILENAME 就在该目录），所以行里的相对说明符
+  # ./nix-presets/... 解析到 presetAssets 落地在 ~/.dsh/profiles/web/nix-presets
+  # 的资源。
   #
-  # 拼接产物是合法 composition（顶层数组），由 home.file 以 text= 写入
-  # ~/.dsh/.agent-presets/my-minimal/agent.cordis.yml（见下文）。
-  myMinimalComposition =
-    builtins.readFile (
-      inputs.deepseek-harness-src
-      + "/packages/preset/agent-presets/presets/minimal/agent.cordis.yml"
-    )
-    + "\n"
-    + builtins.readFile ./agent-presets/my-minimal/extras.cordis.yml;
+  # 与 0.1.6 目录版的一一对应：
+  #   my-minimal = shipped `minimal` 的 plugins + agent-presets/my-minimal/extras.cordis.yml
+  #   my-ptc     = shipped `ptc` 的 plugins（compaction 组的 compaction-basic 行换成
+  #                ./nix-presets/dsh-blackhole/lib/compaction.js）+ my-ptc/extras.cordis.yml
+  #   router-standard / my-router-standard = 各自 agent.cordis.yml 的整份行数组
+  # shipped plugins 仍在构建期从 flake input 读，上游更新自动跟随；声明的
+  # id/name/description/order 沿用各自 preset.yml。
+  presetAssets = pkgs.runCommand "dsh-local-presets" { } ''
+    mkdir -p $out/router-standard $out/my-router-standard
+    install -m644 ${toolProcessesPlugin}/tool-processes.js $out/tool-processes.js
+    install -m644 ${toolAstGrepPlugin}/tool-ast-grep.js $out/tool-ast-grep.js
+    cp -r ${blackholePlugin} $out/dsh-blackhole
+    install -m644 ${./agent-presets/router-standard/router-bootstrap-v34.mjs} $out/router-standard/router-bootstrap-v34.mjs
+    install -m644 ${./agent-presets/router-standard/router-core-v34.mjs} $out/router-standard/router-core-v34.mjs
+    install -m644 ${./agent-presets/router-standard/gitbash-executor.mjs} $out/router-standard/gitbash-executor.mjs
+    install -m644 ${./agent-presets/my-router-standard/router-bootstrap-v34.mjs} $out/my-router-standard/router-bootstrap-v34.mjs
+    install -m644 ${./agent-presets/my-router-standard/router-core-v34.mjs} $out/my-router-standard/router-core-v34.mjs
+    install -m644 ${./agent-presets/my-router-standard/gitbash-executor.mjs} $out/my-router-standard/gitbash-executor.mjs
+    # my-router-standard 的组合既有自己的 router-*.mjs，也引用共用的 dsh-blackhole /
+    # tool-ast-grep.js；同目录符号链接让「相对说明符统一加
+    # ./nix-presets/my-router-standard/ 前缀」这条重写规则对两者都成立。
+    ln -s ../dsh-blackhole $out/my-router-standard/dsh-blackhole
+    ln -s ../tool-ast-grep.js $out/my-router-standard/tool-ast-grep.js
+    # 散装 @deepseek-ai/* 裸导入的目录级 shim（preset 资源目录向上没有 node_modules；
+    # toolProcessesPlugin/toolAstGrepPlugin 自带的 shim 只在各自 store 包内生效）。
+    ln -s ${dshNodeModules} $out/node_modules
+    chmod -R u+w $out
+  '';
 
-  # ── my-ptc preset 组合：上游 shipped `ptc`（标准 agent + PTC SDK 呈现）+ 本地增量 ──
-  # 与 my-minimal 同构（上游文本 + extras 增量），但上游 `ptc` 已自带
-  # agent-instructions / tool-jobs / tool-web / command-compact / tool-result-pruner
-  # —— 这些正是 my-minimal extras 加的行，所以 my-ptc 的增量只有两行
-  # （agent-presets/my-ptc/extras.cordis.yml），外加 compaction 组的后端替换：
-  # dsh preset composition 没有 merge/patch 机制，同 id 行直接抛
-  # "duplicate loader entry id"（EntryGroup.update 实测），因此
-  # `compaction-basic → ./dsh-blackhole/lib/compaction.js` 只能在 Nix 求值期对上游
-  # 文本做定点字符串替换（上游 ptc 只改这一行对，其余行原样保留）。
-  #
-  # preset id 说明：dsh-agent-presets 的 resolvedRoots = shipped root → 配置 roots →
-  # user root（$DSH_HOME/.agent-presets），discoverPresets 按 first-root-wins 去重，
-  # shipped `ptc` 会遮蔽用户 root 的同名目录 → 本地版取名为 my-ptc。
-  #
-  # 上游更新：deepseek-harness-src rev 变化后本表达式在求值期检查 compactionRow 仍
-  # 恰好出现一次——上游这两行不变则自动跟随，形状变了则构建报错（显式检修，不会
-  # 静默漂移）。
-  ptcComposition =
-    let
-      upstreamPtc = builtins.readFile (
-        inputs.deepseek-harness-src
-        + "/packages/preset/agent-presets/presets/ptc/agent.cordis.yml"
-      );
-      occurrences = needle: haystack:
-        (builtins.length (lib.splitString needle haystack) - 1);
-      compactionRow =
-        "    - id: compaction-basic\n      name: '@deepseek-ai/dsh-compaction-basic'";
-      blackholeRow =
-        "    - id: blackhole-compact\n      name: './dsh-blackhole/lib/compaction.js'";
-      found = occurrences compactionRow upstreamPtc;
-    in
-    if found != 1 then
-      throw "dsh my-ptc: upstream ptc composition shape changed (compaction-basic row found ${toString found} times, expected 1); update modules/home/dsh/default.nix (ptcComposition) for the new upstream"
-    else
-      builtins.replaceStrings [ compactionRow ] [ blackholeRow ] upstreamPtc
-      + "\n"
-      + builtins.readFile ./agent-presets/my-ptc/extras.cordis.yml;
+  # 声明行在构建期生成（eval 期不解析 YAML）：取 shipped patch 的 plugins、追加本地
+  # extras、替换 compaction 后端、把相对说明符重写到 presetAssets 布局。上游形状变化
+  # （shipped ptc 的 compaction-basic 行不再是恰好一条）会让本 derivation 直接失败，
+  # 不会静默漂移。
+  presetDeclarations = pkgs.runCommand "dsh-local-preset-declarations.yml" {
+    nativeBuildInputs = [ pkgs.yq-go ];
+    MIN_UP = "${inputs.deepseek-harness-src}/packages/bundle/web-app/presets/minimal.patch.yml";
+    MIN_EX = ./agent-presets/my-minimal/extras.cordis.yml;
+    MIN_META = ./agent-presets/my-minimal/preset.yml;
+    PTC_UP = "${inputs.deepseek-harness-src}/packages/bundle/web-app/presets/ptc.patch.yml";
+    PTC_EX = ./agent-presets/my-ptc/extras.cordis.yml;
+    PTC_META = ./agent-presets/my-ptc/preset.yml;
+    ROUTER_COMP = ./agent-presets/router-standard/agent.cordis.yml;
+    ROUTER_META = ./agent-presets/router-standard/preset.yml;
+    MYROUTER_COMP = ./agent-presets/my-router-standard/agent.cordis.yml;
+    MYROUTER_META = ./agent-presets/my-router-standard/preset.yml;
+  } ''
+    for patch in "$MIN_UP" "$PTC_UP"; do
+      yq -e '.[0].insert[0].name == "@deepseek-ai/dsh-agent-preset"' "$patch" >/dev/null || {
+        printf 'dsh local presets: %s is not a shipped preset declaration patch\n' "$patch" >&2
+        exit 1
+      }
+    done
+    compactionRows=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "compaction-basic")] | length' "$PTC_UP")
+    [ "$compactionRows" -eq 1 ] || {
+      printf 'dsh local presets: shipped ptc has %s compaction-basic rows, expected exactly 1\n' "$compactionRows" >&2
+      exit 1
+    }
+
+    yq -n -P '
+      load(strenv(MIN_UP)) as $minUp | load(strenv(MIN_EX)) as $minEx | load(strenv(MIN_META)) as $minMeta |
+      load(strenv(PTC_UP)) as $ptcUp | load(strenv(PTC_EX)) as $ptcEx | load(strenv(PTC_META)) as $ptcMeta |
+      load(strenv(ROUTER_COMP)) as $routerComp | load(strenv(ROUTER_META)) as $routerMeta |
+      load(strenv(MYROUTER_COMP)) as $myRouterComp | load(strenv(MYROUTER_META)) as $myRouterMeta |
+      ($ptcUp | (.. | select(tag == "!!map") | select(.id? == "compaction-basic")) |= {"id": "blackhole-compact", "name": "./nix-presets/dsh-blackhole/lib/compaction.js"}) as $ptcSwapped |
+      ($minEx | (.. | select(tag == "!!map") | .name | select(tag == "!!str") | select(test("^\\./"))) |= ("./nix-presets/" + sub("^\\./"; ""))) as $minExFixed |
+      ($ptcEx | (.. | select(tag == "!!map") | .name | select(tag == "!!str") | select(test("^\\./"))) |= ("./nix-presets/" + sub("^\\./"; ""))) as $ptcExFixed |
+      ($routerComp | (.. | select(tag == "!!map") | .name | select(tag == "!!str") | select(test("^\\./"))) |= ("./nix-presets/router-standard/" + sub("^\\./"; ""))) as $routerFixed |
+      ($myRouterComp | (.. | select(tag == "!!map") | .name | select(tag == "!!str") | select(test("^\\./"))) |= ("./nix-presets/my-router-standard/" + sub("^\\./"; ""))) as $myRouterFixed |
+      [
+        { "insert": [ { "id": "preset-my-minimal", "name": "@deepseek-ai/dsh-agent-preset", "config": { "id": "my-minimal", "name": $minMeta.name, "description": $minMeta.description, "order": $minMeta.order, "plugins": ($minUp[0].insert[0].config.plugins + $minExFixed) } } ] },
+        { "insert": [ { "id": "preset-my-ptc", "name": "@deepseek-ai/dsh-agent-preset", "config": { "id": "my-ptc", "name": $ptcMeta.name, "description": $ptcMeta.description, "order": $ptcMeta.order, "plugins": ($ptcSwapped[0].insert[0].config.plugins + $ptcExFixed) } } ] },
+        { "insert": [ { "id": "preset-router-standard", "name": "@deepseek-ai/dsh-agent-preset", "config": { "id": "router-standard", "name": $routerMeta.name, "description": $routerMeta.description, "order": $routerMeta.order, "plugins": $routerFixed } } ] },
+        { "insert": [ { "id": "preset-my-router-standard", "name": "@deepseek-ai/dsh-agent-preset", "config": { "id": "my-router-standard", "name": $myRouterMeta.name, "description": $myRouterMeta.description, "order": $myRouterMeta.order, "plugins": $myRouterFixed } } ] }
+      ]
+    ' > $out
+  '';
 
   # ── 共享的 LLM 路由事实（modules/home/llm-routes/routes.nix）──────────────
   # relay 的 provider 声明（api / key env / compat / reasoning / models 的能力
@@ -711,6 +751,16 @@ let
           name: dsh-woodpecker-shell-env
           config: {}
 
+    # HuggingFace token 注入（见上方 hfShellEnvPlugin 注释）：同 openbao 的
+    # shell-env contributor 通道：HF_TOKEN 命中敏感名 scrub，只能以
+    # DSH_HF_TOKEN 进入每次模型 shell 调用；BASH_ENV 桥接（dsh-bash-env.sh）
+    # 自动转回 HF_TOKEN，hf CLI / transformers 无需任何手动转换。
+    # headless 未装包时仅告警跳过。
+    - insert:
+        - id: hf-shell-env
+          name: dsh-hf-shell-env
+          config: {}
+
     # 自动发现 opencode-go 实时模型（见上方 opencodeAutosyncPlugin 注释）。
     # host-only 插件：启动 + 每 intervalMs 拉 opencode.ai Go 档清单，add-only
     # 并入 opencode-go 路由的 models（不删已配置条目）。config 可选覆盖：
@@ -783,10 +833,22 @@ let
   # 回落到自己那份 $DSH_HOME/.codebuddy-cli-auth.json。运行期优先级：Web 设置卡片的
   # authFile（settings.yaml）> 本行 > 环境变量 CODEBUDDY_CLI_AUTH_FILE > 平台默认。
   # CLI 将来换目录时同步 codebuddyAuthFile。
-  webProfilePatch = pkgs.writeText "dsh-web-cordis.patch.yml" ''
+  # CodeBuddy 的 authFile 行（只对 web profile 生效，理由见上）。
+  codebuddyPatchRow = pkgs.writeText "dsh-web-codebuddy-row.yml" ''
     - id: llm-codebuddy-cli
       config:
         authFile: ${codebuddyAuthFile}
+  '';
+
+  # web profile 的 user layer = CodeBuddy 行 + 本地 preset 声明行（presetDeclarations，
+  # 见上方「本地 Agent Preset」注释）。两者都只对 web profile 有意义：preset 声明需要
+  # web-app bundle 的 agent-preset 插件，CodeBuddy 行需要 llm-codebuddy-cli 插件。
+  # 合并顺序 = 声明行在后（preset 声明本身不依赖其它行，顺序仅为可读性）。
+  webProfilePatch = pkgs.runCommand "dsh-web-cordis.patch.yml" {
+    nativeBuildInputs = [ pkgs.yq-go ];
+  } ''
+    CODEBUDDY=${codebuddyPatchRow} PRESETS=${presetDeclarations} \
+      yq -n 'load(strenv(CODEBUDDY)) + load(strenv(PRESETS))' > $out
   '';
 
   # dsh 的 baseURL/密钥来自 sops 渲染的 envFile（~/.config/dsh.env →
@@ -919,12 +981,17 @@ in
 
       # 模型 bash 调用的受信 env 自动桥接：dsh 子进程 env 构建擦除敏感名
       # （scrubbedParentEnv 的 KEY|PASSWORD|SECRET|TOKEN），而 shell-env 受信
-      # 通道只允许 DSH_* 前缀，所以 woodpecker-cli 认的 WOODPECKER_SERVER/TOKEN
-      # 不可能出现在模型 shell。dsh.env 设 BASH_ENV 指向本文件（bash 非交互
-      # 启动时自动 source），把 shell-env 注入的 DSH_WOODPECKER_* 条件式转回
-      # 原名——CLI 开箱即用，无需 agent 手动转换或 skill 说明；交互 persistent
-      # shell 另由 ~/.bashrc 覆盖。条件式保证值缺席（headless/pi）时不覆盖
-      # 已有同名 env。
+      # 通道只允许 DSH_* 前缀，所以 woodpecker-cli 认的 WOODPECKER_* 与
+      # hf CLI / transformers 认的 HF_TOKEN 不可能出现在模型 shell。dsh.env
+      # 设 BASH_ENV 指向本文件（bash 非交互启动时自动 source），把 shell-env
+      # 注入的 DSH_WOODPECKER_* / DSH_HF_TOKEN 条件式转回原名——CLI 开箱即用，
+      # 无需 agent 手动转换或 skill 说明；交互 persistent shell 另由 ~/.bashrc
+      # 覆盖。条件式保证值缺席（headless/pi）时不覆盖已有同名 env。
+      #
+      # 同一入口还负责 NO_PROXY 方括号清洗（见下方注释）：dsh-http-proxy 的
+      # proxyEnvironmentForChild 会给每个子进程的 NO_PROXY 追加 "[::1]"
+      # （undici 兼容所需），而 Python httpx 解析不了带方括号的 IPv6，模型
+      # shell 里的任何 httpx 工具（hf CLI、transformers 等）构造 client 即崩。
       home.file.".dsh/dsh-bash-env.sh" = {
         text = ''
           # dsh 模型 shell 的受信 env 桥接（dsh.env 的 BASH_ENV 指向；bash 非交互
@@ -934,132 +1001,44 @@ in
             export WOODPECKER_SERVER="$DSH_WOODPECKER_SERVER"
             export WOODPECKER_TOKEN="$DSH_WOODPECKER_TOKEN"
           fi
+          if [ -n "$DSH_HF_TOKEN" ]; then
+            export HF_TOKEN="$DSH_HF_TOKEN"
+          fi
+
+          # NO_PROXY 方括号 IPv6 清洗：dsh-http-proxy 的 proxyEnvironmentForChild
+          # 给子进程 NO_PROXY 合并 "[::1]"（undici 把裸 ::1 读成 host ":" port
+          # "1"，故必须带方括号），但 Python httpx 不认方括号形式——构造 client
+          # 时生成坏 pattern（all://*[::1]）即抛 InvalidURL: Invalid port ':1]'，
+          # 与网络/token 无关。这里抹掉方括号条目、保留裸 ::1（httpx/curl 都
+          # 认）；只改被 spawn 的子进程 env，dsh 自身路由策略不受影响。
+          _dsh_no_proxy_fix() {
+            local name="$1" wrapped
+            wrapped="''${!1}"
+            [ -n "$wrapped" ] || return 0
+            wrapped=",$wrapped,"
+            wrapped="''${wrapped//,\[::1\],/,}"
+            wrapped="''${wrapped#,}"
+            wrapped="''${wrapped%,}"
+            printf -v "$name" '%s' "$wrapped"
+            export "$name"
+          }
+          _dsh_no_proxy_fix NO_PROXY
+          _dsh_no_proxy_fix no_proxy
+          unset -f _dsh_no_proxy_fix
         '';
         force = true;
       };
 
-      # Agent presets：用户侧 preset 目录（$DSH_HOME/.agent-presets，trust=user，
-      # dsh-agent-presets 的 includeUserRoot 默认扫描）。组合文件 dsh 只读——
-      # PresetTree.write() 是 no-op（preset 是输入、不是持久化目标），所以可以像
-      # 上面的 cordis.patch.yml 一样由 nix 静态托管；preset.yml 只是 picker 的
-      # 展示文案（name/description/order），id = 目录名。生效方式：rebuild 后
-      # 新建会话即挂新组合（standing mount 按 composition 文件 stamp 换代，
-      # 运行中的旧会话保持原代），无需重启 dsh-web。
-      # force：目录最初为手工创建，需要接管既有普通文件。
-      # agent.cordis.yml 是求值产物：上游 shipped `minimal` + 本地增量行（见上方
-      # myMinimalComposition）。用 text= 而非 source=，因为内容在 Nix 求值期拼好，
-      # 没有对应的仓库文件；上游更新随 deepseek-harness-src 自动跟随。
-      home.file.".dsh/.agent-presets/my-minimal/agent.cordis.yml" = {
-        text = myMinimalComposition;
+      # 本地 Agent Preset 的资源目录（0.1.7 声明式模型，见上方「本地 Agent
+      # Preset」注释）。声明行放在 web profile 的 user layer，那里的相对说明符
+      # ./nix-presets/... 解析到这个目录——它是**一个** store 目录的符号链接，
+      # 所以各插件之间、router-*.mjs 与其 router-core-v34.mjs 之间的相对 import
+      # 在 realpath 之后仍然成立（旧目录式 preset 逐文件托管踩过的坑不再涉及：
+      # 现在没有任何扫描器去 readdir 这个目录，只有 Loader 按 URL 导入）。
+      home.file.".dsh/profiles/web/nix-presets" = {
+        source = presetAssets;
         force = true;
       };
-      home.file.".dsh/.agent-presets/my-minimal/preset.yml" = {
-        source = ./agent-presets/my-minimal/preset.yml;
-        force = true;
-      };
-      # start_process 插件源码在 preset 目录内（随 preset 的相对说明符加载），
-      # 实体是上方 toolProcessesPlugin 的 store 产物。
-      home.file.".dsh/.agent-presets/my-minimal/tool-processes.js" = {
-        source = "${toolProcessesPlugin}/tool-processes.js";
-        force = true;
-      };
-      # ast_grep 工具源码在 preset 目录内（./tool-ast-grep.js），
-      # 实体是上方 toolAstGrepPlugin 的 store 产物。
-      home.file.".dsh/.agent-presets/my-minimal/tool-ast-grep.js" = {
-        source = "${toolAstGrepPlugin}/tool-ast-grep.js";
-        force = true;
-      };
-      # pi-blackhole 适配器（modules/home/dsh/plugins/dsh-blackhole 的 store 产物：package.json + lib/
-      # + esbuild 打包的 pi 核心 + node_modules shim）。preset 通过相对说明符
-      # ./dsh-blackhole/lib/compaction.js（压缩 isolate）与 ./dsh-blackhole/lib/index.js
-      # （agent scope）挂载。
-      home.file.".dsh/.agent-presets/my-minimal/dsh-blackhole" = {
-        source = "${blackholePlugin}";
-        force = true;
-      };
-
-      # my-ptc：shipped `ptc`（标准 agent + PTC SDK 呈现）+ 与 my-minimal 同款增量
-      # （start_process 后台进程 / pi-blackhole recall+观测记忆+命令 / 确定性压缩）。
-      # 挂载结构与 my-minimal 一致；compaction 组的后端替换在 ptcComposition 求值期
-      # 完成（上游 `ptc` 自带 compaction 组，extras 重复 id 会抛 duplicate loader
-      # entry id）。id 取 my-ptc：user root 排在 shipped root 之后，同名会被遮蔽。
-      # agent.cordis.yml 同 my-minimal 一样是求值产物（text=）。
-      home.file.".dsh/.agent-presets/my-ptc/agent.cordis.yml" = {
-        text = ptcComposition;
-        force = true;
-      };
-      home.file.".dsh/.agent-presets/my-ptc/preset.yml" = {
-        source = ./agent-presets/my-ptc/preset.yml;
-        force = true;
-      };
-      # start_process 插件源码在 preset 目录内（随 preset 的相对说明符加载），
-      # 与 my-minimal 共用 toolProcessesPlugin 的 store 产物。
-      home.file.".dsh/.agent-presets/my-ptc/tool-processes.js" = {
-        source = "${toolProcessesPlugin}/tool-processes.js";
-        force = true;
-      };
-      # ast_grep 工具源码在 preset 目录内（./tool-ast-grep.js），
-      # 与 my-minimal 共用 toolAstGrepPlugin 的 store 产物。
-      home.file.".dsh/.agent-presets/my-ptc/tool-ast-grep.js" = {
-        source = "${toolAstGrepPlugin}/tool-ast-grep.js";
-        force = true;
-      };
-      # pi-blackhole 适配器（同 my-minimal：blackholePlugin 的 store 产物）。
-      home.file.".dsh/.agent-presets/my-ptc/dsh-blackhole" = {
-        source = "${blackholePlugin}";
-        force = true;
-      };
-
-      # ── router-standard（实验）：dsh-routing-suite 的阶段路由预设 ───────────
-      # 来源 github:yjh051108/dsh-routing-suite 的 preset/router-standard（整目录快照；
-      # 作者的 agent.cordis.yml 是自包含组合：persona + 工具行 + plan/compaction/
-      # delegation 分组 + ./router-bootstrap-v34.mjs 挂载点，不是上游 minimal/ptc 的
-      # 求值产物，所以不走 myMinimalComposition 那套文本拼接）。
-      # id = 目录名 router-standard（user root；shipped root 无同名，不会被遮蔽），
-      # picker 显示 preset.yml 的 "Router Standard"。
-      #
-      # 为什么不能用 home.file（两条路都实测断）：
-      # ① 整目录 source → home-manager 生成 symlink 目录；dsh-agent-presets 的
-      #    scanRoot 用 readdir(withFileTypes) + Dirent.isDirectory() 过滤
-      #    （lib/types/discovery.js:293），symlink 的 isDirectory() 是 false，
-      #    preset 根本不出现在 picker 里。
-      # ② 逐文件 source → 目录是真的，但 home-manager 把每个文件复制成**各自独立**
-      #    的 store 文件（/nix/store/<hash>-hm_routerbootstrapv34.mjs），realpath 的
-      #    兄弟目录不再含 router-core-v34.mjs，bootstrap 的
-      #    `import './router-core-v34.mjs'` 解析成 /nix/store/router-core-v34.mjs →
-      #    Cannot find module。
-      # activation 复制成真实文件：目录真实（能被发现）+ 文件同目录（相对 import
-      # 成立）。副产品是文件可写，作者的 dev_reload_preset_live 热重载（把 ?v=N 写回
-      # agent.cordis.yml）也能用；代价是每次 switch 覆盖回 store 版本。
-      # 升级：从 routing-suite 重新拷 router-*.mjs / agent.cordis.yml 到本目录。
-      home.activation.dshRouterStandardPreset = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        rm -rf $HOME/.dsh/.agent-presets/router-standard
-        mkdir -p $HOME/.dsh/.agent-presets/router-standard
-        cp -r ${./agent-presets/router-standard}/. $HOME/.dsh/.agent-presets/router-standard/
-        chmod -R u+w $HOME/.dsh/.agent-presets/router-standard
-      '';
-
-      # ── my-router-standard：router-standard 的本地派生副本（+ 自定义工具）────
-      # 同样走 activation 真实复制（理由见上：home.file 的两种托管都要么被
-      # scanRoot 跳过、要么把相对 import 拆散）。目录本体是
-      # agent-presets/my-router-standard 的快照，另外三件来自 store：
-      #   tool-ast-grep.js  ← toolAstGrepPlugin（源码 + node_modules shim 的产物）
-      #   dsh-blackhole/    ← blackholePlugin（recall 工具 + OM worker + 命令 + 确定性压缩后端）
-      #   node_modules      ← 目录级 shim：preset 目录向上没有 node_modules，散装
-      #                        @deepseek-ai/* 裸导入靠它解析（与 my-minimal 的单文件
-      #                        插件同一机制）。
-      # 与 router-standard 的差别只有三处（都写进了那一份 agent.cordis.yml /
-      # router-bootstrap-v34.mjs 的 LOCAL PATCH 注释）：加 ast_grep + recall 两行、
-      # 阶段 0 归属、compaction-basic → blackhole-compact。不加 start_process。
-      home.activation.dshMyRouterStandardPreset = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        rm -rf $HOME/.dsh/.agent-presets/my-router-standard
-        mkdir -p $HOME/.dsh/.agent-presets/my-router-standard
-        cp -r ${./agent-presets/my-router-standard}/. $HOME/.dsh/.agent-presets/my-router-standard/
-        cp ${toolAstGrepPlugin}/tool-ast-grep.js $HOME/.dsh/.agent-presets/my-router-standard/
-        cp -r ${blackholePlugin} $HOME/.dsh/.agent-presets/my-router-standard/dsh-blackhole
-        chmod -R u+w $HOME/.dsh/.agent-presets/my-router-standard
-        ln -sfn ${dshNodeModules} $HOME/.dsh/.agent-presets/my-router-standard/node_modules
-      '';
 
       # ── DSH skill：woodpecker-ci ────────────────────────────────────────
       # 声明已移到 modules/home/skills（共享 skill 模块）：DSH 的 skill 根仍是
@@ -1273,6 +1252,22 @@ in
         fi
       '';
 
+      # HuggingFace token 注入（见上方 hfShellEnvPlugin 注释）：同
+      # woodpecker-shell-env 的 file: + store-hash 幂等安装；loader 行在
+      # cordis.patch.yml 的 hf-shell-env insert 条目。装完重启 dsh-web 生效。
+      home.activation.configureDshHfShellEnv = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+        pkgJson="$HOME/.dsh/profiles/web/package.json"
+        want="file:${hfShellEnvPlugin}"
+        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
+          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
+            dshReloadWeb=1
+          else
+            echo "WARN: dsh-hf-shell-env 安装失败（离线？），下次重建重试"
+          fi
+        fi
+      '';
+
       # 可搜索模型选择器（见上方 modelSelectPlusPlugin 注释）：同 braces-sanitize
       # 的 file: + store-hash 幂等安装；loader 行在 cordis.patch.yml 的
       # ui-model-select-plus insert 条目。装完重启 dsh-web 生效。
@@ -1351,6 +1346,7 @@ in
         "configureDshBracesSanitize"
         "configureDshOpenbaoShellEnv"
         "configureDshWoodpeckerShellEnv"
+        "configureDshHfShellEnv"
         "configureDshModelSelectPlus"
         "configureDshOpencodeAutosync"
         "configureDshRuninfraAutosync"

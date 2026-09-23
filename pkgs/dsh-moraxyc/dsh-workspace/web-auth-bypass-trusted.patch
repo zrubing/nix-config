@@ -1,8 +1,7 @@
 diff --git a/packages/client/connection/src/rpc-host.ts b/packages/client/connection/src/rpc-host.ts
-index a00277d..f79fa8c 100644
 --- a/packages/client/connection/src/rpc-host.ts
 +++ b/packages/client/connection/src/rpc-host.ts
-@@ -95,12 +95,17 @@ export class HostConnectionService extends Service implements HostConnectionHand
+@@ -103,8 +103,11 @@ export class HostConnectionService extends Service implements HostConnectionHand
    /** Apply the configured Host/Origin fence, then browser authentication. */
    requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
      if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
@@ -13,6 +12,9 @@ index a00277d..f79fa8c 100644
 +    return undefined
    }
  
+   /** A request that passes the fence and authentication speaks for the operator. */
+   admit(request: ConnectionTrustRequest): PeerAdmission {
+@@ -115,6 +115,8 @@ export class HostConnectionService extends Service implements HostConnectionHand
    /** Authenticate an index request through the process-token exchange or cookie. */
    authorizeIndex(request: ConnectionIndexRequest, response: ConnectionIndexResponse): boolean {
 -    return this.browserAuth.authorizeIndex(request, response)

@@ -1,16 +1,17 @@
-# The `my-ptc` agent preset DELTA — the rows this preset adds on top of the
-# shipped `ptc` preset (the standard coding agent presented through the PTC
-# mode SDK: one run_code program per multi-step action sequence). The generated
-# composition is:
+# The `my-ptc` agent preset DELTA — the rows this preset's declaration adds on
+# top of the shipped `ptc` preset (the standard coding agent presented through
+# the PTC mode SDK: one run_code program per multi-step action sequence).
+# The declared `config.plugins` list is:
 #
-#   upstream `ptc` (persona / shell / fs / jobs / skills / goals / plan mode /
-#   delegation / workflows / PTC presentation)  ← read from the
-#   deepseek-harness-src flake input at eval time (default.nix, ptcComposition),
-#   so upstream updates flow through on rebuild
-#   + ONE eval-time inline swap: the compaction group's `compaction-basic` row
-#   becomes `./dsh-blackhole/lib/compaction.js` (the deterministic pi-blackhole
-#   backend) — done in default.nix because a second `compaction` group or row
-#   here would collide with the shipped one (`duplicate loader entry id`)
+#   shipped `ptc.patch.yml` plugins (persona / shell / fs / jobs / skills /
+#   goals / plan mode / delegation / workflows / PTC presentation)  ← read from
+#   the deepseek-harness-src flake input at BUILD time (presetDeclarations in
+#   modules/home/dsh/default.nix), so upstream updates flow through on rebuild
+#   + ONE inline swap: the compaction group's `compaction-basic` row becomes
+#   `./nix-presets/dsh-blackhole/lib/compaction.js` (the deterministic
+#   pi-blackhole backend) — done in presetDeclarations because a second
+#   `compaction` group or row here would collide with the shipped one
+#   (`duplicate loader entry id`)
 #   + this file's rows (start_process background processes, pi-blackhole
 #   recall / observational memory / /blackhole* commands)
 #
@@ -27,11 +28,9 @@
 # earlier root wins a duplicate id, so a user-root directory named `ptc` would
 # be shadowed by the shipped preset. This preset therefore lives as `my-ptc`.
 #
-# Managed by nix (modules/home/dsh): do not edit ~/.dsh/.agent-presets/my-ptc
-# in place. `agent.cordis.yml` is a generated artifact (upstream `ptc` with the
-# compaction swap, plus this file). Edit THIS file for the delta rows and
-# rebuild (home-manager activation re-links it; dsh picks the new generation up
-# for the NEXT session on this preset).
+# Managed by nix (modules/home/dsh)：0.1.7 起 preset 是声明行（不是目录），本文件是
+# 那条声明 `config.plugins` 的增量部分；声明由 presetDeclarations 在构建期生成，经
+# web profile 的 user layer 下发，行里的相对说明符重写到 ./nix-presets/...。
 
 # ── background processes ────────────────────────────────────────────────────
 
