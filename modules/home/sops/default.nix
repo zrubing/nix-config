@@ -158,6 +158,18 @@ in
       format = "binary";
     };
 
+    # HuggingFace access token（hf_...）：密文由 clan vars 管理（clan/zen14.nix 的
+    # huggingface-token generator，写入 vars/per-machine/zen14/huggingface-token/）。
+    # 渲染进 default.env 的 HF_TOKEN——hf CLI（huggingface_hub，终端里经
+    # `uvx --from huggingface_hub hf` 或自装 python 环境）与 transformers /
+    # datasets 等库读该变量自动鉴权，无需 `hf auth login`（后者会把明文写到
+    # ~/.cache/huggingface/token，脱离声明式管理）。加密 recipients 同 apipost
+    # （machines/zen14 与 users/jojo）。换值：clan vars set zen14 huggingface-token/token
+    sops.secrets."huggingface/token" = {
+      sopsFile = ../../../vars/per-machine/zen14/huggingface-token/token/secret;
+      format = "binary";
+    };
+
     # Figma PAT：密文由 clan vars 管理（clan/zen14.nix 的 figma-api-key
     # generator）。渲染进 dsh.env 与 default.env 的 FIGMA_API_KEY——
     # Framelink MCP（figma-developer-mcp）读该变量鉴权，pi / dsh / claude-code
@@ -295,6 +307,11 @@ in
         # 鉴权，pi / claude-code 在启动 MCP 子进程时把该变量传下去；dsh 侧同名变量
         # 由 dsh.env 提供（同一份 figma/api_key）。
         export FIGMA_API_KEY="${config.sops.placeholder."figma/api_key"}"
+        # HuggingFace token（clan vars huggingface-token）：hf CLI（huggingface_hub）
+        # 与 transformers / datasets / vLLM 等库读 HF_TOKEN 自动鉴权（gated 模型
+        # 下载也走它）。不用 `hf auth login`——那会把明文写到
+        # ~/.cache/huggingface/token；env 变量是声明式的等价物。
+        export HF_TOKEN="${config.sops.placeholder."huggingface/token"}"
 
         # OpenBao LDAP agent 凭据（clan vars openbao-ldap-agent-username /
         # -password / openbao-addr）：终端 agent（codex 等）与 dsh 走同一套

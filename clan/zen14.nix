@@ -238,4 +238,21 @@
       tr -d '\n' < $prompts/api-key > $out/api-key
     '';
   };
+
+  # HuggingFace access token（hf_...，https://huggingface.co/settings/tokens）。
+  # 消费方：home sops（modules/home/sops/default.nix）引用本加密文件，渲染进
+  # default.env 的 HF_TOKEN——hf CLI（huggingface_hub）与 transformers /
+  # datasets 等库读该变量自动鉴权。
+  # 换值：clan vars set zen14 huggingface-token/token
+  clan.core.vars.generators.huggingface-token = {
+    prompts.token = {
+      description = "HuggingFace access token (hf_...)";
+      type = "hidden";
+    };
+    files.token.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/token > $out/token
+    '';
+  };
 }
