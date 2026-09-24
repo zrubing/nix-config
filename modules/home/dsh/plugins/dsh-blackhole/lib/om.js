@@ -89,13 +89,17 @@ async function callLlmText(ctx, model, system, userText, signal) {
     maxTokens: 2048,
     messages: [{ role: "user", content: [{ type: "text", text: userText }] }],
   });
-  let out = "";
+  // dsh 的 block-end 携带该 block 的完整文本（deltas 已包含在内），两者相加会把
+  // 回复翻倍、把 JSON 抓取搞坏，所以以 block-end 的完整块为准，只有完全没有
+  // 完整块时才回落到 deltas。
+  let deltas = "";
+  let completed = "";
   for await (const chunk of stream) {
-    if (chunk.type === "text-delta") out += chunk.text;
-    else if (chunk.type === "block-end" && chunk.block?.type === "text") out += chunk.block.text ?? "";
+    if (chunk.type === "text-delta") deltas += chunk.text;
+    else if (chunk.type === "block-end" && chunk.block?.type === "text") completed += chunk.block.text ?? "";
     else if (chunk.type === "finish") break;
   }
-  return out.trim();
+  return (completed || deltas).trim();
 }
 
 /** Heuristically pull a JSON array out of an LLM reply. */
@@ -114,6 +118,9 @@ function extractJsonArray(text) {
  * Run one worker stage through the fallback chain (stage model -> stage
  * fallbacks -> base model -> session model), stopping at the first success.
  * Each failure records a cooldown so the failed model is skipped next run.
+ * An EMPTY reply is a failure of that candidate, not a stage failure: the next
+ * candidate still gets a chance (a route that streams only usage/finish is the
+ * observed failure mode of one configured model).
  */
 async function runWorkerStage(ctx, store, cfg, worker, prompt, input, signal) {
   const cooldowns = store.cooldowns;
@@ -122,7 +129,9 @@ async function runWorkerStage(ctx, store, cfg, worker, prompt, input, signal) {
   for (const model of candidates) {
     try {
       const reply = await callLlmText(ctx, model, prompt, input, signal);
-      return { ok: true, reply };
+      if (reply) return { ok: true, reply };
+      lastError = new Error(`${model.provider}/${model.id} returned an empty reply`);
+      cooldownModel(cooldowns, model, "empty reply");
     } catch (err) {
       lastError = err;
       cooldownModel(cooldowns, model, err?.message ?? String(err));
@@ -133,7 +142,8 @@ async function runWorkerStage(ctx, store, cfg, worker, prompt, input, signal) {
     if (sessionModel) {
       try {
         const reply = await callLlmText(ctx, sessionModel, prompt, input, signal);
-        return { ok: true, reply };
+        if (reply) return { ok: true, reply };
+        lastError = new Error(`${sessionModel.provider}/${sessionModel.id} returned an empty reply`);
       } catch (err) {
         lastError = err;
       }
@@ -173,6 +183,7 @@ async function observeStage(agent, ctx, cfg, store, signal) {
   const result = await runWorkerStage(ctx, store, cfg, "observer", OBSERVER_PROMPT, userText, signal);
   if (!result.ok || !result.reply) {
     store.lastErrorAt = Date.now();
+    store.lastError = result.error?.message ?? "no reply";
     return;
   }
   const items = extractJsonArray(result.reply);
@@ -208,6 +219,7 @@ async function reflectStage(ctx, cfg, store, signal) {
   const result = await runWorkerStage(ctx, store, cfg, "reflector", REFLECTOR_PROMPT, userText, signal);
   if (!result.ok || !result.reply) {
     store.lastErrorAt = Date.now();
+    store.lastError = result.error?.message ?? "no reply";
     return;
   }
   const items = extractJsonArray(result.reply);
@@ -233,6 +245,7 @@ async function dropStage(ctx, cfg, store, signal) {
   const result = await runWorkerStage(ctx, store, cfg, "dropper", DROPPER_PROMPT, input, signal);
   if (!result.ok || !result.reply) {
     store.lastErrorAt = Date.now();
+    store.lastError = result.error?.message ?? "no reply";
     return;
   }
   const items = extractJsonArray(result.reply);

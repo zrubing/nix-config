@@ -139,10 +139,13 @@ export function loadConfig() {
       ]) {
         if (raw[key] !== undefined) cfg[key] = raw[key];
       }
+      // 单一开关：`model` 是所有 worker 的默认模型，想换模型只改这一行。
+      // 只有需要给某个 stage 单独指定（或跟随不同模型）时才写 observerModel/
+      // reflectorModel/dropperModel；不写就跟随 `model`。
       cfg.model = normalizeModel(raw.model, cfg.model);
-      cfg.observerModel = normalizeModel(raw.observerModel, cfg.observerModel);
-      cfg.reflectorModel = normalizeModel(raw.reflectorModel, cfg.reflectorModel);
-      cfg.dropperModel = normalizeModel(raw.dropperModel, cfg.dropperModel);
+      cfg.observerModel = normalizeModel(raw.observerModel, cfg.model);
+      cfg.reflectorModel = normalizeModel(raw.reflectorModel, cfg.model);
+      cfg.dropperModel = normalizeModel(raw.dropperModel, cfg.model);
       cfg.observerFallbackModels = normalizeModelArray(raw.observerFallbackModels);
       cfg.reflectorFallbackModels = normalizeModelArray(raw.reflectorFallbackModels);
       cfg.dropperFallbackModels = normalizeModelArray(raw.dropperFallbackModels);
@@ -234,6 +237,10 @@ export function clearPending(sessionId) {
 
 /** Merge pending into the ledger (manual-mode flush) and clear pending. */
 export function flushPending(sessionId) {
+  // 只有真的写过 pending 文件（manual 模式）才谈得上"把 pending 的游标合并进
+  // ledger"；文件不存在时 loadPending 返回的是一份 normalize 过的空 ledger，
+  // 它的 cursors 全是 -1，无条件合并会把 ledger 里已经推进的游标清回 -1。
+  const hasPending = existsSync(pendingPath(sessionId));
   const pending = loadPending(sessionId);
   const ledger = loadLedger(sessionId);
   let added = 0;
@@ -246,10 +253,13 @@ export function flushPending(sessionId) {
     if (ledger.reflections.some((x) => x.id === r.id)) continue;
     ledger.reflections.push(r);
   }
-  for (const key of ["observer", "reflector", "dropper"]) {
-    if (pending.cursors?.[key] !== undefined) ledger.cursors[key] = pending.cursors[key];
+  if (hasPending) {
+    for (const key of ["observer", "reflector", "dropper"]) {
+      if (pending.cursors?.[key] !== undefined) ledger.cursors[key] = pending.cursors[key];
+    }
   }
   if (pending.lastErrorAt) ledger.lastErrorAt = pending.lastErrorAt;
+  if (pending.lastError) ledger.lastError = pending.lastError;
   saveLedger(sessionId, ledger);
   clearPending(sessionId);
   return { observationsAdded: added, observations: ledger.observations.length, reflections: ledger.reflections.length };
@@ -287,6 +297,7 @@ export function ledgerStats(sessionId) {
     reflectorCursor: ledger.cursors.reflector,
     dropperCursor: ledger.cursors.dropper,
     lastErrorAt: ledger.lastErrorAt,
+    lastError: ledger.lastError,
     cooldowns: Object.keys(ledger.cooldowns || {}),
   };
 }
