@@ -23,7 +23,7 @@ function renderStats(sessionId) {
     `observations: ${s.observations} (active ${s.activeObservations})`,
     `reflections: ${s.reflections}`,
     `observation pool: ~${s.poolTokens} tokens`,
-    `cursors: observer #${s.observerCursor}, reflector #${s.reflectorCursor}, dropper #${s.dropperCursor}`,
+    `cursors: observer → seq ${s.observerCursor ?? "—"}, reflector → id ${s.reflectorCursor ?? "—"}`,
   ];
   if (s.pendingObservations > 0 || s.pendingReflections > 0) {
     lines.push(`pending (manual): ${s.pendingObservations} observation(s), ${s.pendingReflections} reflection(s)`);

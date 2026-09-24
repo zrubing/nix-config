@@ -59,9 +59,21 @@ function sessionModelOf(ctx) {
   return undefined;
 }
 
-/** Collect text-bearing conversation entries (user + assistant) w/ their index. */
+/**
+ * Collect text-bearing conversation entries (user + assistant) with their
+ * durable surface event sequence. `Session.surface.nodes` and
+ * `Session.deriveMessages()` are the same ordered surface (one node per derived
+ * message), so the seq is the stable identity of "which material this is" —
+ * unlike an array index, a compaction `replace` cannot invalidate it.
+ */
 function collectSourceEntries(agent) {
-  const messages = agent?.session?.deriveMessages?.() ?? [];
+  const session = agent?.session;
+  const messages = session?.deriveMessages?.() ?? [];
+  const nodes = session?.surface?.nodes ?? [];
+  if (nodes.length !== messages.length) {
+    // A drift here would silently pair messages with foreign seqs; fail loud.
+    throw new Error(`surface/derivation mismatch: ${nodes.length} nodes vs ${messages.length} messages`);
+  }
   const entries = [];
   messages.forEach((msg, index) => {
     if (!msg || msg.role === "system") return;
@@ -74,7 +86,7 @@ function collectSourceEntries(agent) {
       text = textOfBlocks(msg.content);
     }
     if (!text) return;
-    entries.push({ index, role: msg.role === "user" ? "user" : "assistant", text });
+    entries.push({ seq: nodes[index], role: msg.role === "user" ? "user" : "assistant", text });
   });
   return entries;
 }
@@ -156,8 +168,10 @@ async function runWorkerStage(ctx, store, cfg, worker, prompt, input, signal) {
 
 async function observeStage(agent, ctx, cfg, store, signal) {
   const entries = collectSourceEntries(agent);
-  const cursor = store.cursors.observer ?? -1;
-  const newEntries = entries.filter((e) => e.index > cursor);
+  // 游标 = 已覆盖到的 surface seq（单调、压缩不回收）。旧 ledger 的数组下标游标
+  // 不再使用：压缩会把被遮蔽的节点从 deriveMessages() 里删掉，下标随之失效。
+  const cursor = store.cursors.observerSeq ?? -1;
+  const newEntries = entries.filter((e) => e.seq > cursor);
   if (newEntries.length === 0) return;
 
   const chunk = cfg.observeAfterTokens > 0 && estimateTokens(newEntries.map((e) => e.text).join("\n")) < cfg.observeAfterTokens
@@ -165,7 +179,7 @@ async function observeStage(agent, ctx, cfg, store, signal) {
     : chunkSourceEntries(newEntries, Math.min(cfg.observerChunkMaxTokens, MAX_OBSERVER_INPUT_CHARS / 4));
   if (chunk.length === 0) return;
 
-  const lastIndex = chunk[chunk.length - 1].index;
+  const lastSeq = chunk[chunk.length - 1].seq;
 
   // Preamble of existing high-relevance observations, so the model avoids dupes.
   const existing = store.observations
@@ -195,19 +209,22 @@ async function observeStage(agent, ctx, cfg, store, signal) {
       id: newId(),
       relevance: ["high", "medium", "low"].includes(it?.relevance) ? it.relevance : "medium",
       source: String(it?.source ?? ""),
-      sourceEntryIds: chunk.map((e) => String(e.index)),
+      sourceEntryIds: chunk.map((e) => String(e.seq)),
       content,
     });
     added += 1;
   }
-  if (added > 0) store.cursors.observer = Math.max(cursor, lastIndex);
-  else store.cursors.observer = Math.max(cursor, lastIndex);
+  store.cursors.observerSeq = Math.max(cursor, lastSeq);
 }
 
 async function reflectStage(ctx, cfg, store, signal) {
-  const cursor = store.cursors.reflector ?? -1;
-  const active = store.observations.filter((o) => o.status !== "dropped");
-  const newObs = active.slice(cursor + 1);
+  // 游标 = 最后一条已反思 observation 的 id（稳定标识）。旧的下标游标不再使用：
+  // 它建在"过滤掉 dropped 之后"的数组上，dropper 一改 status 位置就整体前移，
+  // 会把紧跟其后的一条新 observation 永久跳过。
+  const cursorId = store.cursors.reflectorId;
+  const all = store.observations;
+  const at = cursorId === undefined ? -1 : all.findIndex((o) => o.id === cursorId);
+  const newObs = (at < 0 ? all : all.slice(at + 1)).filter((o) => o.status !== "dropped");
   if (newObs.length === 0) return;
   const newObsTokens = estimateTokens(newObs.map((o) => o.content).join("\n"));
   if (newObsTokens < cfg.reflectAfterTokens) return;
@@ -230,7 +247,7 @@ async function reflectStage(ctx, cfg, store, signal) {
     addReflection(store, { id: newId(), source: String(it?.source ?? ""), content });
     added += 1;
   }
-  store.cursors.reflector = active.length - 1;
+  store.cursors.reflectorId = newObs[newObs.length - 1].id;
 }
 
 async function dropStage(ctx, cfg, store, signal) {
@@ -279,7 +296,12 @@ async function runPipeline(agent, ctx) {
       await observeStage(agent, ctx, cfg, store, controller.signal);
       await reflectStage(ctx, cfg, store, controller.signal);
       await dropStage(ctx, cfg, store, controller.signal);
-    } catch { /* graceful: skip a stage, retry next turn */ }
+    } catch (stageError) {
+      // 抛出的 stage（例如 surface/deriveMessages 形状漂移）必须能在
+      // /blackhole-memory status 里看到，而不是只静默跳过这一轮。
+      store.lastErrorAt = Date.now();
+      store.lastError = stageError?.message ?? String(stageError);
+    }
     finally {
       persist(sessionId, cfg, store);
     }
