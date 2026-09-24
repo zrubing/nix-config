@@ -162,12 +162,17 @@ in
       # 规则按出现顺序处理，窗口匹配「任一 match」即命中，故 DSH 专属规则必须排在
       # 下面通用 Brave 规则之前，否则会先被 open-on-workspace "web" 吃掉。
       window-rules = [
-        # ── DSH 专用浏览器实例（app-id 由 modules/home/dsh 的 dsh-browser 用
-        # --class=brave-dsh 显式指定，单独 user-data-dir）→ 固定到 code 工作区。
-        # 主 Brave 窗口 app-id 仍是 brave-browser，不受影响。
+        # ── DeepSeek Harness → 主屏 2 号工作区（code，在 eDP-1）──
+        # 实际窗口是用户安装的 Brave PWA（~/.local/share/applications/
+        # brave-mflgmgongdiagiiahbbfmnimbhanechd-Default.desktop，brave
+        # --profile-directory=Default --app-id=...）：PWA 窗口由主 Brave 实例接管，
+        # app-id 由 Brave 自己生成成 brave-<hash>-<profile>，命令行 --class 不生效。
+        # 用命名工作区而不是 open-on-output：命名工作区固定在它所在的输出上，
+        # 窗口落到 code 即主屏 2 号工作区，不受当前聚焦在哪块屏影响。
+        # 重装 PWA 或换 URL 会换 hash，用 `niri msg pick-window` 复核后同步这里。
         {
           matches = [
-            { app-id = "^brave-dsh$"; }
+            { app-id = "^brave-mflgmgongdiagiiahbbfmnimbhanechd-Default$"; }
           ];
           open-on-workspace = "code";
         }
