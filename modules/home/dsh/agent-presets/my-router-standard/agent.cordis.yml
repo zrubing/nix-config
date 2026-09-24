@@ -213,6 +213,11 @@
     # summarize()，用 compile() 做无 LLM 的结构化摘要）。服务同 id 不能并存，是替换不是叠加。
     - id: blackhole-compact
       name: './dsh-blackhole/lib/compaction.js'
+      # 压力阈值：上下文占用达到 min(contextWindow × 0.4,
+      # contextWindow − 预留输出 − headroomTokens(默认 65536)) 即触发自动压缩
+      # （官方 router-standard 用 0.55；此处与 my-minimal / my-ptc 统一成 0.4）。
+      config:
+        thresholdRatio: 0.4
 
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'

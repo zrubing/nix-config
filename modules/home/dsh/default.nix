@@ -266,7 +266,8 @@ let
   '';
 
   # 声明行在构建期生成（eval 期不解析 YAML）：取 shipped patch 的 plugins、追加本地
-  # extras、替换 compaction 后端、把相对说明符重写到 presetAssets 布局。上游形状变化
+  # extras、替换 compaction 后端并钉住压力阈值（thresholdRatio 0.4，与 my-minimal /
+  # my-router-standard 同步）、把相对说明符重写到 presetAssets 布局。上游形状变化
   # （shipped ptc 的 compaction-basic 行不再是恰好一条）会让本 derivation 直接失败，
   # 不会静默漂移。
   presetDeclarations = pkgs.runCommand "dsh-local-preset-declarations.yml" {
@@ -293,13 +294,24 @@ let
       printf 'dsh local presets: shipped ptc has %s compaction-basic rows, expected exactly 1\n' "$compactionRows" >&2
       exit 1
     }
+    # 这一行是整体替换（不是逐字段改写）：shipped 行一旦多出别的键，必须显式
+    # 决定保留还是丢弃，否则会被这次替换静默吞掉。加键即构建失败。
+    # （不能直接比较数组：yq 的 `==` 对数组恒为 false。）
+    ptcCompactionKeys=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "compaction-basic") | keys] | flatten | unique | join(" ")' "$PTC_UP")
+    [ "$ptcCompactionKeys" = "id name" ] || {
+      printf 'dsh local presets: shipped ptc compaction-basic row has keys [%s], expected only id/name; update the replacement below accordingly\n' "$ptcCompactionKeys" >&2
+      exit 1
+    }
 
     yq -n -P '
       load(strenv(MIN_UP)) as $minUp | load(strenv(MIN_EX)) as $minEx | load(strenv(MIN_META)) as $minMeta |
       load(strenv(PTC_UP)) as $ptcUp | load(strenv(PTC_EX)) as $ptcEx | load(strenv(PTC_META)) as $ptcMeta |
       load(strenv(ROUTER_COMP)) as $routerComp | load(strenv(ROUTER_META)) as $routerMeta |
       load(strenv(MYROUTER_COMP)) as $myRouterComp | load(strenv(MYROUTER_META)) as $myRouterMeta |
-      ($ptcUp | (.. | select(tag == "!!map") | select(.id? == "compaction-basic")) |= {"id": "blackhole-compact", "name": "./nix-presets/dsh-blackhole/lib/compaction.js"}) as $ptcSwapped |
+      # 整行替换成确定性后端并钉住压力阈值 0.4。yq 的链式赋值在这里会静默丢掉新
+      # 建的 config 键（实测 4.53.2），故用对象字面量整体替换；shipped 行多出别的
+      # 键时上面的 keys 断言会让构建失败，不会是静默丢失。
+      ($ptcUp | (.. | select(tag == "!!map") | select(.id? == "compaction-basic")) |= {"id": "blackhole-compact", "name": "./nix-presets/dsh-blackhole/lib/compaction.js", "config": {"thresholdRatio": 0.4}}) as $ptcSwapped |
       ($minEx | (.. | select(tag == "!!map") | .name | select(tag == "!!str") | select(test("^\\./"))) |= ("./nix-presets/" + sub("^\\./"; ""))) as $minExFixed |
       ($ptcEx | (.. | select(tag == "!!map") | .name | select(tag == "!!str") | select(test("^\\./"))) |= ("./nix-presets/" + sub("^\\./"; ""))) as $ptcExFixed |
       ($routerComp | (.. | select(tag == "!!map") | .name | select(tag == "!!str") | select(test("^\\./"))) |= ("./nix-presets/router-standard/" + sub("^\\./"; ""))) as $routerFixed |
