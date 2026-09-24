@@ -28,7 +28,7 @@ function renderStats(sessionId) {
   if (s.pendingObservations > 0 || s.pendingReflections > 0) {
     lines.push(`pending (manual): ${s.pendingObservations} observation(s), ${s.pendingReflections} reflection(s)`);
   }
-  if (s.lastErrorAt) lines.push(`last error: ${new Date(s.lastErrorAt).toISOString()} (retrying after cooldown)`);
+  if (s.lastErrorAt) lines.push(`last error: ${new Date(s.lastErrorAt).toISOString()}${s.lastError ? ` — ${s.lastError}` : ""} (retrying after cooldown)`);
   if (s.cooldowns.length > 0) lines.push(`cooled-down models: ${s.cooldowns.join(", ")}`);
   lines.push("", "Run /compact to perform the deterministic context reduction; the observations/reflections above are injected into the next compaction.");
   return lines.join("\n");

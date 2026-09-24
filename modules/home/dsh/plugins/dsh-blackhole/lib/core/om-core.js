@@ -72,6 +72,7 @@ export function normalizeLedger(raw) {
       dropper: Number.isFinite(cursors.dropper) ? Number(cursors.dropper) : -1,
     },
     lastErrorAt: Number.isFinite(raw?.lastErrorAt) ? Number(raw.lastErrorAt) : undefined,
+    lastError: typeof raw?.lastError === "string" ? raw.lastError : undefined,
     cooldowns: Object.fromEntries(
       Object.entries(cooldowns)
         .filter(([, v]) => v && typeof v === "object")
