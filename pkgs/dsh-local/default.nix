@@ -398,6 +398,13 @@ let
     meta.description = "Searchable, provider-prefixed replacement for the composer model seat";
   };
 
+  # 确定性压缩后端的说明符，被三处引用：my-minimal / my-router-standard 的 rewrites
+  # 条目，以及 my-ptc 里把那行 shipped `compaction-basic` 换成它（presets.nix）。
+  # 单点定义 —— 此前 presets.nix 走 `strenv(BLACKHOLE_COMPACTION)` 取一个从未定义
+  # 的环境变量，yq 对未定义变量返回空串而不报错，产出的行是 `name: ""`，
+  # 运行期报 `row 13 row 1 names no plugin`（2026-09-28 实测）。
+  blackholeCompaction = "@jojo/dsh-blackhole/compaction";
+
   # preset 声明行里的相对说明符 → 绝对包名，按源文件分组（两份 router preset 用同名
   # 文件却要指向各自的包）。重写后若仍有残留则构建失败 —— 那条行会在运行期以
   # "failed to import" 静默失效。
@@ -406,13 +413,13 @@ let
       "./tool-processes.js" = "dsh-tool-processes";
       "./tool-ast-grep.js" = "dsh-tool-ast-grep";
       "./dsh-blackhole/lib/index.js" = "@jojo/dsh-blackhole";
-      "./dsh-blackhole/lib/compaction.js" = "@jojo/dsh-blackhole/compaction";
+      "./dsh-blackhole/lib/compaction.js" = blackholeCompaction;
     };
     ptcExtras = {
       "./tool-processes.js" = "dsh-tool-processes";
       "./tool-ast-grep.js" = "dsh-tool-ast-grep";
       "./dsh-blackhole/lib/index.js" = "@jojo/dsh-blackhole";
-      "./dsh-blackhole/lib/compaction.js" = "@jojo/dsh-blackhole/compaction";
+      "./dsh-blackhole/lib/compaction.js" = blackholeCompaction;
     };
     router = {
       "./router-bootstrap-v34.mjs?v=88" = "dsh-preset-router-standard/bootstrap";
@@ -422,13 +429,13 @@ let
       "./router-bootstrap-v34.mjs?v=88" = "dsh-preset-my-router-standard/bootstrap";
       "./gitbash-executor.mjs?v=49" = "dsh-preset-my-router-standard/gitbash-executor";
       "./dsh-blackhole/lib/index.js" = "@jojo/dsh-blackhole";
-      "./dsh-blackhole/lib/compaction.js" = "@jojo/dsh-blackhole/compaction";
+      "./dsh-blackhole/lib/compaction.js" = blackholeCompaction;
       "./tool-ast-grep.js" = "dsh-tool-ast-grep";
     };
   };
 
   presetsPatch = import ./presets.nix {
-    inherit lib rewrites;
+    inherit lib rewrites blackholeCompaction;
     inherit (upstreamPkgs) pkgs;
     webAppPresetsDir = "${upstreamBundles.web-app}/lib/node_modules/@deepseek-ai/dsh-web-app/presets";
   };

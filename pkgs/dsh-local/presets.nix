@@ -53,6 +53,11 @@
   # 两份 router preset 用的是同名文件（router-bootstrap-v34.mjs / gitbash-executor.mjs），
   # 却要指向各自的包，所以映射必须按文件给。
   rewrites,
+  # 确定性压缩后端的说明符。my-ptc 要用它替换 shipped `compaction-basic` 那一行 ——
+  # 那条替换发生在下面的 yq -n 生成阶段，所以这个值必须作为字面量注入表达式，
+  # 不能用 `strenv()` 读环境变量（未定义时 yq 静默给空串，产出的行 `name: ""` 直到
+  # 运行期才以 `names no plugin` 暴露）。
+  blackholeCompaction,
 }:
 
 let
@@ -68,13 +73,67 @@ let
     ) map
   );
 
+  # 把每个 map 的 `name` 键里的相对说明符重写成绝对包名。
+  #
+  # ## 为什么必须显式 `select(has("name"))`（实测，yq 4.53.3）
+  #
+  # yq 的 `|=` 是**路径赋值**，不是「先取值再写回」：路径 `.. | ... | .name` 里的
+  # `.name` 是路径的最后一段，对没有该键的 map 求值时会**创建**它（值为 null）。
+  # 后面挂的 `select(tag == "!!str")` 只过滤结果，拦不住键已经被建出来：
+  #
+  #     yq -n '{"a": {"b": 1}} | (.a.c | select(tag == "!!str")) |= "x"'
+  #     → a: {b: 1, c: null}
+  #
+  # 所以 `..` 扫过的每一个没有 name 的 map 都会被补上一个 `name: null`。实测同一份
+  # my-minimal/extras.cordis.yml：无守卫 5 处 `name: null`，加守卫 0 处，而重写结果
+  # 两者相同 —— 守卫不改变功能，只堵住这个副作用。
+  #
+  # 落到 preset 上是灾难：`config`、`isolate` 这些子 map 全都被插进 `name: null`，
+  # 而插件 Config 是严格 schema，"unknown key name" 让 preset 直接挂载失败。
+  # 2026-09-28 实测：4 份自定义 preset 在 Web 设置页全部显示 "Failed to load"，
+  # 报错含 `plan-mode: unknown key(s) name` / `tool-result-pruner: unknown key "name"`。
+  #
+  # 这是静默损坏 —— 构建期不报错，`--dump-config` 也只是多几行 `name: null`。所以
+  # 除了守卫，下面还有一道后置断言（见 `checkNoStrayName`）。
   rewrite = label: name: src: ''
     cp ${src} "$TMPDIR/${name}"
     chmod u+w "$TMPDIR/${name}"
     yq -i '
-      (.. | select(tag == "!!map") | .name | select(tag == "!!str")) |=
+      (.. | select(tag == "!!map") | select(has("name")) | .name | select(tag == "!!str")) |=
         (. ${rewriteExpr rewrites.${label}})
     ' "$TMPDIR/${name}"
+  '';
+
+  # 后置断言：文件里每个 `name` 键都必须是非空字符串。
+  #
+  # 两类静默损坏都落在这里，两者都是「build 通过、--dump-config 通过、运行期挂载
+  # 失败」，只能靠断言在构建期抓：
+  #   - yq `|=` 路径赋值补出的 `name: null`（见 rewrite 上方说明）→ 插件严格 schema
+  #     报 "unknown key name"；
+  #   - 生成阶段插入的空 name（曾因 `strenv()` 取到未定义变量而产出 `name: ""`）
+  #     → loader 报 "names no plugin"。
+  #
+  # 对四个重写产物各跑一次，对最终 $out 再跑一次 —— 后者防的是本文件后续改动（比如
+  # 再对载入的文档做 `|=`）重新把同一类漂移带回来。
+  checkNoStrayName = file: ''
+    stray=$(yq -r '
+      [.. | select(tag == "!!map") | select(has("name"))
+         | select((.name | type) != "!!str" or .name == "")] | length
+    ' "${file}")
+    [ "$stray" -eq 0 ] || {
+      printf 'dsh-local presets: %s has %s non-string or empty "name" key(s)\n' "${file}" "$stray" >&2
+      printf 'dsh-local presets: inspect with: yq '"'"'.. | select(tag == "!!map") | select(has("name")) | select((.name | type) != "!!str" or .name == "")'"'"' %s\n' "${file}" >&2
+      exit 1
+    }
+
+    rows=$(yq -r '
+      [.. | select(tag == "!!seq") | .[] | select(tag == "!!map") | select(has("id"))
+         | select((has("name") | not) or (.name | type) != "!!str" or .name == "")] | length
+    ' "${file}")
+    [ "$rows" -eq 0 ] || {
+      printf 'dsh-local presets: %s has %s plugin row(s) whose id carries no usable name\n' "${file}" "$rows" >&2
+      exit 1
+    }
   '';
 in
 pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
@@ -123,6 +182,14 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
     ${rewrite "router" "router-agent.yml" "$ROUTER_COMP"}
     ${rewrite "myRouter" "my-router-agent.yml" "$MYROUTER_COMP"}
 
+    # 重写不应给任何 map 补出 `name: null`。这是 yq `|=` 路径赋值的静默副作用：
+    # 路径里对不存在的键取值会创建该键（见 rewrite 上方的说明）。少了这层校验，
+    # 损坏会被原样搬进产物，直到运行期插件 schema 报 "unknown key name" 才炸 ——
+    # 而 build 与 --dump-config 都是通过的。
+    for f in minimal-extras.yml ptc-extras.yml router-agent.yml my-router-agent.yml; do
+      ${checkNoStrayName "$TMPDIR/$f"}
+    done
+
     # 重写后不应残留 ./ 说明符。
     for f in minimal-extras.yml ptc-extras.yml router-agent.yml my-router-agent.yml; do
       left=$(yq -r '[.. | select(tag == "!!map") | .name | select(tag == "!!str") | select(test("^\\./"))] | length' "$TMPDIR/$f")
@@ -143,7 +210,7 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
       # thresholdRatio 0.4（上游 0.8 / 官方 router-standard 0.55）：与 my-minimal、
       # my-router-standard 统一，改这里要一起改那两处。
       ($ptcUp | (.. | select(tag == "!!map") | select(.id? == "compaction-basic")) |=
-        {"id": "blackhole-compact", "name": strenv(BLACKHOLE_COMPACTION), "config": {"thresholdRatio": 0.4}}) as $ptcSwapped |
+        {"id": "blackhole-compact", "name": ${builtins.toJSON blackholeCompaction}, "config": {"thresholdRatio": 0.4}}) as $ptcSwapped |
 
       [
         { "insert": [ { "id": "preset-my-minimal", "name": "@deepseek-ai/dsh-agent-preset",
@@ -160,4 +227,9 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
                         "order": $myRouterMeta.order, "plugins": $myRouterComp } } ] }
       ]
     ' > $out
+
+    # 最终产物再校验一次。上面校验的是四个重写产物，而 $out 还经过 load + `|=` 替换 +
+    # 数组拼接 —— 每一步都可能重新引入 `name: null`（yq 的 `|=` 路径赋值是主要来源）。
+    # 这里炸掉比运行期「4 份 preset 全部 Failed to load」好定位得多。
+    ${checkNoStrayName "$out"}
   ''

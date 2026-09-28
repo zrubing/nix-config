@@ -32,12 +32,10 @@
 # re-expressed over dsh's ctx.llm and injected into the summary; `recall`
 # recovers what the compaction dropped.
 #
-# Managed by nix (modules/home/dsh): 0.1.7 起 preset 是声明行（不是目录），
-# 本文件是那条声明 `config.plugins` 的增量部分，声明由 presetDeclarations 在构建期
-# 生成、经 web profile 的 user layer（~/.dsh/profiles/web/cordis.patch.yml）下发，
-# 本文件的行里的相对说明符会被重写到 ./nix-presets/...（见 presetAssets）。
-# 不要手改 ~/.dsh/profiles/web 下的托管文件；改 THIS file 后 rebuild，dsh 在下一次
-# 新会话挂载新组合。
+# Managed by nix (pkgs/dsh-local/presets.nix)：0.1.7 起 preset 是声明行（不是目录），
+# 本文件是那条声明 `config.plugins` 的增量部分；声明在构建期生成，随 bundle 下发。
+# 行里的相对说明符由构建期重写成绝对包名（`.name` 走 dsh 的两锚点解析，不依赖
+# profile 目录）。改 THIS file 后 rebuild，dsh 在下一次新会话挂载新组合。
 
 # Web search + fetch. The `web` service and its providers stay in the HOST
 # composition (base bundle, inherited by the web-app patch chain): `web` pins
