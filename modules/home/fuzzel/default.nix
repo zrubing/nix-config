@@ -21,7 +21,7 @@ in
       settings = {
         main = {
           terminal = "${lib.getExe pkgs.foot}";
-          font = "JetBrains Mono,Noto Sans CJK SC:size=12";
+          font = "JetBrains Mono:size=12";
           prompt = "❯ ";
           icon-theme = "Papirus-Dark";
           lines = 15;
