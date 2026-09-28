@@ -433,6 +433,163 @@ let
     webAppPresetsDir = "${upstreamBundles.web-app}/lib/node_modules/@deepseek-ai/dsh-web-app/presets";
   };
 
+  # ── profile 播种器（替换上游的 dsh-sync-profiles）─────────────────────────
+  #
+  # ## 为什么不用上游的 managed / mutable 二选一
+  #
+  # 上游把 `package.json` / `cordis.patch.yml` / `pnpm-workspace.yaml` 捆成一个
+  # managedFiles 指纹集，于是只剩两个都错的选项（两个失败模式都在本机实测过）：
+  #
+  #   mode = "managed"（默认）—— 每次 dsh 启动都按指纹把三个文件从模板还原。
+  #     `cordis.patch.yml` 正是 dsh 运行时的写盘目标（Settings 表单、config-editor、
+  #     dsh-tap 的 llm-pi-ai 启停都写它），于是**每一次启动都抹掉上一次的运行时设置**。
+  #     实测：往 profile patch 追加一行后跑 `dsh --help`，stderr 出现
+  #     "dsh: updating managed profile: nix-web"，追加的行消失。受影响的是模型选择、
+  #     欢迎页版本、TUI 的 /settings（全屏、图片、思考强度）、dsh-tap 的模型启停 ——
+  #     全是「设了下次就没了」。
+  #   mode = "mutable" —— 只在目录不存在时播种一次，之后 package.json 也不再更新。
+  #     于是往 hostBundles 里加一个 bundle 不会生效，且没有任何提示（静默退化）。
+  #
+  # 根源是这三个文件的所有权本来就不一样，上游把它们当一个整体才逼出这个二选一：
+  #
+  #   package.json / pnpm-workspace.yaml   nix 拥有（bundle 清单、pnpm 布局）
+  #   cordis.patch.yml                     dsh 拥有（运行时设置的全部写入都在这里）
+  #
+  # 本播种器按所有权拆开，两个失败模式同时消失：
+  #
+  #   目录不存在  → 整份模板播种（cordis.patch.yml 得到 `[]` 起点）
+  #   目录已存在  → 只同步 nix 拥有的那两个文件，cordis.patch.yml 一个字节都不碰
+  #
+  # 走的是上游 `profileSeeder` 参数（package.nix 注释里的 "Optional external
+  # profile artifact seeder used by split integrations"）—— 它同时被用作 wrapper 的
+  # runtimeInput，所以脚本名必须叫 dsh-sync-profiles、接受一个可选的 profile 名参数。
+  mkProfileSeeder =
+    { profiles }:
+    let
+      artifacts = upstreamPkgs.dsh.dsh.passthru.mkProfileArtifacts { inherit profiles; };
+      # 物化名 = 上游的 nix- 前缀；模板目录名就是它。
+      targets = map (name: "nix-${name}") (builtins.attrNames profiles);
+      # sync_profile 的实参：<profile 名> <模板目录> <目标目录>。
+      syncArgs =
+        target:
+        "${lib.escapeShellArg target} ${lib.escapeShellArg "${artifacts.profileTemplates}/${target}"} \"$home/profiles/${target}\"";
+      syncBody = target: "  sync_profile ${syncArgs target}";
+      syncArm = target: "  ${target}) sync_profile ${syncArgs target} ;;";
+    in
+    upstreamPkgs.writeShellApplication {
+      name = "dsh-sync-profiles";
+      runtimeInputs = with upstreamPkgs; [
+        coreutils
+        diffutils
+        gnugrep
+        util-linux
+      ];
+      inheritPath = false;
+      text = ''
+        home=''${DSH_HOME:-''${HOME:+$HOME/.dsh}}
+        [ -n "$home" ] || exit 0
+
+        mkdir -p "$home/profiles"
+        exec 9>"$home/profiles/.nix-sync.lock"
+        flock 9
+
+        die() {
+          printf 'dsh: %s\n' "$1" >&2
+          exit 1
+        }
+
+        # nix 拥有：bundle 清单与 pnpm 布局。dsh 只读。
+        nixOwned="package.json pnpm-workspace.yaml"
+
+        copy_owned_file() {
+          local source=$1 destination=$2 temporary
+
+          [ -f "$source" ] || die "managed source is missing: $source"
+          [ ! -L "$destination" ] || die "refusing to overwrite symlink: $destination"
+          if [ -e "$destination" ] && [ ! -f "$destination" ]; then
+            die "refusing to overwrite non-file: $destination"
+          fi
+          if [ -f "$destination" ] && cmp -s "$source" "$destination"; then
+            return 0
+          fi
+
+          temporary=$(mktemp "$destination.tmp.XXXXXX")
+          cp --dereference --no-preserve=mode "$source" "$temporary"
+          mv -f "$temporary" "$destination"
+        }
+
+        validate_managed_dir() {
+          local profile=$1 destination=$2
+
+          [ ! -L "$destination" ] || die "refusing to follow profile symlink: $destination"
+          [ -d "$destination" ] || die "profile path is not a directory: $destination"
+          [ -f "$destination/.nix-managed" ] \
+            || die "refusing to take over existing unmanaged profile '$profile' at $destination"
+          grep -Fxq 'owner=nix' "$destination/.nix-managed" \
+            || die "managed marker has an unexpected owner: $destination/.nix-managed"
+          grep -Fxq "profile=$profile" "$destination/.nix-managed" \
+            || die "managed marker belongs to another profile: $destination/.nix-managed"
+        }
+
+        install_profile_dir() {
+          local parent=$1 source=$2 destination=$3 destination_mode temporary
+
+          parent=$(dirname -- "$destination")
+          destination_mode=$(stat --format='%a' -- "$parent") \
+            || die "failed to inspect profile parent: $parent"
+
+          temporary=$(mktemp -d "$parent/.''${destination##*/}.tmp.XXXXXX") \
+            || die "failed to stage managed profile: $destination"
+          if ! cp -r --dereference --no-preserve=mode "$source"/. "$temporary"/; then
+            rm -rf --one-file-system -- "$temporary"
+            die "failed to stage managed profile: $source"
+          fi
+          # 记的是只有 owner/schema/profile 的标记：留指纹就得在每次同步后重算，
+          # 而本播种器只用 cmp 判等，一个会说谎的指纹不如不写。
+          printf 'owner=nix\nschema=1\nprofile=%s\n' "''${destination##*/}" \
+            > "$temporary/.nix-managed"
+          chmod "$destination_mode" "$temporary" || {
+            rm -rf --one-file-system -- "$temporary"
+            die "failed to set managed profile mode: $destination"
+          }
+
+          if [ -e "$destination" ] || [ -L "$destination" ]; then
+            rm -rf --one-file-system -- "$temporary"
+            die "profile appeared during sync: $destination"
+          fi
+          if ! mv --no-copy --update=none-fail -T -- "$temporary" "$destination"; then
+            rm -rf --one-file-system -- "$temporary"
+            die "failed to install managed profile: $destination"
+          fi
+        }
+
+        sync_profile() {
+          local profile=$1 source=$2 destination=$3 file
+
+          [ -d "$source" ] || die "managed profile source is missing: $source"
+
+          if [ ! -e "$destination" ] && [ ! -L "$destination" ]; then
+            install_profile_dir "$(dirname -- "$destination")" "$source" "$destination"
+            return 0
+          fi
+
+          validate_managed_dir "$profile" "$destination"
+
+          # cordis.patch.yml 故意不在此列表：它是 dsh 的写入目标，nix 不碰。
+          for file in $nixOwned; do
+            copy_owned_file "$source/$file" "$destination/$file"
+          done
+        }
+
+        case "''${1:-}" in
+        "")
+        ${lib.concatMapStrings (t: "${syncBody t}\n") targets}  ;;
+        ${lib.concatMapStrings (t: "${syncArm t}\n") targets}  *)
+            ;;
+        esac
+      '';
+    };
+
   # 按 profile 装配 dsh。
   #
   # `bundles` 覆盖而非追加：上游 `defaultBundles ? with bundles; [headless web-app]`
@@ -452,6 +609,11 @@ let
       bundles = upstreamBundles;
       dsh-kernel = kernelPatched;
       inherit profiles defaultProfile homePatch;
+      profileSeeder = mkProfileSeeder { inherit profiles; };
+      # 传了 profileSeeder 后 wrapper 就改看 profileDefaultProfile（见上游
+      # package.nix 的 launcherDefaultProfile 三元式）；不传它，argv 里没有
+      # --profile 时就不再注入默认 profile，CLI 会落到上游内置的 web。
+      profileDefaultProfile = defaultProfile;
     };
 
   # dsh-tap：上游没有这个 bundle，且它自带的 llm-pi-ai 行必须与本仓库的路由表在

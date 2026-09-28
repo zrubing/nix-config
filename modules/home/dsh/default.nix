@@ -141,6 +141,9 @@ let
   # 不声明 requiresTui 的后果是 dsh-tui 在 installCheck 里被当成 headless 跑 `--help`，
   # 而 TUI 会接管终端 → 检查超时失败。
   dshPackage = dshLocal.mkDsh {
+    # 不设 `mode`：本仓库用自定义播种器（pkgs/dsh-local 的 mkProfileSeeder）替换了
+    # 上游的 dsh-sync-profiles。上游的 managed 会在每次启动抹掉运行时设置，mutable
+    # 又让 bundle 清单从此不再更新 —— 两个都不对，所以那个二选一在这里不适用。
     profiles = {
       web = {
         requiresWeb = true;
@@ -154,9 +157,8 @@ let
       };
     };
     # CLI 默认 profile 恒为 web：dsh 的 wrapper 在 argv 里没有 --profile 时会注入
-    # 这个值（上游 dsh-seed-wrapper），而 web 子命令**自己也有** --profile 选项 ——
-    # 服务单元再传一次会以 "select a profile only once" 失败（实测）。
-    # 所以服务靠这里注入，TUI 走下面的 dsh-tui wrapper 显式指定。
+    # 这个值（上游 dsh-seed-wrapper）。服务单元也显式传同一个名字 —— 两者一致，
+    # 不会出现 "select a profile only once"（wrapper 见到 --profile 就不再注入）。
     defaultProfile = profileNames.web;
   };
 
@@ -711,6 +713,50 @@ in
           MimeType=text/plain;text/javascript;application/javascript;application/json;text/x-python;text/markdown;text/x-shellscript;application/x-shellscript;text/x-c;text/x-c++;
         '';
       };
+
+      # 模型 shell 的受信 env 桥接。dsh.env 里 BASH_ENV 指向本文件，非交互
+      # `bash -c`（模型每次调 bash 都是这种）启动时自动 source。
+      #
+      # 为什么需要桥：dsh 只让 DSH_* 名字通过 shell-env 受信通道（原名含 TOKEN 会被
+      # subprocess scrub 擦掉），所以 woodpecker/hf 的凭据是以 DSH_WOODPECKER_* /
+      # DSH_HF_TOKEN 注入的。这里转回 CLI 认的原名，`woodpecker-cli`、`hf download`
+      # 无需 agent 手动 export 即可直接用。
+      #
+      # NO_PROXY 方括号清洗同在这个文件里：dsh-http-proxy 的 proxyEnvironmentForChild
+      # 给子进程的 NO_PROXY 会合并 "[::1]"（undici 把裸 ::1 读成 host ":" port "1"，
+      # 所以上游必须带方括号），但 Python httpx 不认方括号形式——构造 client 时生成
+      # 坏 pattern（all://*[::1]）即抛 InvalidURL: Invalid port ':1]'，与网络/token
+      # 无关。抹掉方括号条目、保留裸 ::1（httpx/curl 都认）；只改被 spawn 的子进程
+      # env，dsh 自身的路由策略不受影响。
+      home.file.".dsh/dsh-bash-env.sh" = {
+        text = ''
+          # dsh 模型 shell 的受信 env 桥接（dsh.env 的 BASH_ENV 指向；bash 非交互
+          # 启动时 source；交互 persistent shell 由 ~/.bashrc 覆盖）。
+          if [ -n "$DSH_WOODPECKER_SERVER" ]; then
+            export WOODPECKER_SERVER="$DSH_WOODPECKER_SERVER"
+            export WOODPECKER_TOKEN="$DSH_WOODPECKER_TOKEN"
+          fi
+          if [ -n "$DSH_HF_TOKEN" ]; then
+            export HF_TOKEN="$DSH_HF_TOKEN"
+          fi
+
+          _dsh_no_proxy_fix() {
+            local name="$1" wrapped
+            wrapped="''${!1}"
+            [ -n "$wrapped" ] || return 0
+            wrapped=",$wrapped,"
+            wrapped="''${wrapped//,\[::1\],/,}"
+            wrapped="''${wrapped#,}"
+            wrapped="''${wrapped%%,}"
+            printf -v "$name" '%s' "$wrapped"
+            export "$name"
+          }
+          _dsh_no_proxy_fix NO_PROXY
+          _dsh_no_proxy_fix no_proxy
+          unset -f _dsh_no_proxy_fix
+        '';
+        force = true;
+      };
     })
 
     (lib.mkIf (cfg.enable && cfg.web.enable) {
@@ -730,11 +776,20 @@ in
         Install.WantedBy = [ "default.target" ];
         Service = {
           Type = "simple";
-          # 不传 --profile：dsh 的 wrapper 会把构建期 defaultProfile 作为 --profile
-          # 注入 argv（见上游 pkgs/dsh/package.nix 的 dsh-seed-wrapper），再传一次会
-          # 以 "select a profile only once" 直接失败（实测）。
-          # 非默认 profile（如同时启用 TUI 后默认变成 nix-dsh-tui）才显式指定。
-          ExecStart = "${lib.getExe dshPackage} web --no-open --host ${cfg.web.host} --port ${toString cfg.web.port}"
+          # argv 里必须**只**有选项，不能有 `web` 位置参数。
+          #
+          # 上游 0.1.7 的 dsh-seed-profile wrapper 把第一个非 `-`/非 `plugin` 的
+          # argv[1] 当作 `dsh <profile>` 简写（见上游 package.nix 的 dshSeedWrapper）。
+          # 于是 `dsh web --no-open ...` 被解读成「profile 名叫 web」，同步的是
+          # `$DSH_HOME/profiles/web` 这个**未被 nix 物化**的目录，nix 的补丁与本地
+          # bundle 一个都不加载。2026-09-28 实测：`dsh web --no-open --port 0`
+          # 落地 `profiles/web`，package.json 的 bundles 只有 base + web-app，
+          # dsh-tap 加载 0 次。这与旧 wrapper 不同（旧版只有配置文件无 profile 播种，
+          # 所以 `web` 位置参数在旧版是合法子命令写法）。
+          #
+          # 现在统一走 `--profile <物化全名>` 显式指定：wrapper 见到 --profile 就
+          # 不再注入默认值，也就不会出现「select a profile only once」。
+          ExecStart = "${lib.getExe dshPackage} --profile ${profileNames.web} --no-open --host ${cfg.web.host} --port ${toString cfg.web.port}"
             + (lib.concatMapStrings (h: " --trusted-host ${h}") cfg.web.trustedHosts);
           # systemd 的 envFile 是启动时一次性读取，与 dsh 自身的 env 快照一致 ——
           # 旧方案在 wrapper 里 source 是为了让 !!js process.env.* 在求值期可见，
@@ -743,6 +798,10 @@ in
           Environment = [
             "DSH_HOME=${config.home.homeDirectory}/.dsh"
             "BROWSER=${dshFileOpener}/bin/dsh-file-open"
+            # systemd --user 的默认 PATH 来自 PAM（/etc/pam/environment），实测含
+            # /etc/profiles/per-user/jojo/bin 与 /run/current-system/sw/bin，所以
+            # 模型 shell 的 `ast-grep`、MCP 条目的 `npx` 都能解析到 —— 不需要再显式
+            # 注入 PATH。这里把它写成断言性的注释，改动 PATH 相关逻辑时先看这条。
           ];
           Restart = "on-failure";
           RestartSec = 5;
