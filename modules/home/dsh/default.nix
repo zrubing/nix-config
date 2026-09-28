@@ -17,7 +17,14 @@ let
   # llm-agents 更新后把 useDshSource 改回 false 即切回。
   dshPackage =
     if cfg.useDshSource
-    then import ../../../packages/dsh-source { inherit lib pkgs inputs; }
+    then
+      import ../../../packages/dsh-source {
+        inherit lib pkgs inputs;
+        # llmPiAiProviders 定义在本文件下方（llm-pi-ai 的 providers 映射）。
+        # let 是递归的，前向引用成立：它只依赖 routes.nix / inputs / lib / pkgs，
+        # 与 dshPackage 之间没有回路。
+        dshTapProviders = llmPiAiProviders;
+      }
     else inputs.llm-agents.packages.${system}.dsh;
   # 本地 plugin（tool-processes / compact-blackhole）导入 @deepseek-ai/* 的 node_modules 根。
   # llm-agents npm 版与源码 kernel 版布局不同，按后端切换。
@@ -226,6 +233,268 @@ let
   # 上游更新 = flake.lock 换 rev + rebuild，不再手工 re-port。阈值、/compact、<compacted-summary>、
   # tool-result pruner 沿用 dsh。
   blackholePlugin = import ./plugins/dsh-blackhole/build.nix { inherit lib pkgs inputs dshNodeModules; };
+
+  # ── profile 参数化安装脚手架 ──────────────────────────────────────────────
+  # 每个 profile 的插件都是 `dsh plugin --profile <name> add <spec>`（= pnpm add
+  # 进 $DSH_HOME/profiles/<name>），逻辑完全一致，只有 profile 名和 spec 不同。
+  # 原先 11 个 configureDsh* 块各自手抄一遍 shell（profile 名硬编码 web），
+  # 加第二个 profile 就得整套复制——多副本、改一处漏一处。下面两个助手把
+  # 「装哪些插件」收敛成数据，profile 名变成参数，web / dsh-tui 共用一份声明。
+  #
+  # 幂等守卫用 spec 精确匹配：file: spec 含 store hash，内容变则重装；未变则跳过。
+  # 注意 file: 而非 file://（pnpm 写回的规格就是 file:，写成 file:// 永远不命中
+  # → 每次 switch 都重装，见 configureDshReloadWeb 注释里的历史踩坑）。
+  pluginAddScript =
+    {
+      profile,
+      spec,
+      label,
+    }:
+    ''
+      export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
+      pkgJson="$HOME/.dsh/profiles/${profile}/package.json"
+      want=${lib.escapeShellArg spec}
+      if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
+        # package.json 的写者锁（@deepseek-ai/dsh-atomic-write）是 <file>.lock 这个
+        # wx 独占创建、内容为持有者 pid 的文件，上游源码明确**不做孤儿回收**：
+        # 「The contender never removes an existing lock because file age cannot
+        # prove that its owner stopped; orphan recovery is an operator action.」
+        # 于是 `dsh plugin add` 中途被杀（systemd 超时、Ctrl-C、断电、写不进去被
+        # EROFS 顶掉）就留下死锁文件，之后每次 switch 都白等满 withFileLock 的
+        # waitMs 再失败，且永不自愈——package.json 没被改 → 守卫不命中 → 再等一轮。
+        # 实测代价：一次 rebuild 白烧 120s（01:52 那次中断留下的锁让 01:56 / 02:03 /
+        # 02:26 三次 rebuild 各卡 2 分钟，插件始终没装上，只有 journal 里一行 WARN）。
+        # 这里代替"操作者"把这件事做掉：只回收持有者 pid 已不存在的锁，活着的一律
+        # 不碰（那种是正常争用，交给 dsh 自己等）。
+        lock="$pkgJson.lock"
+        if [ -f "$lock" ]; then
+          lockOwner=$(cat "$lock" 2>/dev/null || true)
+          if printf '%s' "$lockOwner" | grep -qE '^[0-9]+$' && [ ! -d "/proc/$lockOwner" ]; then
+            echo "dsh: 回收孤儿锁 $lock（持有者 pid $lockOwner 已不存在）"
+            rm -f "$lock"
+          fi
+        fi
+        if ${lib.getExe dshPackage} plugin --profile ${profile} add "$want"; then
+          ${if profile == "web" then "dshReloadWeb=1" else ":"}
+        else
+          echo "WARN: ${label} 安装失败，下次重建重试（dsh 已在上面打印原因）"
+        fi
+      fi
+    '';
+
+  # 把一个 profile 的整份插件表展开成 home.activation，并返回激活步骤名列表，
+  # 供"全部装完统一重启 dsh-web"的依赖排序复用（避免两处各列一遍而漂移）。
+  mkPluginActivations =
+    {
+      profile,
+      plugins,
+    }:
+    let
+      prefix = "configureDsh";
+      capitalize =
+        s: (lib.toUpper (builtins.substring 0 1 s)) + (builtins.substring 1 (builtins.stringLength s) s);
+      # 步骤名必须编码 profile：同一个插件（如 braces-sanitize）在 web 与 dsh-tui
+      # 各装一次，若只按插件名生成，两者会定义同一个 home.activation 选项 →
+      # conflicting definition values（实测）。web 保持原名，避免改变既有依赖图；
+      # 其它 profile 拼进名字。
+      stepSuffix = n: if profile == "web" then capitalize n else "${capitalize profile}${capitalize n}";
+      stepNames = map (n: "${prefix}${stepSuffix n}") (lib.attrNames plugins);
+    in
+    {
+      # 返回 { "<StepName>" = <dag entry>; } 的扁平表，调用方在 mkIf 块里以
+      # `home.activation = ...` 挂载。不要在这里直接构造 home.activation：那会让
+      # 本函数的返回值绑定到具体选项路径，多张表叠加时同一选项被重复定义
+      # （conflicting definition values，实测）。
+      activations = lib.listToAttrs (
+        map (
+          n:
+          lib.nameValuePair "${prefix}${stepSuffix n}" (
+            inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] (
+              pluginAddScript {
+                inherit profile;
+                spec = plugins.${n}.spec;
+                label = plugins.${n}.label;
+              }
+            )
+          )
+        ) (lib.attrNames plugins)
+      );
+      inherit stepNames;
+    };
+
+  # ── 各 profile 的插件表（单一事实来源）────────────────────────────────────
+  # spec 决定的装载目标：
+  #   file:<store>  → 本地插件（本仓库 plugins/ 下源码，nix 打包为只读 store）
+  #   github:<...>  → 第三方仓库钉 commit
+  #   <pkg>@<ver>   → npm
+  #
+  # hostPlugins = 只注册宿主能力的插件（provider / 发现器 / shell-env 注入器 /
+  # prompt 清洗），与前端形态无关 → web 与 dsh-tui 都要装，故独立成表。
+  # webOnlyPlugins = 依赖 web 前端半区的插件（platform: web 的 client 半区、
+  # 浏览器端模型座位）→ 只装 web，装进 TUI profile 会让 dsh 启动崩溃。
+  # dsh-tui 前端本体 —— 用 packages/dsh-source 里的 bundles.tui（源码 bundle，
+  # 见 pkgs/bundles/tui/package.nix，移植自 Moraxyc 上游）。
+  #
+  # 演进史（2026-09-28）：
+  #   v1 `dsh plugin add @deepseek-harness-tui/dsh-tui@0.11.1` 直接联网装 —— 实测是
+  #      整套 activation 里唯一需要联网的一步，而幂等守卫按 "包名@版本" 整串 grep，
+  #      永远命中不了 pnpm 写回的 "包名": "版本" 键值分离格式 → 每次 switch 重装。
+  #   v2 从 npm tgz 做 fixed-output derivation + pnpm --node-linker=hoisted —— 解决了
+  #      联网，但 npm tarball 没有 lockfile 派生依赖（任一传递依赖发新版就 depsHash
+  #      失配），且缺了上游仓库的 bundle 装配步骤。
+  #   v3（当前）改用上游 buildDshBundle：源码锁在 GitHub tag v0.11.1 + 三个 submodule，
+  #      src/pnpmDeps 两个哈希都可复现，nix-update-script 可自动 bump。
+  #
+  # 为什么取 lib/node_modules/... 而不是 bundle 根：buildDshBundle 协议的产物布局是
+  # $out/lib/node_modules/@deepseek-harness-tui/dsh-tui，而 `dsh plugin add file:`
+  # 要求 package.json 就在目标根目录。
+  dshTuiPackage =
+    lib.throwIfNot cfg.useDshSource
+      "dsh.plugins.tui 需要 useDshSource = true：dsh-tui 现在是 packages/dsh-source 的 bundles.tui（源码 bundle），而 llm-agents 的 npm 版 dsh 没有组合层（没有 .bundles）。"
+      "${dshPackage.bundles.tui}/lib/node_modules/@deepseek-harness-tui/dsh-tui";
+
+  # dsh-tap 的包根（同样取 lib/node_modules/... 而不是 bundle 根）。
+  # 它的 bundle patch 是构建期生成的——原文 + 我们的 llm-pi-ai 路由合并，
+  # 见 pkgs/bundles/dsh-tap/package.nix。
+  dshTapPackage =
+    lib.throwIfNot cfg.useDshSource
+      "dsh-tap 需要 useDshSource = true：它是 packages/dsh-source 的 bundles.dsh-tap（源码 bundle），而 llm-agents 的 npm 版 dsh 没有组合层（没有 .bundles）。"
+      "${dshPackage.bundles.dsh-tap}/lib/node_modules/dsh-tap";
+
+  # dsh-tui 的显示偏好覆盖行：关掉开屏鲸鱼与闲置动画（whale / whaleIdle），
+  # minimal 显式保持 false（极简模式关闭）。
+  #
+  # 为什么在构建期从 bundle 原文提取**整个** config 再覆盖目标键：dsh 的补丁
+  # 语义是整体替换 config 而非逐键合并（实测：只写 whale/whaleIdle 会让同行的
+  # provider / fullscreen / terminalImages / effort / modes / preset / workspace
+  # / sessionId 全部丢失并退回 schema 默认）。从原文提取保证了上游改 config 时
+  # 自动跟随，不会静默漂移。
+  #
+  # 这些是显示偏好（非功能开关），所以放 profile 层而非 home 层：只影响 TUI，
+  # 不牵动 web/headless。改值只需动下面一行。
+  tuiDisplayRow = pkgs.runCommand "dsh-tui-display-row.yml" {
+    nativeBuildInputs = [ pkgs.yq-go ];
+  } ''
+    yq -n '
+      (load("${dshTuiPackage}/cordis.patch.yml")
+        | [.. | select(tag == "!!map") | select(.id? == "dsh-tui")]
+        | .[0].config) as $cfg
+      | [ { "id": "dsh-tui", "config": ($cfg | .whale = false | .whaleIdle = false | .minimal = false) } ]
+    ' > $out
+  '';
+
+  hostPlugins = {
+    bracesSanitize = {
+      label = "dsh-braces-sanitize";
+      spec = "file:${bracesSanitizePlugin}";
+    };
+    openbaoShellEnv = {
+      label = "dsh-openbao-shell-env";
+      spec = "file:${openbaoShellEnvPlugin}";
+    };
+    woodpeckerShellEnv = {
+      label = "dsh-woodpecker-shell-env";
+      spec = "file:${woodpeckerShellEnvPlugin}";
+    };
+    hfShellEnv = {
+      label = "dsh-hf-shell-env";
+      spec = "file:${hfShellEnvPlugin}";
+    };
+    opencodeAutosync = {
+      label = "dsh-opencode-autosync";
+      spec = "file:${opencodeAutosyncPlugin}";
+    };
+    runinfraAutosync = {
+      label = "dsh-runinfra-autosync";
+      spec = "file:${runinfraAutosyncPlugin}";
+    };
+    relayAutosync = {
+      label = "dsh-deepseek-relay-autosync";
+      spec = "file:${deepseekRelayAutosyncPlugin}";
+    };
+  };
+
+  # 三条 profile（web / dsh-tui / headless）都装的插件。
+  #
+  # dsh-tap 取代了原来的 dsh-codebuddy-cli，但它不是"换个 CodeBuddy 实现"那么
+  # 简单：它的 host 半区（CodeBuddy / Trae CN / Qoder CN 三条上游 + 流式桥 +
+  # 用量计量 + web_search/web_fetch/image_generate）与前端形态无关，所以 TUI 与
+  # headless 同样能用；只有 lib/client.js 那张设置卡是 web 专属，在别的 profile
+  # 里由 web 客户端加载器决定，不挂载即惰性。
+  #
+  # spec 用 link: 而不是 file:（2026-09-28 实测结论，同 dsh-tui）：bundle 是
+  # **预装好的**产物，file: 会让 pnpm 丢掉它自带的 node_modules、改去 npm 重新
+  # 解析 declared 依赖闭包（其中内核 peer 在 npm 上根本没有满足范围的版本），
+  # link: 只建一个指向 store 的符号链接，不解析、不下载、离线可用。
+  #
+  # 但它**带 dsh.bundle.patch**（cordis.patch.yml 里那行 llm-pi-ai 就是我们 7 条
+  # 路由与它 codebuddy 的合并结果），所以 dsh plugin 的 reconcile 会把它
+  # 一并并入 profile 的 bundles —— 路由表因此在 bundle 层生效，绕开 home 层的
+  # 覆盖问题。装漏了 = 那三条 profile 的路由表全空。
+  allProfilePlugins = {
+    dshTap = {
+      label = "dsh-tap";
+      spec = "link:${dshTapPackage}";
+    };
+  };
+
+  # web profile 恒装的前端半区插件（无条件）。
+  webFrontendPlugins = {
+    modelSelectPlus = {
+      label = "dsh-model-select-plus";
+      spec = "file:${modelSelectPlusPlugin}";
+    };
+  };
+
+  # 可选的 opencode-models（开关控制）。单独成表：它的 gate 必须在自己的 mkIf
+  # 块里，不能并进上面恒装表——那样 home.activation 的属性集会依赖 cfg，而 cfg
+  # 又要在 config 期读取该属性 → 自引用递归（实测）。
+  opencodeModelsPlugins = lib.optionalAttrs cfg.plugins.opencodeModels.enable {
+    opencodeModels = {
+      label = "dsh-opencode-models";
+      spec = "github:wyouwd1/dsh-opencode-models#9f6451ac58885b39d038e085d5475467f2746e97";
+    };
+  };
+
+  # dsh-tui profile（第三方终端前端）：宿主插件全装（provider 发现器 / shell-env
+  # 注入 / prompt 清洗都与前端无关），webFrontendPlugins 不装（client 半区冲突）。
+  # allProfilePlugins 装（dsh-tap 的 host 半区与前端无关，TUI 也要用它的三条上游）。
+  #
+  # dsh-tui 本体也在这里装 —— 它就是个带 dsh.bundle.patch 的 dsh 插件，装成依赖后
+  # dsh plugin 的 reconcile 自动把它并入 profile 的 bundles。漏掉它 = profile 只剩
+  # dsh-base，跑出的是 headless 形态而非 TUI（2026-09-28 实测：上一轮重构删了旧的
+  # configureDshTui 块，却没把这一项补进表里，package.json 的 bundles 只有 dsh-base）。
+  tuiPluginActivations = mkPluginActivations {
+    profile = "dsh-tui";
+    plugins = hostPlugins // allProfilePlugins // {
+      tuiFrontend = {
+        label = "dsh-tui";
+        # link: 而不是 file: —— 关键差异，2026-09-28 实测。
+        #
+        # bundles.tui 是**预装好的 bundle**（pkgs/bundles/tui 的 installPhase 已经把
+        # 整棵依赖树建在 $out/lib/node_modules/@deepseek-harness-tui/dsh-tui/node_modules，
+        # 内核 peer 由 linkKernelNodeModules 链进去）。file: 会让 pnpm 丢掉这棵预装树、
+        # 改去 npm 重新解析它的 **declared** 依赖闭包，而其中的内核 peer
+        # `@deepseek-ai/dsh-typert-protocol@>=0.1.1 <0.2.0-0` 在 npm 上根本没有满足范围
+        # 的版本（最新只有 0.1.0-rc.6）→ 干净目录里 `pnpm add file:<bundle>` 2 秒即
+        # ERR_PNPM_NO_MATCHING_VERSION 失败。
+        #
+        # link: 只建一个指向 store 的符号链接，不解析、不下载、不碰目标自带的
+        # node_modules。实测 481ms、离线可用。dsh 的 install-spec.js:61 明确把
+        # `link:` 和 `file:` 等同视作 path spec（`spec.replace(/^(?:file|link):/, '')`），
+        # 所以 plugin add 的后续兼容性检查照样从磁盘读 package.json。
+        spec = "link:${dshTuiPackage}";
+      };
+    };
+  };
+
+  # headless profile 的插件表：只有 allProfilePlugins（理由见 activation 处注释）。
+  # 与 tuiPluginActivations 同构，单独成绑定是为了让 configureDshReloadWeb 的
+  # 依赖表也能引用它的 stepNames——单一来源，不手抄。
+  headlessPluginActivations = mkPluginActivations {
+    profile = "headless";
+    plugins = allProfilePlugins;
+  };
 
   # ── 本地 Agent Preset（dsh 0.1.7 起为声明式，目录机制已删除）──────────────
   # 0.1.7 起上游删除了 $DSH_HOME/.agent-presets 目录机制（上游 note
@@ -574,156 +843,164 @@ let
     ++ [ "  compat: ${nimYamlVal compat}" ];
   nimModelsYaml = yamlIndent10 (lib.concatStringsSep "\n" (lib.concatMap nimModelYaml nimModelsRaw));
 
-  # CodeBuddy Code CLI（Linux）实际写登录态的文件。dsh-codebuddy-cli 自带的
-  # 默认探测是 ~/.config/CodeBuddyExtension/Data/Public/auth（插件
-  # src/auth.ts 的 defaultAuthDirCandidates，作者自述 Linux 未实测），而 CLI
-  # 2.148.0 在本机写的是 ~/.local/share/...（实测依据见 providerPatch 里
-  # llm-codebuddy-cli 行注释），所以要在 patch 层显式给 authFile。
-  codebuddyAuthFile = "${config.home.homeDirectory}/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info";
+  # ── llm-pi-ai 的 providers 映射（本仓库的静态路由表）────────────────────
+  # 它曾经是 providerPatch（home 层）里的一行，2026-09-29 迁到这里。原因是
+  # dsh-tap 的运行时把 llm-pi-ai 整行当成自己的数据库（目录同步、逐模型启停、
+  # Trae/Qoder 与额外 key 型服务商的注册都写这一行）。home 层的 patch 排在
+  # profile 层之后且 config 是整块替换，只要它还在 home 层，dsh-tap 的每一次
+  # 写入都会被 config-editor 以 "overridden by a home patch" 拒绝，而它自带的
+  # codebuddy 路由也会被我们覆盖掉（Trae/Qoder 没有静态路由，它们由
+  # host-config.js 在运行期往 profile 层铺，所以更依赖这条写入通路能用）。
+  #
+  # 现在这份映射在**构建期**被并进 dsh-tap 自己的 cordis.patch.yml
+  # （pkgs/bundles/dsh-tap/package.nix 的 postInstall），两边合成同一行、同一层，
+  # 于是 inherited 里同时有我们的 7 条与它的 codebuddy，设置卡写回后
+  # effective == next，守卫通过，双方都不丢。
+  #
+  # 单一事实来源不变：路由事实仍来自 modules/home/llm-routes/routes.nix，
+  # 这里只做 YAML 传输（含 !!js process.env.* 标量，yq 合并会原样保留）。
+  # 三条 profile（web / dsh-tui / headless）都装 dsh-tap，所以这份表在任何
+  # profile 都生效——与它当年在 home 层"对所有 profile 生效"的语义等价。
+  llmPiAiProviders = pkgs.writeText "dsh-llm-pi-ai-providers.yml" ''
+      providers:
+        # 官方 api.deepseek.com 不在此声明：web profile 内置第一方 llm-deepseek
+        # 插件已注册 deepseek-official（显示名 DeepSeek，同样读 DEEPSEEK_API_KEY，
+        # 模型更全——含 vision-exp 与文件上传直传）。之前这里配置的 pi-ai catalog
+        # deepseek 路由与之完全重复，导致模型选择器同时出现 DeepSeek（官方）和
+        # deepseek（catalog id 兜底名）两项；已移除。dsh-web-search-deepseek
+        # 也只认 deepseek-official，不受影响。
+        # deepseek-relay 路由 = 企业 relay（与官方 DeepSeek 分开；key 走 clan
+        # vars deepseek-relay/api-key、baseURL 复用 openai-relay/base-url，
+        # 渲染进 dsh.env 的 DEEPSEEK_RELAY_* 独立 env，不影响原 OPENAI_API_KEY）。
+        # 非 catalog 路由：pi-ai 没有它的任何内置条目，故 models 条目的能力
+        # 元数据只能显式声明。
+        # 路由事实（apiKeyEnv / compat / reasoning / models 的能力元数据）全部
+        # 来自 modules/home/llm-routes/routes.nix 的单一来源，此处只做 YAML 传输；
+        # pi 侧从同一份源渲染 models-overlay.json。改模型/改档位只动那一处。
+        # 2026-09-14：两边 key 曾分叉（dsh key 对 v4-flash/v4-pro 全部 403，
+        # pi key 可访问），现已统一到 clan vars 的同一个 secret，模型集合也只
+        # 保留该 key 实际可访问的 deepseek-flash。
+        # relay 角色白名单无 developer（实测 400）→ 路由级 supportsDeveloperRole。
+        deepseek-relay:
+          apiKeyEnv: ${relayRoute.apiKeyEnv}
+          displayName: ${relayRoute.displayName}
+          api: ${relayRoute.api}
+          # baseURL 走运行时 env：pi 的 baseUrl 不支持 env 插值（只能留在 age
+          # 密文），dsh 侧则可以，故这里保持 env 引用而非写死端点。
+          baseURL: !!js process.env.${relayRoute.baseURLEnv}
+  ${relayCompatYaml}
+          # 路由级默认思考档。dsh 的 llm-pi-ai 把 profile.reasoning 交给每个
+          # 模型当默认值（describableReasoningLevel → defaultEffort），模型
+          # 选择器以此为初值；前提是模型自己声明了对应档（见下）。
+          reasoning: ${relayRoute.reasoning}
+          # 职责划分：本表提供 *能力元数据*（reasoningEfforts/compat/容量），
+          # 因为 /v1/models 只给 id；id 集合的增删由
+          # dsh-deepseek-relay-autosync 对 /v1/models 同步（scope 限
+          # deepseek-*，其余手工条目不受影响）。每条必须显式声明
+          # reasoningEfforts，缺失 = 该模型"无推理能力"→ 选择器不显示思考强度。
+          models:
+  ${relayModelsYaml}
+        # opencode-go 是 pi-ai 内置 catalog 路由（OpenCode Zen Go 网关，
+        # 含 deepseek-v4-pro/flash、glm-5.2、kimi-k3、qwen3.7 等模型），
+        # 认证环境变量 OPENCODE_API_KEY 与 jojo home 注入一致。
+        # 2026-08-29 实测：网关 /go/v1/chat/completions 对 catalog 判定为
+        # anthropic-messages 的 minimax-m3 / qwen3.7-max 也 200（统一 OpenAI
+        # 兼容端）。catalog 是混合 api（anthropic/openai-completions/
+        # openai-responses），sharedCatalogApi 返回 undefined，而 dsh schema 只认
+        # 路由级 api（request.api ?? base?.api；models 条目不接受 api/baseURL），
+        # 故补 catalog 未描述的模型（如 qwen3.8-flash 等，由 dsh-opencode-autosync
+        # 自动发现）必须给路由声明 api + baseURL。这会顺带让 catalog 里少数
+        # anthropic 模型改走 openai-completions（已验证可用）。
+        opencode-go:
+          apiKeyEnv: OPENCODE_API_KEY
+          api: openai-completions
+          baseURL: https://opencode.ai/zen/go/v1
+        # openrouter 是 pi-ai 内置 catalog 路由（https://openrouter.ai/api/v1，
+        # openai-completions），catalog 内置 276 个模型，无需手工声明 models。
+        openrouter:
+          apiKeyEnv: OPENROUTER_API_KEY
+        # ox-alpha（stealth/ox-alpha）已转正为智谱 GLM-5.3-Flash，走 zai-coding-cn
+        # 端点，此 openrouter 独立路由已移除（2026-08-26）。
+        # runinfra：openai-completions 网关。路由事实（apiKeyEnv/baseURL/models）
+        # 全部来自 modules/home/llm-routes/routes.nix 的单一来源，此处只做 YAML
+        # 传输：模型清单由该模块从 pi 扩展源码树（pi-runinfra-provider-src，与
+        # pi 侧同一 rev）的 models.json→patch.json→custom-models.json 合并得出。
+        # key 与 pi 侧同一个 clan var（runinfra/gateway_key）。
+        # 静态清单无 live 通路，网关新模型会落伍；由下方 runinfra-autosync 插件
+        # 按 /v1/models 做 reconcile（增删同步，保留既有条目 compat）。
+        # 注意 schema：api/baseURL 在 provider 层（models 条目不接受这些字段）；
+        # cost 不在 dsh patch schema，渲染器已丢弃。
+        runinfra:
+          apiKeyEnv: ${runinfraRoute.apiKeyEnv}
+          displayName: ${runinfraRoute.displayName}
+          api: ${runinfraRoute.api}
+          baseURL: ${runinfraRoute.baseURL}
+          models:
+  ${runinfraModelsYaml}
+        # nvidia-nim：NVIDIA NIM 网关（build.nvidia.com）。模型清单转录自
+        # pi-nvidia-nim@1.1.23 的 FEATURED_MODELS 策展清单（见上方 adapter
+        # 与 data/nvidia-nim-models.json）；key 由 clan vars
+        # （nvidia-nim-api-key）管理，渲染进 dsh.env 的 NVIDIA_NIM_API_KEY。
+        nvidia-nim:
+          apiKeyEnv: NVIDIA_NIM_API_KEY
+          displayName: NVIDIA NIM
+          api: openai-completions
+          baseURL: https://integrate.api.nvidia.com/v1
+          models:
+  ${nimModelsYaml}
+        zai-coding-cn:
+          apiKeyEnv: ZAI_CODING_CN_API_KEY
+          models:
+            # ox-alpha 正式版（Z.ai blog：1M context）。flash 支持图片输入，
+            # 不声明 input 时按纯文本模型处理（附件被降级/拒绝）→ 显式列 image。
+            # maxTokens 参考 glm-5.3 取 131072，文档未单列 flash 的 max output。
+            - id: glm-5.3-flash
+              name: GLM-5.3 Flash
+              contextWindow: 1000000
+              maxTokens: 131072
+              input: [text, image]
+              reasoningEfforts:
+                low: high
+                medium: high
+                high: high
+                max: max
+              compat:
+                thinkingFormat: zai
+            - id: glm-5.3
+              name: GLM-5.3
+              contextWindow: 1000000
+              maxTokens: 131072
+              reasoningEfforts:
+                low: high
+                medium: high
+                high: high
+                max: max
+              compat:
+                thinkingFormat: zai
+        # 内置 catalog 路由 openai（gpt 全家族，api=openai-responses）重定向到企业
+        # relay 端点。base URL 与 deepseek-relay 同源：clan vars openai-relay/base-url
+        # 渲染进 dsh.env 的 DEEPSEEK_RELAY_BASE_URL（同一网关，单一事实来源，换值仍
+        # clan vars set zen14 openai-relay/base-url）；认证沿用路由默认 OPENAI_API_KEY。
+        # 模型清单保持 catalog 原样，仅以 modelOverrides 钉住 gpt-5.6-sol 的
+        # contextWindow（272000 = 上游 pricing tiers 分档边界，防 catalog 漂移）。
+        # 注意：modelOverrides 只允许出现在未声明 models 列表的 catalog 路由上，
+        # 两者同配会被 dsh 拒载。
+        openai:
+          baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
+          modelOverrides:
+            gpt-5.6-sol:
+              contextWindow: 272000
+  '';
 
-  # 静态 patch 层：cordis.patch.yml 只被 dsh 只读加载（从不写回），
-  # 所以可以安全地由 nix 托管（软链接到 store）。provider 模型路由放这里。
+  # home 层（deployment 层）：$DSH_HOME/cordis.patch.yml，对**所有** profile 生效，
+  # dsh 只读加载、从不回写，所以可以由 nix 托管（软链接到 store）。
+  #
+  # 这里只剩"每个 profile 都该有"的行：MCP server 条目与本地插件的 insert 行。
+  # llm-pi-ai 的 providers 曾经也在这里，2026-09-29 迁到 bundle 层（见上方
+  # llmPiAiProviders 注释）；需要按 profile 隔离的行（preset 声明、前端插件）
+  # 一律放各自的 profile 层，因为按 id patch 一个该 profile 没装的行会让
+  # `--dump-config` 直接失败（0.1.6 起实测）。
   providerPatch = pkgs.writeText "dsh-cordis.patch.yml" ''
-    - id: llm-pi-ai
-      config:
-        providers:
-          # 官方 api.deepseek.com 不在此声明：web profile 内置第一方 llm-deepseek
-          # 插件已注册 deepseek-official（显示名 DeepSeek，同样读 DEEPSEEK_API_KEY，
-          # 模型更全——含 vision-exp 与文件上传直传）。之前这里配置的 pi-ai catalog
-          # deepseek 路由与之完全重复，导致模型选择器同时出现 DeepSeek（官方）和
-          # deepseek（catalog id 兜底名）两项；已移除。dsh-web-search-deepseek
-          # 也只认 deepseek-official，不受影响。
-          # deepseek-relay 路由 = 企业 relay（与官方 DeepSeek 分开；key 走 clan
-          # vars deepseek-relay/api-key、baseURL 复用 openai-relay/base-url，
-          # 渲染进 dsh.env 的 DEEPSEEK_RELAY_* 独立 env，不影响原 OPENAI_API_KEY）。
-          # 非 catalog 路由：pi-ai 没有它的任何内置条目，故 models 条目的能力
-          # 元数据只能显式声明。
-          # 路由事实（apiKeyEnv / compat / reasoning / models 的能力元数据）全部
-          # 来自 modules/home/llm-routes/routes.nix 的单一来源，此处只做 YAML 传输；
-          # pi 侧从同一份源渲染 models-overlay.json。改模型/改档位只动那一处。
-          # 2026-09-14：两边 key 曾分叉（dsh key 对 v4-flash/v4-pro 全部 403，
-          # pi key 可访问），现已统一到 clan vars 的同一个 secret，模型集合也只
-          # 保留该 key 实际可访问的 deepseek-flash。
-          # relay 角色白名单无 developer（实测 400）→ 路由级 supportsDeveloperRole。
-          deepseek-relay:
-            apiKeyEnv: ${relayRoute.apiKeyEnv}
-            displayName: ${relayRoute.displayName}
-            api: ${relayRoute.api}
-            # baseURL 走运行时 env：pi 的 baseUrl 不支持 env 插值（只能留在 age
-            # 密文），dsh 侧则可以，故这里保持 env 引用而非写死端点。
-            baseURL: !!js process.env.${relayRoute.baseURLEnv}
-    ${relayCompatYaml}
-            # 路由级默认思考档。dsh 的 llm-pi-ai 把 profile.reasoning 交给每个
-            # 模型当默认值（describableReasoningLevel → defaultEffort），模型
-            # 选择器以此为初值；前提是模型自己声明了对应档（见下）。
-            reasoning: ${relayRoute.reasoning}
-            # 职责划分：本表提供 *能力元数据*（reasoningEfforts/compat/容量），
-            # 因为 /v1/models 只给 id；id 集合的增删由
-            # dsh-deepseek-relay-autosync 对 /v1/models 同步（scope 限
-            # deepseek-*，其余手工条目不受影响）。每条必须显式声明
-            # reasoningEfforts，缺失 = 该模型"无推理能力"→ 选择器不显示思考强度。
-            models:
-    ${relayModelsYaml}
-          # opencode-go 是 pi-ai 内置 catalog 路由（OpenCode Zen Go 网关，
-          # 含 deepseek-v4-pro/flash、glm-5.2、kimi-k3、qwen3.7 等模型），
-          # 认证环境变量 OPENCODE_API_KEY 与 jojo home 注入一致。
-          # 2026-08-29 实测：网关 /go/v1/chat/completions 对 catalog 判定为
-          # anthropic-messages 的 minimax-m3 / qwen3.7-max 也 200（统一 OpenAI
-          # 兼容端）。catalog 是混合 api（anthropic/openai-completions/
-          # openai-responses），sharedCatalogApi 返回 undefined，而 dsh schema 只认
-          # 路由级 api（request.api ?? base?.api；models 条目不接受 api/baseURL），
-          # 故补 catalog 未描述的模型（如 qwen3.8-flash 等，由 dsh-opencode-autosync
-          # 自动发现）必须给路由声明 api + baseURL。这会顺带让 catalog 里少数
-          # anthropic 模型改走 openai-completions（已验证可用）。
-          opencode-go:
-            apiKeyEnv: OPENCODE_API_KEY
-            api: openai-completions
-            baseURL: https://opencode.ai/zen/go/v1
-          # openrouter 是 pi-ai 内置 catalog 路由（https://openrouter.ai/api/v1，
-          # openai-completions），catalog 内置 276 个模型，无需手工声明 models。
-          openrouter:
-            apiKeyEnv: OPENROUTER_API_KEY
-          # ox-alpha（stealth/ox-alpha）已转正为智谱 GLM-5.3-Flash，走 zai-coding-cn
-          # 端点，此 openrouter 独立路由已移除（2026-08-26）。
-          # runinfra：openai-completions 网关。路由事实（apiKeyEnv/baseURL/models）
-          # 全部来自 modules/home/llm-routes/routes.nix 的单一来源，此处只做 YAML
-          # 传输：模型清单由该模块从 pi 扩展源码树（pi-runinfra-provider-src，与
-          # pi 侧同一 rev）的 models.json→patch.json→custom-models.json 合并得出。
-          # key 与 pi 侧同一个 clan var（runinfra/gateway_key）。
-          # 静态清单无 live 通路，网关新模型会落伍；由下方 runinfra-autosync 插件
-          # 按 /v1/models 做 reconcile（增删同步，保留既有条目 compat）。
-          # 注意 schema：api/baseURL 在 provider 层（models 条目不接受这些字段）；
-          # cost 不在 dsh patch schema，渲染器已丢弃。
-          runinfra:
-            apiKeyEnv: ${runinfraRoute.apiKeyEnv}
-            displayName: ${runinfraRoute.displayName}
-            api: ${runinfraRoute.api}
-            baseURL: ${runinfraRoute.baseURL}
-            models:
-    ${runinfraModelsYaml}
-          # nvidia-nim：NVIDIA NIM 网关（build.nvidia.com）。模型清单转录自
-          # pi-nvidia-nim@1.1.23 的 FEATURED_MODELS 策展清单（见上方 adapter
-          # 与 data/nvidia-nim-models.json）；key 由 clan vars
-          # （nvidia-nim-api-key）管理，渲染进 dsh.env 的 NVIDIA_NIM_API_KEY。
-          nvidia-nim:
-            apiKeyEnv: NVIDIA_NIM_API_KEY
-            displayName: NVIDIA NIM
-            api: openai-completions
-            baseURL: https://integrate.api.nvidia.com/v1
-            models:
-    ${nimModelsYaml}
-          zai-coding-cn:
-            apiKeyEnv: ZAI_CODING_CN_API_KEY
-            models:
-              # ox-alpha 正式版（Z.ai blog：1M context）。flash 支持图片输入，
-              # 不声明 input 时按纯文本模型处理（附件被降级/拒绝）→ 显式列 image。
-              # maxTokens 参考 glm-5.3 取 131072，文档未单列 flash 的 max output。
-              - id: glm-5.3-flash
-                name: GLM-5.3 Flash
-                contextWindow: 1000000
-                maxTokens: 131072
-                input: [text, image]
-                reasoningEfforts:
-                  low: high
-                  medium: high
-                  high: high
-                  max: max
-                compat:
-                  thinkingFormat: zai
-              - id: glm-5.3
-                name: GLM-5.3
-                contextWindow: 1000000
-                maxTokens: 131072
-                reasoningEfforts:
-                  low: high
-                  medium: high
-                  high: high
-                  max: max
-                compat:
-                  thinkingFormat: zai
-          # 内置 catalog 路由 openai（gpt 全家族，api=openai-responses）重定向到企业
-          # relay 端点。base URL 与 deepseek-relay 同源：clan vars openai-relay/base-url
-          # 渲染进 dsh.env 的 DEEPSEEK_RELAY_BASE_URL（同一网关，单一事实来源，换值仍
-          # clan vars set zen14 openai-relay/base-url）；认证沿用路由默认 OPENAI_API_KEY。
-          # 模型清单保持 catalog 原样，仅以 modelOverrides 钉住 gpt-5.6-sol 的
-          # contextWindow（272000 = 上游 pricing tiers 分档边界，防 catalog 漂移）。
-          # 注意：modelOverrides 只允许出现在未声明 models 列表的 catalog 路由上，
-          # 两者同配会被 dsh 拒载。
-          openai:
-            baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
-            modelOverrides:
-              gpt-5.6-sol:
-                contextWindow: 272000
-
-    # CodeBuddy 的 llm-codebuddy-cli 行**不在这里**：本文件是 deployment 层
-    # （$DSH_HOME/cordis.patch.yml），对**所有** profile 生效，而 llm-codebuddy-cli
-    # 这一行由第三方插件 dsh-codebuddy-cli 自带（且只装进 web profile）。0.1.6 起
-    # 按 id patch 一个不存在的行会让该 profile 的 `--dump-config` 直接报
-    # `patch: entry "llm-codebuddy-cli" not found` 退出（实测；web profile 因为装了
-    # 插件才看不出来）。故该行的 config 改放 web profile 自己的 user layer：
-    # $DSH_HOME/profiles/web/cordis.patch.yml（见下方 webProfilePatch），
-    # 那里 patch 只作用于装了插件的 profile，语义与生命周期都对得上。
-
     # MCP server 条目：由 modules/home/mcp-servers/servers.nix 统一渲染
     # （pi 侧同一份源生成 ~/.pi/agent/mcp.json）。密钥一律走 !!js
     # process.env.VAR，值由 dsh.env（sops 渲染）注入，本 patch 文件不含明文。
@@ -740,14 +1017,6 @@ let
     - insert:
         - id: mcp-braces-sanitize
           name: dsh-braces-sanitize
-          config: {}
-
-    # composer 模型座位替换（见上方 modelSelectPlusPlugin 注释）。行必须在官方
-    # ui-model-selection（dsh-web-app bundle 层）之后插入：浏览器端单座位按注册
-    # 顺序选举，后注册的本插件胜出。headless 未装包时仅告警跳过。
-    - insert:
-        - id: ui-model-select-plus
-          name: '@local/dsh-model-select-plus'
           config: {}
 
     # OpenBao LDAP agent 密码注入（见上方 openbaoShellEnvPlugin 注释）：
@@ -835,39 +1104,45 @@ let
 
   '';
 
-  # web profile 的 user layer（$DSH_HOME/profiles/web/cordis.patch.yml，dsh 自己把它
-  # 描述为 "Your patch layer for this dsh profile"：只读加载、从不回写——实测两个真实
-  # profile 至今仍是首次 seed 的 []）。放这里的 patch 行只作用于 web profile，正好匹配
-  # "只有该 profile 装了对应插件"的 config 补丁；放进 deployment 层（$DSH_HOME/cordis.patch.yml）
-  # 会让没装该插件的 profile patch 不到行而报错。
-  #
-  # 当前唯一内容 = CodeBuddy authFile：插件 src/auth.ts 的 Linux 默认候选是
-  # ~/.config/CodeBuddyExtension/Data/Public/auth；而 CodeBuddy Code CLI 2.148.0 在 Linux
-  # 实际写 ~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
-  # （CLI bundle 内 default 分支 join(home,'.local','share','CodeBuddyExtension') +
-  # Data/Public/auth + <product>.info；2026-09-10 实测该文件存在、当日 16:47 刷新、结构与
-  # 插件 parseCodeBuddyAuth 的 {auth,account} 形状一致）。缺这条时 provider 仍会注册，
-  # 但每次请求都抛 "no signed-in CodeBuddy account found"——插件只在 CLI 文件缺位时才
-  # 回落到自己那份 $DSH_HOME/.codebuddy-cli-auth.json。运行期优先级：Web 设置卡片的
-  # authFile（settings.yaml）> 本行 > 环境变量 CODEBUDDY_CLI_AUTH_FILE > 平台默认。
-  # CLI 将来换目录时同步 codebuddyAuthFile。
-  # CodeBuddy 的 authFile 行（只对 web profile 生效，理由见上）。
-  codebuddyPatchRow = pkgs.writeText "dsh-web-codebuddy-row.yml" ''
-    - id: llm-codebuddy-cli
-      config:
-        authFile: ${codebuddyAuthFile}
+  # composer 模型座位替换（见上方 modelSelectPlusPlugin 注释）。行必须排在官方
+  # ui-model-selection（dsh-web-app bundle 层）之后：浏览器端单座位按注册顺序选举，
+  # 后注册者胜出。放在 web profile 层而非 home 层——这是纯前端（浏览器端）插件，
+  # home 层会让 dsh-tui/headless 也吃到本行，而它们没装 @local/dsh-model-select-plus
+  # → "failed to import"（2026-09-28 实测：dsh-tui 启动日志里的这条告警）。
+  modelSelectPlusRow = pkgs.writeText "dsh-web-model-select-plus-row.yml" ''
+    - insert:
+        - id: ui-model-select-plus
+          name: '@local/dsh-model-select-plus'
+          config: {}
   '';
 
-  # web profile 的 user layer = CodeBuddy 行 + 本地 preset 声明行（presetDeclarations，
-  # 见上方「本地 Agent Preset」注释）。两者都只对 web profile 有意义：preset 声明需要
-  # web-app bundle 的 agent-preset 插件，CodeBuddy 行需要 llm-codebuddy-cli 插件。
-  # 合并顺序 = 声明行在后（preset 声明本身不依赖其它行，顺序仅为可读性）。
+  # web profile 的 user layer = 本地 preset 声明行（presetDeclarations，见上方
+  # 「本地 Agent Preset」注释）+ composer 模型座位行。前者需要 web-app bundle 的
+  # agent-preset 插件，后者是纯浏览器端插件——都只对 web 有意义。
+  # CodeBuddy 已不在这里：dsh-tap 的 provider 行由它自己的 bundle patch 提供，
+  # 而 authFile 是它自己的 ~/.dsh/codebuddy-plugin-auth.json（不复用 CLI 登录态）。
   webProfilePatch = pkgs.runCommand "dsh-web-cordis.patch.yml" {
     nativeBuildInputs = [ pkgs.yq-go ];
   } ''
-    CODEBUDDY=${codebuddyPatchRow} PRESETS=${presetDeclarations} \
-      yq -n 'load(strenv(CODEBUDDY)) + load(strenv(PRESETS))' > $out
+    PRESETS=${presetDeclarations} MODELSELECT=${modelSelectPlusRow} \
+      yq -n 'load(strenv(PRESETS)) + load(strenv(MODELSELECT))' > $out
   '';
+
+  # dsh-tui profile 的 user layer：只要 preset 声明行（前端形态无关，只依赖
+  # presetAssets 资源 + 已装进 dsh-tui 的宿主插件）。dsh-tap 的版本显示偏好行
+  # 见 tuiDisplayRow。
+  tuiProfilePatch = pkgs.runCommand "dsh-tui-cordis.patch.yml" {
+    nativeBuildInputs = [ pkgs.yq-go ];
+  } ''
+    DISPLAY=${tuiDisplayRow} PRESETS=${presetDeclarations} \
+      yq -n 'load(strenv(DISPLAY)) + load(strenv(PRESETS))' > $out
+  '';
+
+  # 拥有 preset 声明行（因而需要 ./nix-presets 资源目录 + user layer patch）的
+  # profile。headless 不在列：它没有 user layer，也不该为 preset 付代价。
+  # 取参数而非闭包引用 cfg：本函数在 config 求值期被调用（home.file），
+  # 直接读 cfg 会构成 config → presetProfileNames → config 的自引用（无限递归）。
+  presetProfileNames = tuiEnabled: [ "web" ] ++ lib.optional tuiEnabled "dsh-tui";
 
   # dsh 的 baseURL/密钥来自 sops 渲染的 envFile（~/.config/dsh.env →
   # sops-nix 的 secrets.d/<gen>/rendered/dsh.env；/run 是 tmpfs，boot 后须等重新渲染）。
@@ -892,6 +1167,31 @@ let
     . "$env_file"
     set +a
     exec ${lib.getExe dshPackage} web --host ${cfg.web.host} --port ${toString cfg.web.port}${lib.concatMapStrings (h: " --trusted-host ${h}") cfg.web.trustedHosts}
+  '';
+
+  # dsh-tui 的启动 wrapper：与 dshWebStart 同一件事——先把 sops 渲染的 dsh.env
+  # source 进进程环境，再 exec dsh。
+  #
+  # 为什么必需：cordis.patch.yml 的 MCP 条目用 `!!js process.env.APIPOST_MCP_TOKEN`
+  # 之类取密钥。dsh-web 是 systemd 服务、EnvironmentFile 指向同一个 env 文件，所以
+  # 一直有值；而 TUI 是在交互 shell 里手敲 `dsh --profile dsh-tui` 启动的，shell
+  # 里没有这些变量（默认 env 只覆盖 pi/codex 用的那批）→ 表达式求值成 undefined
+  # → headers 变成 {} → 撞 mcp-client 的 schema（headers 是 z.dict(String)，空对象
+  # 合法但 …实际报的是整条 config 校验失败）→ 该 MCP 条目不激活。
+  # 2026-09-28 实测：未加 wrapper 时 mcp-agent-docs/apipost/context7/figma/
+  # zai-mcp-server 五条全部 ValidationError；加了之后只剩真的连不上的（godot）。
+  #
+  # set -a 让 source 进来的变量自动 export（dsh 的子进程/插件同进程都要读到）。
+  # 不 `exec` dsh-tui 那个 bin：本 wrapper 就是 TUI 的入口，直接 exec 官方 dsh CLI
+  # 并把 --profile dsh-tui 作为参数，保持与手敲命令完全一致的路径。
+  dshTuiStart = pkgs.writeShellScriptBin "dsh-tui" ''
+    declare -r env_file=${lib.escapeShellArg (if cfg.envFile != null then cfg.envFile else "/dev/null")}
+    if [ -r "$env_file" ]; then
+      set -a
+      . "$env_file"
+      set +a
+    fi
+    exec ${lib.getExe dshPackage} --profile dsh-tui "$@"
   '';
 in
 {
@@ -941,6 +1241,24 @@ in
       '';
     };
 
+    plugins.tui = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Install ccch1mneyyy/dsh-TUI (@deepseek-harness-tui/dsh-tui) as a
+          standalone `dsh-tui` profile: an interactive terminal front end with
+          whale status bar, streaming thoughts, double-Esc rollback and a
+          context/TPS bar. Kept in its own profile because it is a terminal
+          front end and conflicts with the web profile's client half.
+        '';
+      };
+      # 版本与哈希不再作为选项暴露：唯一事实来源是 pkgs/bundles/tui/package.nix
+      # 里的 pname/version/src.hash/pnpmDeps.hash，升级走该文件自带的
+      # nix-update-script。此前这里有 version + hash + depsHash 三个手填项，
+      # 与仓库既有的"版本单一事实来源"原则（见 dsh-workspace/package.nix 注释）冲突。
+    };
+
     # systemd user service 环境极简，必须显式注入；shell 里 source 的 default.env 不会带进来。
     # 注意：不能用 Environment = [ "KEY=${config.sops.placeholder...}" ] —— placeholder 是
     # 求值期的占位符字符串，写入单元后不会被解密。必须走 sops.templates 生成 env 文件，
@@ -966,7 +1284,10 @@ in
       home.packages = [
         dshPackage
         dshFileOpener
-      ];
+      ]
+      # TUI 启动器（source dsh.env 后 exec dsh --profile dsh-tui），只在启用
+      # dsh-tui profile 时投递——见 dshTuiStart 注释。
+      ++ lib.optional cfg.plugins.tui.enable dshTuiStart;
 
       # 文本/源码文件默认用 emacs（用户默认 editor）打开。dsh-web 服务现带 WAYLAND_DISPLAY
       # （has_display=true），xdg-open 走 mime 查找而非 BROWSER 兜底；而 emacsclient.desktop
@@ -975,17 +1296,6 @@ in
       # :0 上补图形帧）。BROWSER=dsh-file-open 继续保留，作无显示环境的兜底。
       # 注意：本 flake 的 nixpkgs 里 xdg.desktopEntries 已移除 extraConfig、求值即报错
       # （brave/emacs 亦受影响），故用 home.file 直接把 .desktop 写进 $XDG_DATA_HOME/applications/。
-      home.file."${config.xdg.dataHome}/applications/dsh-file-open.desktop" = {
-        text = ''
-          [Desktop Entry]
-          Type=Application
-          Name=Dsh File Open (Emacs)
-          Exec=${dshFileOpener}/bin/dsh-file-open %F
-          Terminal=false
-          NoDisplay=true
-          MimeType=text/plain;text/javascript;application/javascript;application/json;text/x-python;text/markdown;text/x-shellscript;application/x-shellscript;text/x-c;text/x-c++;
-        '';
-      };
       xdg.mimeApps.defaultApplications = {
         "text/plain" = [ "dsh-file-open.desktop" ];
         "text/javascript" = [ "dsh-file-open.desktop" ];
@@ -998,79 +1308,120 @@ in
       # 静态配置走 cordis.patch.yml（dsh 只读、应用所有 profile），模型路由声明在这里；
       # settings.yaml 留给 dsh 动态管理（Web UI 的 provider 改动 / onboarding 状态），
       # patch 层是 base，settings 分节按提供方合并覆盖，互不冲突。
-      home.file.".dsh/cordis.patch.yml" = {
-        source = providerPatch;
-        force = true;
-      };
 
-      # web profile 的 user layer（见 webProfilePatch 注释）：只对 web profile 生效，
-      # 所以"只有 web 装了插件才存在的行"的 config 补丁放这里，不会让 headless/tui 等
-      # profile 因 patch 不到行而 `--dump-config` 失败。profile 目录可能尚不存在（首次
-      # boot 前）——实测预置本文件不影响 dsh 初始化：dsh 只补它缺的 seed 文件，保留本文件。
-      home.file.".dsh/profiles/web/cordis.patch.yml" = {
-        source = webProfilePatch;
-        force = true;
-      };
+      # profile 的 user layer（见 webProfilePatch / tuiProfilePatch 注释）：只对各自
+      # profile 生效，所以"只有该 profile 装了插件才存在的行"的 config 补丁放这里，
+      # 不会让 headless 等 profile 因 patch 不到行而 `--dump-config` 失败。profile
+      # 目录可能尚不存在（首次 boot 前）——实测预置本文件不影响 dsh 初始化：dsh 只补
+      # 它缺的 seed 文件，保留本文件。两个 profile 的 patch 与 nix-presets 一起在
+      # 下方 home.file 里统一声明。
 
-      # 模型 bash 调用的受信 env 自动桥接：dsh 子进程 env 构建擦除敏感名
-      # （scrubbedParentEnv 的 KEY|PASSWORD|SECRET|TOKEN），而 shell-env 受信
-      # 通道只允许 DSH_* 前缀，所以 woodpecker-cli 认的 WOODPECKER_* 与
-      # hf CLI / transformers 认的 HF_TOKEN 不可能出现在模型 shell。dsh.env
-      # 设 BASH_ENV 指向本文件（bash 非交互启动时自动 source），把 shell-env
-      # 注入的 DSH_WOODPECKER_* / DSH_HF_TOKEN 条件式转回原名——CLI 开箱即用，
-      # 无需 agent 手动转换或 skill 说明；交互 persistent shell 另由 ~/.bashrc
-      # 覆盖。条件式保证值缺席（headless/pi）时不覆盖已有同名 env。
-      #
-      # 同一入口还负责 NO_PROXY 方括号清洗（见下方注释）：dsh-http-proxy 的
-      # proxyEnvironmentForChild 会给每个子进程的 NO_PROXY 追加 "[::1]"
-      # （undici 兼容所需），而 Python httpx 解析不了带方括号的 IPv6，模型
-      # shell 里的任何 httpx 工具（hf CLI、transformers 等）构造 client 即崩。
-      home.file.".dsh/dsh-bash-env.sh" = {
-        text = ''
-          # dsh 模型 shell 的受信 env 桥接（dsh.env 的 BASH_ENV 指向；bash 非交互
-          # 启动时 source；交互 persistent shell 由 ~/.bashrc 覆盖）。
-          # shell-env 注册表只允许 DSH_* 名字，这里把受信值转回 CLI 原名字。
-          if [ -n "$DSH_WOODPECKER_SERVER" ]; then
-            export WOODPECKER_SERVER="$DSH_WOODPECKER_SERVER"
-            export WOODPECKER_TOKEN="$DSH_WOODPECKER_TOKEN"
-          fi
-          if [ -n "$DSH_HF_TOKEN" ]; then
-            export HF_TOKEN="$DSH_HF_TOKEN"
-          fi
-
-          # NO_PROXY 方括号 IPv6 清洗：dsh-http-proxy 的 proxyEnvironmentForChild
-          # 给子进程 NO_PROXY 合并 "[::1]"（undici 把裸 ::1 读成 host ":" port
-          # "1"，故必须带方括号），但 Python httpx 不认方括号形式——构造 client
-          # 时生成坏 pattern（all://*[::1]）即抛 InvalidURL: Invalid port ':1]'，
-          # 与网络/token 无关。这里抹掉方括号条目、保留裸 ::1（httpx/curl 都
-          # 认）；只改被 spawn 的子进程 env，dsh 自身路由策略不受影响。
-          _dsh_no_proxy_fix() {
-            local name="$1" wrapped
-            wrapped="''${!1}"
-            [ -n "$wrapped" ] || return 0
-            wrapped=",$wrapped,"
-            wrapped="''${wrapped//,\[::1\],/,}"
-            wrapped="''${wrapped#,}"
-            wrapped="''${wrapped%,}"
-            printf -v "$name" '%s' "$wrapped"
-            export "$name"
-          }
-          _dsh_no_proxy_fix NO_PROXY
-          _dsh_no_proxy_fix no_proxy
-          unset -f _dsh_no_proxy_fix
-        '';
-        force = true;
-      };
 
       # 本地 Agent Preset 的资源目录（0.1.7 声明式模型，见上方「本地 Agent
-      # Preset」注释）。声明行放在 web profile 的 user layer，那里的相对说明符
+      # Preset」注释）。声明行放在各 profile 的 user layer，那里的相对说明符
       # ./nix-presets/... 解析到这个目录——它是**一个** store 目录的符号链接，
       # 所以各插件之间、router-*.mjs 与其 router-core-v34.mjs 之间的相对 import
       # 在 realpath 之后仍然成立（旧目录式 preset 逐文件托管踩过的坑不再涉及：
       # 现在没有任何扫描器去 readdir 这个目录，只有 Loader 按 URL 导入）。
-      home.file.".dsh/profiles/web/nix-presets" = {
-        source = presetAssets;
-        force = true;
+      # 同一份 presetAssets 投放到每一个带 preset 的 profile：资源目录内容与
+      # profile 无关，各自一份软链即可，无需复制 store 内容。
+      # home.file 的键必须写成完整点分路径（模块系统按字面 key 匹配，嵌套
+      # attrs 反而被当成目录名 → "home.file.\".dsh\".\"cordis.patch.yml\""
+      # 不存在，实测）。故这里用 // 合并若干扁平静态项，逐 profile 的资源目录
+      # 用 listToAttrs 生成完整 key。
+      home.file = {
+        ".dsh/cordis.patch.yml" = {
+          source = providerPatch;
+          force = true;
+        };
+        ".dsh/profiles/web/cordis.patch.yml" = {
+          source = webProfilePatch;
+          force = true;
+        };
+        "${config.xdg.dataHome}/applications/dsh-file-open.desktop" = {
+          text = ''
+            [Desktop Entry]
+            Type=Application
+            Name=Dsh File Open (Emacs)
+            Exec=${dshFileOpener}/bin/dsh-file-open %F
+            Terminal=false
+            NoDisplay=true
+            MimeType=text/plain;text/javascript;application/javascript;application/json;text/x-python;text/markdown;text/x-shellscript;application/x-shellscript;text/x-c;text/x-c++;
+          '';
+        };
+        ".dsh/dsh-bash-env.sh" = {
+          text = ''
+            # dsh 模型 shell 的受信 env 桥接（dsh.env 的 BASH_ENV 指向；bash 非交互
+            # 启动时 source；交互 persistent shell 由 ~/.bashrc 覆盖）。
+            # shell-env 注册表只允许 DSH_* 名字，这里把受信值转回 CLI 原名字。
+            if [ -n "$DSH_WOODPECKER_SERVER" ]; then
+              export WOODPECKER_SERVER="$DSH_WOODPECKER_SERVER"
+              export WOODPECKER_TOKEN="$DSH_WOODPECKER_TOKEN"
+            fi
+            if [ -n "$DSH_HF_TOKEN" ]; then
+              export HF_TOKEN="$DSH_HF_TOKEN"
+            fi
+
+            # NO_PROXY 方括号 IPv6 清洗：dsh-http-proxy 的 proxyEnvironmentForChild
+            # 给子进程 NO_PROXY 合并 "[::1]"（undici 把裸 ::1 读成 host ":" port
+            # "1"，故必须带方括号），但 Python httpx 不认方括号形式——构造 client
+            # 时生成坏 pattern（all://*[::1]）即抛 InvalidURL: Invalid port ':1]'，
+            # 与网络/token 无关。这里抹掉方括号条目、保留裸 ::1（httpx/curl 都
+            # 认）；只改被 spawn 的子进程 env，dsh 自身路由策略不受影响。
+            _dsh_no_proxy_fix() {
+              local name="$1" wrapped
+              wrapped="''${!1}"
+              [ -n "$wrapped" ] || return 0
+              wrapped=",$wrapped,"
+              wrapped="''${wrapped//,\[::1\],/,}"
+              wrapped="''${wrapped#,}"
+              wrapped="''${wrapped%,}"
+              printf -v "$name" '%s' "$wrapped"
+              export "$name"
+            }
+            _dsh_no_proxy_fix NO_PROXY
+            _dsh_no_proxy_fix no_proxy
+            unset -f _dsh_no_proxy_fix
+          '';
+          force = true;
+        };
+      } // lib.mergeAttrsList (
+        # 每个带 preset 声明的 profile 都要一份 nix-presets 资源目录（声明行里的
+        # ./nix-presets/... 以 profile 目录为 baseUrl 解析）。
+        map
+          (p: {
+            ".dsh/profiles/${p}/nix-presets" = {
+              source = presetAssets;
+              force = true;
+            };
+          })
+          (presetProfileNames cfg.plugins.tui.enable)
+      ) // lib.optionalAttrs cfg.plugins.tui.enable {
+        ".dsh/profiles/dsh-tui/cordis.patch.yml" = {
+          source = tuiProfilePatch;
+          force = true;
+        };
+        # @deepseek-ai/* 的目录级 shim，指向 kernel 的 node_modules。
+        #
+        # 为什么需要：profile 的 pnpm-workspace.yaml 是 autoInstallPeers=false
+        # （刻意的——防旧版 @deepseek-ai/* 装进 profile 后遮蔽 kernel 那份），
+        # 于是 profile 的 node_modules 里一个 @deepseek-ai 都没有。而 dsh-tui
+        # 自己的 bundle patch 里那条挂载 agent-preset-registry 的行，判据是
+        # `require.resolve('@deepseek-ai/dsh-agent-preset-registry/package.json')`
+        # （baseUrl = profile 目录）——解析不到就自我 disable，后果是
+        # ctx.agentPresets service 从未注册，所有 @deepseek-ai/dsh-agent-preset
+        # 声明行永久 pending（2026-09-28 实测启动日志：4 条
+        # "pending (waiting for service: agentPresets)"）。
+        #
+        # 这条软链让 profile 也能解析到 kernel 那份（kernel 里本来就带
+        # registry，是 dsh-tui 的 peerDependency）。与 presetAssets 里
+        # `ln -s ${dshNodeModules} $out/node_modules` 同一手法。
+        # 只覆盖 @deepseek-ai 这一个 scope：profile 自己装的第三方插件
+        # （dsh-braces-sanitize 等）仍从 profile 的 node_modules 解析，不受影响。
+        ".dsh/profiles/dsh-tui/node_modules/@deepseek-ai" = {
+          source = "${dshNodeModules}/@deepseek-ai";
+          force = true;
+        };
       };
 
       # ── DSH skill：woodpecker-ci ────────────────────────────────────────
@@ -1132,261 +1483,68 @@ in
       };
     })
 
+    # ── 插件安装（profile 插件表展开；表定义见文件顶部 hostPlugins /
+    # webFrontendPlugins / allProfilePlugins）────────────────────────────────
+    # 每个条目生成一个 home.activation.configureDsh<Name>，逻辑与原先手写的
+    # 11 个块完全一致（幂等 grep 守卫 + 失败仅 WARN），只是 profile 名来自表。
+    # 各表按自己的条件展开。opencodeModels 走独立的 mkIf 块（它在原实现里
+    # 就是独立 gate）：把它的开关并进本表会让 home.activation 的属性名依赖
+    # cfg，而 cfg 又要在 config 期读取该属性 → 自引用递归（实测）。
+    (lib.mkIf cfg.enable {
+      home.activation = (mkPluginActivations {
+        profile = "web";
+        plugins = hostPlugins // webFrontendPlugins // allProfilePlugins;
+      }).activations;
+    })
+
     (lib.mkIf (cfg.enable && cfg.plugins.opencodeModels.enable) {
-      # dsh 插件 = 往 ~/.dsh/profiles/web 这个 pnpm 项目里加依赖（dsh plugin add 即
-      # pnpm add）。不能用 home.file 静态接管 package.json：它是 dsh/pnpm 的活文件
-      # （Web UI 装插件也会写它），同 multica config.json 教训，走 activation 幂等安装。
-      # 钉在 main HEAD（9f6451a）：v0.1.0 的 settings section 在 dsh 0.1.1-rc.2 下渲染
-      # 空白（干净环境冒烟测试复现），main 已修复。首次安装需联网，失败仅告警不阻塞激活。
-      home.activation.configureDshOpencodeModels = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="github:wyouwd1/dsh-opencode-models#9f6451ac58885b39d038e085d5475467f2746e97"
-        if ! grep -q "$want" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-opencode-models 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
+      home.activation = (mkPluginActivations {
+        profile = "web";
+        plugins = opencodeModelsPlugins;
+      }).activations;
+    })
+
+    (lib.mkIf (cfg.enable && cfg.plugins.tui.enable) {
+      home.activation = tuiPluginActivations.activations;
+    })
+
+    # headless profile：只装 allProfilePlugins。它此前完全不吃任何插件——那在
+    # llm-pi-ai 还留在 home 层时是自洽的（home 层对所有 profile 生效，路由白拿）。
+    # 2026-09-29 路由表迁到 bundle 层后，不装 dsh-tap 的 profile 就是空路由表，
+    # 所以 headless 必须跟着装。它没有 user layer，也不该为 preset 付代价，
+    # 因此 hostPlugins / webFrontendPlugins 都不在这里。
+    (lib.mkIf cfg.enable {
+      home.activation = headlessPluginActivations.activations;
     })
 
     (lib.mkIf cfg.enable {
-      # dsh-codebuddy-cli（第三方插件，github:fu827707013/dsh-codebuddy-cli）：
-      # 复用本机 CodeBuddy Code CLI（pkgs.${namespace}.codebuddy-code，见
-      # modules/home/packages）的登录态，把 CodeBuddy 的模型接进 dsh 的模型
-      # 选择器与设置卡片（provider id codebuddy-cli：host 半区注册 provider +
-      # 本地 loopback shim，client 半区是 web 平台插件 → 只装 web profile）。
-      # 与 dsh-opencode-models 同款 github: 依赖路线：activation 幂等安装，
-      # 首次需联网；装成功才置 dshReloadWeb=1（统一在 configureDshReloadWeb
-      # 里重启一次 dsh-web）。钉 v0.1.8 的 tag commit；上游更新 = 换下面的 rev
-      # （releases: https://github.com/fu827707013/dsh-codebuddy-cli/releases）。
-      # 不加 preset 行也不需要 cordis insert 行：插件包自带
-      # dsh.bundle.patch（cordis.patch.yml 里的 llm-codebuddy-cli 行），装成
-      # 依赖后由 dsh plugin 的 reconcile 自动进 profile 的 bundle 层；它只注册
-      # LLM provider / 设置 section / 会话内积分条（src/index.ts 的 apply），
-      # 不给 agent 加工具、子代理或命令。
-      # 只装 web：client 半区声明 platform: web（TUI/headless 无这一半，插件
-      # README 亦警告 TUI 下会导致 dsh 启动崩溃：events is not iterable）。
-      # 注意插件自带的 status/doctor CLI（dsh plugin --profile web exec
-      # dsh-codebuddy-cli status）在本 profile 下跑不起来：profile 的
-      # pnpm-workspace.yaml 是 autoInstallPeers=false（防旧版 @deepseek-ai/*
-      # 遮蔽 kernel），它的 @deepseek-ai/* 依赖因此不在 profile node_modules；
-      # host 半区不受影响（实测 provider 注册 + 卡片正常），要看登录态直接读
-      # 同源路由：curl http://127.0.0.1:<web.port>/plugins/dsh-codebuddy-cli/status
-      home.activation.configureDshCodebuddyCli = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="github:fu827707013/dsh-codebuddy-cli#041e932e465bdd0161fc7aeadce6c9fd044039f4"
-        if ! grep -q "$want" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-codebuddy-cli 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-    })
-
-    (lib.mkIf (cfg.enable && !cfg.useDshSource) {
-      # npm 版 dsh 不带 mcp-client，才需要把 @deepseek-ai/dsh-mcp-client 装进 web
-      # profile（配合 cordis.patch.yml 里的 mcp-* 插件条目，token 走环境变量）。
-      # 源码构建（useDshSource=true）时 kernel 自带该插件，本块不跑——见下方
-      # removeStaleDshMcpClient。
-      home.activation.configureDshMcpClient = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="@deepseek-ai/dsh-mcp-client@0.0.1-rc.1"
-        if ! grep -q "@deepseek-ai/dsh-mcp-client" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-mcp-client 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-    })
-
-    (lib.mkIf (cfg.enable && cfg.useDshSource) {
-      # 一次性迁移：清掉 web profile 里历史遗留的 npm 版 dsh-mcp-client。
-      # 为什么必须清（2026-09-15 实测，两个证据）：
-      #   ① profile 本地副本优先于 kernel 链接被解析——在 profile 目录里对
-      #      @deepseek-ai/dsh-mcp-client 做 require.resolve，命中的是
-      #      profiles/web/node_modules/...（0.0.1-rc.1），不是
-      #      profiles/node_modules/...（→ kernel 自带那份）；给本地副本塞一行
-      #      console.log 标记后 boot，标记确实打印 = 跑的是旧 npm 副本。
-      #   ② 旧守卫是 name-only grep，永远命中 → 即使改 want 的版本也永不重装，
-      #      于是升级 dsh 后 MCP 插件仍停在 0.0.1-rc.1（对 0.1.6 只是实测仍可用，
-      #      但属双源漂移：内核 0.1.6-alpha.1 那份才是随 flake.lock 走的那份）。
-      # 实测 `dsh plugin --profile web remove` 会删掉本地副本并回落 kernel 链接；
-      # 删完本块因 grep 不命中自动变 no-op，可长期保留（也为将来切回 npm 版留出
-      # configureDshMcpClient 的对称入口）。
-      home.activation.removeStaleDshMcpClient = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        if grep -q '"@deepseek-ai/dsh-mcp-client"' "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web remove @deepseek-ai/dsh-mcp-client; then
-            echo "dsh: 已移除 web profile 里的 npm 版 dsh-mcp-client（改用 kernel 自带副本）"
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-mcp-client 移除失败，本地仍是旧 npm 副本（下次重建重试）"
-          fi
-        fi
-      '';
-    })
-
-    (lib.mkIf cfg.enable {
-      # 花括号清洗插件：源码在 plugins/braces-sanitize/，nix 打包成只读 store path
-      # 后以 file: 协议装入 web profile。want 含 store hash，插件内容变更时 spec
-      # 随之变化 → grep 不命中 → 自动重装；未变则跳过。
-      home.activation.configureDshBracesSanitize = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file:${bracesSanitizePlugin}"
-        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-braces-sanitize 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-
-      # OpenBao LDAP agent 密码注入（见上方 openbaoShellEnvPlugin 注释）：同
-      # braces-sanitize 的 file: + store-hash 幂等安装；loader 行在
-      # cordis.patch.yml 的 openbao-shell-env insert 条目。装完重启 dsh-web 生效。
-      home.activation.configureDshOpenbaoShellEnv = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file:${openbaoShellEnvPlugin}"
-        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-openbao-shell-env 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-
-      # Woodpecker CLI 服务器/令牌注入（见上方 woodpeckerShellEnvPlugin 注释）：
-      # 同 openbao-shell-env 的 file: + store-hash 幂等安装；loader 行在
-      # cordis.patch.yml 的 woodpecker-shell-env insert 条目。装完重启 dsh-web 生效。
-      home.activation.configureDshWoodpeckerShellEnv = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file:${woodpeckerShellEnvPlugin}"
-        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-woodpecker-shell-env 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-
-      # HuggingFace token 注入（见上方 hfShellEnvPlugin 注释）：同
-      # woodpecker-shell-env 的 file: + store-hash 幂等安装；loader 行在
-      # cordis.patch.yml 的 hf-shell-env insert 条目。装完重启 dsh-web 生效。
-      home.activation.configureDshHfShellEnv = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file:${hfShellEnvPlugin}"
-        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-hf-shell-env 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-
-      # 可搜索模型选择器（见上方 modelSelectPlusPlugin 注释）：同 braces-sanitize
-      # 的 file: + store-hash 幂等安装；loader 行在 cordis.patch.yml 的
-      # ui-model-select-plus insert 条目。装完重启 dsh-web 生效。
-      home.activation.configureDshModelSelectPlus = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file:${modelSelectPlusPlugin}"
-        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-model-select-plus 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-
-      # 自动发现 opencode-go 模型（见上方 opencodeAutosyncPlugin 注释）：同
-      # model-select-plus 的 file: + store-hash 幂等安装；loader 行在
-      # cordis.patch.yml 的 opencode-autosync insert 条目。装完重启 dsh-web 生效。
-      home.activation.configureDshOpencodeAutosync = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file:${opencodeAutosyncPlugin}"
-        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-opencode-autosync 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-
-      # 自动发现 runinfra 模型（见上方 runinfraAutosyncPlugin 注释）：同
-      # opencode-autosync 的 file: + store-hash 幂等安装；loader 行在
-      # cordis.patch.yml 的 runinfra-autosync insert 条目。装完重启 dsh-web 生效。
-      home.activation.configureDshRuninfraAutosync = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file:${runinfraAutosyncPlugin}"
-        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-runinfra-autosync 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-
-      # 自动发现 deepseek-relay 模型（见上方 deepseekRelayAutosyncPlugin 注释）：同
-      # runinfra-autosync 的 file: + store-hash 幂等安装；loader 行在
-      # cordis.patch.yml 的 deepseek-relay-autosync insert 条目。装完重启 dsh-web 生效。
-      home.activation.configureDshRelayAutosync = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        pkgJson="$HOME/.dsh/profiles/web/package.json"
-        want="file:${deepseekRelayAutosyncPlugin}"
-        if ! grep -qF "$want" "$pkgJson" 2>/dev/null; then
-          if ${lib.getExe dshPackage} plugin --profile web add "$want"; then
-            dshReloadWeb=1
-          else
-            echo "WARN: dsh-deepseek-relay-autosync 安装失败（离线？），下次重建重试"
-          fi
-        fi
-      '';
-
       # 所有 configureDsh* 插件步骤共用一个"需要时是否重启 dsh-web"标记 dshReloadWeb：
       # 任何插件真正安装后置 1，全部装完统一在此重启一次。之前每个 configureDsh* 都各
       # 重启一次 dsh-web（310+ task/2G 的 node 进程，停起一次 3~4s，单次激活里被重启 6 次），
       # 这是"最后重启很慢"的主因。entryAfter 列全部 configureDsh*，保证本步在最后一个插件之后、
       # 装完统一只重启一次 dsh-web。also 修复了原幂等守卫：want 用 file:（pnpm 写回的规格）而非
       # file://（永远 grep 不命中 → 每次 switch 都重装+重启）。
-      home.activation.configureDshReloadWeb = inputs.home-manager.lib.hm.dag.entryAfter [
-        "configureDshOpencodeModels"
-        "configureDshCodebuddyCli"
-        "configureDshMcpClient"
-        "removeStaleDshMcpClient"
-        "configureDshBracesSanitize"
-        "configureDshOpenbaoShellEnv"
-        "configureDshWoodpeckerShellEnv"
-        "configureDshHfShellEnv"
-        "configureDshModelSelectPlus"
-        "configureDshOpencodeAutosync"
-        "configureDshRuninfraAutosync"
-        "configureDshRelayAutosync"
-        # dsh.env 内容变更守卫：必须在 sops-nix 重渲染 dsh.env 之后运行，才能读到新内容。
-        "sops-nix"
-      ] ''
+      home.activation.configureDshReloadWeb = inputs.home-manager.lib.hm.dag.entryAfter (
+        # 由插件表生成，不再手抄（原先这里与上面 11 个 configureDsh* 各列一遍，
+        # 两处漂移时新插件会被漏掉 → 装完不重启 → 不生效）。tui / headless 的
+        # steps 一并列入：它们的 profile 不是 web，重启 dsh-web 对它们无副作用，
+        # 但让依赖图保持单一来源、且保证"最后一步"确实在全部安装之后。
+        (mkPluginActivations {
+          profile = "web";
+          plugins = hostPlugins // webFrontendPlugins // allProfilePlugins;
+        }).stepNames
+        ++ map (n: "configureDsh${n}") (lib.attrNames opencodeModelsPlugins)
+        ++ tuiPluginActivations.stepNames
+        ++ headlessPluginActivations.stepNames
+        ++ [
+          # mcp-client 两项不是插件表条目（带 useDshSource 条件与 remove 语义），
+          # 单独保留。
+          "configureDshMcpClient"
+          "removeStaleDshMcpClient"
+          # dsh.env 内容变更守卫：必须在 sops-nix 重渲染 dsh.env 之后运行，才能读到新内容。
+          "sops-nix"
+        ]
+      ) ''
         export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
         # ── dsh.env 内容变更守卫 ──────────────────────────────────────────
         # dsh-web 只在启动时 source dsh.env 一次（dshWebStart 里 set -a; .），运行期间
@@ -1412,30 +1570,38 @@ in
         fi
       '';
 
-      # ── codebuddy 登录态 / 模型清单可观测性 ─────────────────────────────
-      # CodeBuddy 是纯运行时 provider：模型清单由上游
-      # copilot.tencent.com/console/enterprises/personal/models 与 agents[cli]
-      # 白名单的交集决定，凭据是 CLI 登录产生的 OAuth refresh token（会轮换）。
-      # 两者都无法声明式管理——插件即真源，nix 侧只有 authFile 路径与插件 rev。
-      # 代价是这套状态对 nix 完全不可见：登录态过期、插件未装、上游改 cli agent
-      # 白名单，全都静默。
-      # 本步骤只做可观测性（不写任何配置）：激活末尾查插件的同源状态路由
-      # （host 半区注册的 /plugins/dsh-codebuddy-cli/status），把登录态与模型
-      # 列表打进激活日志。对比：relay/runinfra 有 autosync 插件对 /v1/models
-      # 做 reconcile；codebuddy 没有也不需要清单托管，缺的是可见性。
+      # ── dsh-tap 的登录态 / 上游状态可观测性 ─────────────────────────────
+      # dsh-tap 的三条上游里，CodeBuddy 的模型清单由网关目录（GET /v3/config）
+      # 决定、凭据是它自己那份 ~/.dsh/codebuddy-plugin-auth.json，Trae/Qoder 则
+      # 是订阅额度 OAuth——三者都无法声明式管理，插件即真源，nix 侧只有 rev。
+      # 代价是这套状态对 nix 完全不可见：登录态过期、桥端口被占、目录没同步，
+      # 全都静默。
+      # 本步骤只做可观测性（不写任何配置）：激活末尾查插件自己的状态路由
+      # GET /dsh-tap/settings（index.js 里 settingsView，凭据已脱敏），把桥、
+      # 登录态、有效模型数打进激活日志。对比：relay/runinfra 有 autosync 插件
+      # 对 /v1/models 做 reconcile，dsh-tap 的清单托管在它自己的设置卡里。
       # 服务未起 / 插件未装 / 未登录 一律只 WARN，不阻塞激活。
-      home.activation.checkDshCodebuddyStatus = inputs.home-manager.lib.hm.dag.entryAfter [ "configureDshReloadWeb" ] ''
+      home.activation.checkDshTapStatus = inputs.home-manager.lib.hm.dag.entryAfter [ "configureDshReloadWeb" ] ''
         export PATH="${userBin}:/run/current-system/sw/bin:$PATH"
-        url="http://${cfg.web.host}:${toString cfg.web.port}/plugins/dsh-codebuddy-cli/status"
-        status_json="$(${pkgs.curl}/bin/curl -fsS --max-time 10 "$url" 2>/dev/null || true)"
-        if [ -z "$status_json" ]; then
-          echo "WARN: dsh-codebuddy-cli status 不可达（服务未起或插件未装）：$url"
+        url="http://${cfg.web.host}:${toString cfg.web.port}/dsh-tap/settings"
+        view="$(${pkgs.curl}/bin/curl -fsS --max-time 10 "$url" 2>/dev/null || true)"
+        if [ -z "$view" ]; then
+          echo "WARN: dsh-tap 状态不可达（dsh-web 未起或插件未装）：$url"
         else
-          state="$(printf '%s' "$status_json" | ${pkgs.jq}/bin/jq -r '.status // "unknown"')"
-          models="$(printf '%s' "$status_json" | ${pkgs.jq}/bin/jq -r '[.models[].id] | join(", ")')"
-          echo "dsh-codebuddy-cli: status=$state models=[$models]"
-          if [ "$state" != "signed-in" ]; then
-            echo "WARN: CodeBuddy 未登录（status=$state）；在终端跑 codebuddy 登录后 dsh 侧 provider 才会可用"
+          ${pkgs.jq}/bin/jq -r '
+            "dsh-tap: bridge=\(if .bridge.running then "up:\(.bridge.port)" else "down" end)"
+            + " codebuddy=\(if .oauth.signedIn then (if .oauth.needsRelogin then "需重新登录" else "signed-in" end) else "未登录" end)"
+            + " models=\(.models.effectiveCount) 目录=\(.models.sync.count // "静态兜底")"
+            + " trae=\(if .trae.oauth.signedIn then "signed-in" else "未登录" end)"
+            + " qoder=\(if .qoder.oauth.signedIn then "signed-in" else "未登录" end)"
+          ' <<<"$view"
+          # 主聊天走桥，桥不跑 = 模型选择器里那三条上游全部不可用（CodeBuddy
+          # 之外的 deepseek-relay / opencode-go / runinfra 等不受影响）。
+          if [ "$(${pkgs.jq}/bin/jq -r '.bridge.running' <<<"$view")" != "true" ]; then
+            echo "WARN: dsh-tap 本地桥未运行（.bridge.lastError = $(${pkgs.jq}/bin/jq -r '.bridge.lastError // "—"' <<<"$view")）；CodeBuddy/Trae/Qoder 主聊天不可用"
+          fi
+          if [ "$(${pkgs.jq}/bin/jq -r '.oauth.signedIn' <<<"$view")" != "true" ]; then
+            echo "WARN: CodeBuddy 未登录；在 dsh Web 的插件设置卡里完成登录后 provider 才可用（dsh-tui 里没有设置卡）"
           fi
         fi
       '';
