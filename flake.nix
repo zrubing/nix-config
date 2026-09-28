@@ -18,11 +18,29 @@
 
     # deepseek-harness 源码。npm 上 @deepseek-ai/dsh 长期滞后（llm-agents 只打包
     # npm 版），想提前用就得从源码构建。flake=false 让 flake.lock 锁住 rev；
-    # nix flake update deepseek-harness-src 可拉新。packages/dsh-src 消费它。
-    # 当前固定在 tag dsh-v0.1.7-rc.1；想回主分支把 ref 去掉即可。
+    # nix flake update deepseek-harness-src 可拉新。
+    # 消费方 = modules/home/dsh 的 dsh-blackhole 构建（esbuild 打 pi-blackhole
+    # 适配器所需的 workspace 检查，见 plugins/dsh-blackhole/build.nix）。
+    # 构建 dsh 本体已改走上游打包仓库（见下方 deepseek-harness input）。
     deepseek-harness-src = {
       url = "github:deepseek-ai/deepseek-harness?ref=dsh-v0.1.7-rc.1";
       flake = false;
+    };
+
+    # 社区 Nix 打包层（Moraxyc/deepseek-harness.nix）：kernel + workspace +
+    # web/headless/tui bundle 的构建，含官方 cachix substituter。
+    #
+    # 为什么引它而不是继续 vendored（2026-09-29 决策）：本仓库此前把它的
+    # pkgs/ + lib/ 复制进 pkgs/dsh-moraxyc*（26 个文件），只能手工跟上游。
+    # 实测替换代价：本仓库只用了它的两处本地补丁（web-auth-bypass-trusted、
+    # DEFAULT_BASH_SHELL），两者都已在 pkgs/dsh-local 里以 overrideAttrs 重新
+    # 表达，不再需要 fork 整条构建链。
+    #
+    # 不 follows 本仓库 nixpkgs：它的 bundle 哈希按自带 nixpkgs rev 计算，
+    # follows 会让 kernel 全部 cache miss（本地实测：76 个 derivation 需重建）。
+    # 消费方式见 modules/home/dsh：overlay 只注入 pkgs.dsh scope，不打扰主 pkgs。
+    deepseek-harness = {
+      url = "github:Moraxyc/deepseek-harness.nix";
     };
 
     pi-guardrails-src = {

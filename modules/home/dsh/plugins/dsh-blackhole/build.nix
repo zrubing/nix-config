@@ -11,20 +11,21 @@
 #   - adds a node_modules shim so bare @deepseek-ai/* imports resolve against
 #     the mounted dsh package's own dependency tree.
 #
-# Consumed by modules/home/dsh/default.nix:
-#   blackholePlugin = import ./plugins/dsh-blackhole/build.nix { inherit lib pkgs inputs dshNodeModules; };
-# The preset then symlinks ~/.dsh/.agent-presets/my-minimal/dsh-blackhole ->
-# this derivation and mounts "./dsh-blackhole/lib/compaction.js" (compaction
-# isolate) and "./dsh-blackhole/lib/index.js" (agent scope).
+# Consumed by pkgs/dsh-local/default.nix, which wraps the result in a dsh bundle:
+#   blackholeAdapter = import ./plugins/dsh-blackhole/build.nix { inherit lib pkgs inputs kernelPatched; };
+# The generated preset then references the package by name:
+#   @jojo/dsh-blackhole/compaction  (compaction isolate)
+#   @jojo/dsh-blackhole             (agent scope)
 {
   lib,
   pkgs,
   inputs,
-  dshNodeModules,
-  ...
+  # 打过本地补丁的 kernel：裸 @deepseek-ai/* 导入从这里解析。
+  kernelPatched,
 }:
 let
   pibh = inputs.pi-blackhole-src;
+  dshNodeModules = "${kernelPatched}/lib/deepseek-harness/node_modules";
 in
 pkgs.runCommand "dsh-blackhole" {
   pname = "dsh-blackhole";

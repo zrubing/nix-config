@@ -17,10 +17,13 @@ DSH Web 的 composer 模型座位（`conversation.input.model`）替换插件：
 ## 安装（nix 管理）
 
 源码随 nix-config 仓库分发：`modules/home/dsh/plugins/model-select-plus/`。
-`modules/home/dsh/default.nix` 中的 `configureDshModelSelectPlus` activation
-把它以 `file:` 依赖装入 web profile（内容变更 → store hash 变化 → 自动重装 +
-重启服务），loader 行由 nix 托管的 `~/.dsh/cordis.patch.yml`（`providerPatch`）
-以 `- insert` 提供。`home-manager switch` 后生效。
+`pkgs/dsh-local/default.nix` 的 `modelSelectPlus` 把它打成 dsh bundle ——
+包本体进 dsh 安装目录的 `node_modules`，挂载行写在 bundle 自己的
+`cordis.patch.yml` 里。它只在 **web profile** 的 `dsh.profile.bundles` 里出现，
+所以不会进 TUI/headless。
+
+改源码后 `home-manager switch` 即生效（store hash 变化 → dsh 安装重建 →
+下一次启动读到新包）；不需要 activation、也不需要 pnpm。
 
 ## 文件
 

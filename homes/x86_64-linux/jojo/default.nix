@@ -152,16 +152,8 @@ in
         # 密钥走 sops.templates 生成 env 文件（激活时解密），dsh-web 服务用 EnvironmentFile 读入。
         # 不能用 Environment=placeholder：那是求值期占位符，写入单元后不会被解密。
         envFile = config.sops.templates."dsh.env".path;
-        # 提前体验：用源码构建的 dsh 0.1.7-rc.1（Moraxyc 式 kernel + 官方 web/headless bundle）。
-        # llm-agents 更新到 0.1.5 后把这里改回 false 即回落 npm 版。
-        useDshSource = true;
-        # 自动发现 opencode-go 模型：dsh 启动 + 每 12h 拉 opencode.ai Go 档清单，
-        # add-only 并入 opencode-go 路由的 models（modules/home/dsh 的
-        # dsh-opencode-autosync 插件，见 plugins/opencode-autosync）。
-        # 不再用 dsh-opencode-models 手动插件：dsh-llm-pi-ai 的 discoverModels 对
-        # catalog provider 走 pi-ai 静态清单（短路联网），对 opencode-go 拿到的是
-        # 内置 catalog 而非 opencode.ai 实时列表，会把本插件新加的模型当 stale 甚至
-        # pruneStale 删掉，两者冲突，故弃用。
+        # TUI 前端（ccch1mneyyy/dsh-TUI）：独立 profile `dsh-tui`，与 web 的客户端半区
+        # 互斥，所以单列一个 profile。开了它 dsh 的默认 profile 也随之变成 dsh-tui。
         plugins.tui.enable = true;
       };
       pi = {
