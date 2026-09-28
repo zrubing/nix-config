@@ -102,9 +102,28 @@ function normalizeEntry(entry, fallbackId) {
 	return normalized;
 }
 
+/**
+ * Read the live descriptor for NS (undefined when the entry is not active yet
+ * or declares no volatile fields).
+ *
+ * dsh 0.1.7 拆掉了 `settings.get(ns)`：SettingsForms 只剩 describe / update /
+ * replace / mutate / writable，旧调用直接抛 "settings.get is not a function"，
+ * 本插件的整轮对账因此静默失效（路由模型清单不再跟随上游改名）。descriptor.value
+ * 是 schema 投影后的活配置——llm-pi-ai 的 Config 是 `z.object({ providers:
+ * z.dict(profile).default({}).volatile() })`，而 projectForm 对 dict 节点
+ * 原样返回（只有 type === "object" 才逐字段投影），所以 value 就是完整的
+ * `{ providers: {...} }`，与旧 get 读到的 config 等价。
+ */
+function describeEntry(settings) {
+	const descriptors = typeof settings.describe === "function" ? settings.describe() : [];
+	const found = descriptors.find((descriptor) => descriptor.ns === NS);
+	return found === undefined ? undefined : found;
+}
+
 /** Read the route's configured models as plain owned copies. */
 function readRouteModels(settings, route) {
-	const section = settings.get(NS);
+	const descriptor = describeEntry(settings);
+	const section = descriptor === undefined ? undefined : descriptor.value;
 	if (section === undefined || section === null || typeof section !== "object") {
 		return { exists: false, models: [] };
 	}
@@ -126,8 +145,7 @@ function readRouteModels(settings, route) {
 
 /** Read the namespace's current revision for optimistic writes. */
 function describeRevision(settings) {
-	const descriptors = typeof settings.describe === "function" ? settings.describe() : [];
-	const found = descriptors.find((descriptor) => descriptor.ns === NS);
+	const found = describeEntry(settings);
 	return found === undefined ? undefined : found.revision;
 }
 
