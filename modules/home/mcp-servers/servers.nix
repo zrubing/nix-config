@@ -38,8 +38,27 @@
   # codex 视图里 { sops = "…"; } 的求值器：codex 模块传 config.sops.placeholder。
   # pi/dsh 调用方不引用 codex 视图，故默认值只在误用时才抛错（惰性求值）。
   sopsPlaceholder ? (_: throw "sopsPlaceholder is only needed by the codex view"),
+  # godot server 的启用开关（各模块传自己的 option）。默认 false：它需要外部
+  # 常驻编辑器监听 :6550，不开编辑器时连不上，dsh 启动会按退避反复重连。
+  godotEnabled ? false,
+  # Figma MCP 的 --image-dir 需要一个**绝对路径**：pi 的 args 不做 ${VAR} 插值、
+  # dsh/codex 的 args 也只是字面量，所以只能在 eval 期把家目录烘死。各调用模块
+  # 传 config.home.homeDirectory。
+  homeDirectory,
 }:
 let
+  # figma MCP（framelink）的图片落点。它只允许写入 imageDir 之内（越界报
+  # "File path escapes target directory"），目标目录不存在时自己 mkdir -p。
+  #
+  # 钉死的原因：不设时它回落到客户端的 cwd（dsh-web 是 /home/jojo，pi 是你起
+  # pi 的目录），同一份 agent 指令在不同客户端落到不同地方；它自己也会每次启动
+  # 打一条 "--image-dir not set" 警告。
+  #
+  # 副作用（有意接受）：agent 传给 download_figma_images 的相对路径都落在
+  # ~/.cache/figma-mcp/ 之下，不再落进当前项目——工具返回绝对路径，需要入项目
+  # 时由 agent 自己拷过去。
+  figmaImageDir = "${homeDirectory}/.cache/figma-mcp";
+
   # YAML 标量：裸标量优先，含特殊字符才加双引号（与 dsh/default.nix 同规则）
   yamlScalar = v:
     if builtins.isInt v then builtins.toString v
@@ -149,6 +168,9 @@ rec {
     # ⚠️ 一个编辑器只能接一个客户端：dsh 连上后，编辑器 GUI 就连不进了。
     godot = {
       description = "Godot 编辑器 MCP（需先启 headless 编辑器监听 :6550）";
+      # 按需启用：常开会在每次 dsh 启动时反复重连（1s→2s→4s→8s 退避），
+      # 既拖慢启动又调不动任何工具。要用时开编辑器 + 打开本开关。
+      enabled = godotEnabled;
       dsh = {
         transport = "stdio";
         command = "npx";
@@ -283,8 +305,15 @@ rec {
     # 密钥经 env 传（Framelink 的取值链：CLI flag → env → 默认；args 不做插值，
     # 故 key 只能走 env）。缺 key 时它会在启动期就报
     # "Either FIGMA_API_KEY or FIGMA_OAUTH_TOKEN is required" 而非拖到首次调用。
+    #
+    # FRAMELINK_TELEMETRY=off：该实现启动时无条件打印
+    #   "Usage telemetry enabled. Disable: FRAMELINK_TELEMETRY=off or DO_NOT_TRACK=1"
+    # 即默认上传用量。它是第三方 npx 子进程，这里按它自己声明的开关关掉（三视图
+    # 都关，pi/dsh/codex 共用同一个 npm 包）。注意值必须是**字符串** "off"——
+    # dsh 视图渲染成 YAML 裸标量 off，而 dsh 用 js-yaml 的 JSON_SCHEMA（无 YAML 1.1
+    # 的 on/off 布尔），解析结果仍是字符串。
     figma = {
-      description = "Figma 设计数据 MCP（Framelink，PAT 鉴权，三方 npx stdio）";
+      description = "Figma 设计数据 MCP（Framelink，PAT 鉴权，三方 npx stdio，遥测已关）";
       pi = {
         type = "stdio";
         command = "npx";
@@ -292,8 +321,13 @@ rec {
           "-y"
           "figma-developer-mcp"
           "--stdio"
+          "--image-dir"
+          figmaImageDir
         ];
-        env.FIGMA_API_KEY = "\${FIGMA_API_KEY}";
+        env = {
+          FIGMA_API_KEY = "\${FIGMA_API_KEY}";
+          FRAMELINK_TELEMETRY = "off";
+        };
       };
       dsh = {
         transport = "stdio";
@@ -302,9 +336,14 @@ rec {
           "-y"
           "figma-developer-mcp"
           "--stdio"
+          "--image-dir"
+          figmaImageDir
         ];
-        env.FIGMA_API_KEY = {
-          env = "FIGMA_API_KEY";
+        env = {
+          FIGMA_API_KEY = {
+            env = "FIGMA_API_KEY";
+          };
+          FRAMELINK_TELEMETRY = "off";
         };
       };
       codex = {
@@ -313,9 +352,14 @@ rec {
           "-y"
           "figma-developer-mcp"
           "--stdio"
+          "--image-dir"
+          figmaImageDir
         ];
-        env.FIGMA_API_KEY = {
-          sops = "figma/api_key";
+        env = {
+          FIGMA_API_KEY = {
+            sops = "figma/api_key";
+          };
+          FRAMELINK_TELEMETRY = "off";
         };
       };
     };
@@ -437,14 +481,23 @@ rec {
 
   # ------------------------------------------------- pi 侧渲染（mcpServers 对象）
   # 只输出声明了 pi 视图的 server；密钥保持 ${VAR} 引用，由 pi-mcp-adapter 在
+  # ── 按需启用的 server（enabled 开关）────────────────────────────────────
+  # server 可声明 `enabled = <bool 表达式>`：false 时三个视图都不投递。
+  # 用途：依赖外部常驻进程的 server（如 godot 需先起一个监听 :6550 的编辑器），
+  # 常开只会在每次启动时反复重连、拖慢启动，且工具实际调不动。
+  #
+  # 默认 true——只有显式写了 enabled 的 server 才受开关约束，其余行为不变。
+  isEnabled = s: s.enabled or true;
+  activeServers = lib.filterAttrs (_: s: isEnabled s) servers;
+
   # 连接时插值（值来自 shell 的 default.env）。
-  piServers = lib.mapAttrs (_: s: s.pi) (lib.filterAttrs (_: s: s ? pi) servers);
+  piServers = lib.mapAttrs (_: s: s.pi) (lib.filterAttrs (_: s: s ? pi) activeServers);
 
   # --------------------------------------------- dsh 侧渲染（cordis 条目 YAML）
   # 只输出声明了 dsh 视图的 server。每行已是最终列位（列 0 起），插进
   # providerPatch 时按 4 空格缩进写插值行（与该 '' 串的公共缩进对齐）。
   dshPatchEntries = lib.concatStringsSep "\n\n" (
-    lib.mapAttrsToList dshEntry (lib.filterAttrs (_: s: s ? dsh) servers)
+    lib.mapAttrsToList dshEntry (lib.filterAttrs (_: s: s ? dsh) activeServers)
   );
 
   # ---------------------------------------------- codex 侧渲染（config.toml 表）
@@ -452,6 +505,6 @@ rec {
   # 经 sopsPlaceholder 渲染成 sops 占位符，由 codex 模块拼进 config.toml 的 sops
   # 模板，home-manager 激活时替换为真实密钥（文件 mode 0600）。
   codexConfig = lib.concatStringsSep "\n\n" (
-    lib.mapAttrsToList codexEntry (lib.filterAttrs (_: s: s ? codex) servers)
+    lib.mapAttrsToList codexEntry (lib.filterAttrs (_: s: s ? codex) activeServers)
   );
 }

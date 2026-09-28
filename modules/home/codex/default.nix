@@ -14,6 +14,7 @@ let
   mcpServers = import ../mcp-servers/servers.nix {
     inherit lib pkgs namespace;
     sopsPlaceholder = name: config.sops.placeholder.${name};
+    homeDirectory = config.home.homeDirectory;
   };
 in
 {

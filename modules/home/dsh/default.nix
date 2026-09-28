@@ -35,7 +35,13 @@ let
   # 统一 MCP server 定义（pi / dsh 共用源，见该文件头部注释）：新增或修改
   # server 只改那一个文件；此处把同一份源渲染成 cordis insert 条目，密钥走
   # !!js process.env.VAR（值由 dsh.env 注入），与 pi 侧的 ${VAR} 引用同源。
-  mcpServers = import ../mcp-servers/servers.nix { inherit lib pkgs namespace; };
+  mcpServers = import ../mcp-servers/servers.nix {
+    inherit lib pkgs namespace;
+    homeDirectory = config.home.homeDirectory;
+    # godot MCP 需外部常驻编辑器（监听 :6550）才可用，缺了只会反复重连、拖慢
+    # 启动 → 做成按需启用（见 servers.nix 的 enabled 开关与下方选项）。
+    godotEnabled = cfg.mcp.godot.enable;
+  };
 
   # dsh web 服务跑在无 DISPLAY 的 systemd user 环境里（has_display=false），xdg-open 会
   # 跳过 mime 关联查找、直接走 BROWSER 兜底；BROWSER 空 + 无终端浏览器（www-browser 等全
@@ -920,6 +926,18 @@ in
         Install wyouwd1/dsh-opencode-models into the web profile. Provides a
         settings section that live-syncs OpenCode Zen free/go tier model lists
         (covers models missing from the bundled pi-ai catalog, e.g. glm-5.3-flash).
+      '';
+    };
+
+    # MCP server 的按需开关（定义在 modules/home/mcp-servers/servers.nix 的统一源）。
+    mcp.godot.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Enable the Godot editor MCP server. It is not a pure client: a Godot
+        editor must already be listening on 127.0.0.1:6550, otherwise every
+        dsh boot spends time in reconnect backoff and no tool works. Turn this
+        on (and start the editor) only when you actually use it.
       '';
     };
 

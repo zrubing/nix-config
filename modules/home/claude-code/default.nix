@@ -10,7 +10,10 @@
   # pi 侧由此处的 piServers 渲染，dsh 侧由 modules/home/dsh 的同一份渲染。
   # 密钥不写明文：pi 视图用 ${VAR} 引用（pi-mcp-adapter 对 env/headers/url
   # 插值），值来自 shell 的 ~/.config/default.env（sops 渲染）。
-  mcpServers = import ../mcp-servers/servers.nix {inherit lib pkgs namespace;};
+  mcpServers = import ../mcp-servers/servers.nix {
+    inherit lib pkgs namespace;
+    homeDirectory = config.home.homeDirectory;
+  };
 
   # 序列化为 JSON 供 activation 脚本 merge（替代 runCommand+jq 拼接）
   mcpServersJson = pkgs.writeText "nix-mcp-servers.json" (
