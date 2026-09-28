@@ -162,6 +162,7 @@ in
         # catalog provider 走 pi-ai 静态清单（短路联网），对 opencode-go 拿到的是
         # 内置 catalog 而非 opencode.ai 实时列表，会把本插件新加的模型当 stale 甚至
         # pruneStale 删掉，两者冲突，故弃用。
+        plugins.tui.enable = true;
       };
       pi = {
         enable = true;
