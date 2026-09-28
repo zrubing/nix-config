@@ -5,13 +5,14 @@
 #
 #   shipped `ptc.patch.yml` plugins (persona / shell / fs / jobs / skills /
 #   goals / plan mode / delegation / workflows / PTC presentation)  ← read from
-#   the deepseek-harness-src flake input at BUILD time (presetDeclarations in
-#   modules/home/dsh/default.nix), so upstream updates flow through on rebuild
+#   the web-app bundle's presets/ at BUILD time (pkgs/dsh-local/presets.nix),
+#   so upstream updates flow through on rebuild
 #   + ONE inline swap: the compaction group's `compaction-basic` row becomes
-#   `./nix-presets/dsh-blackhole/lib/compaction.js` (the deterministic
-#   pi-blackhole backend) — done in presetDeclarations because a second
-#   `compaction` group or row here would collide with the shipped one
-#   (`duplicate loader entry id`)
+#   `@jojo/dsh-blackhole/compaction` (the deterministic pi-blackhole backend) —
+#   done there because a second `compaction` group or row here would collide
+#   with the shipped one (`duplicate loader entry id`), and because replacing
+#   the row wholesale means a config key added upstream fails the build instead
+#   of being silently dropped
 #   + this file's rows (start_process background processes, pi-blackhole
 #   recall / observational memory / /blackhole* commands)
 #
@@ -28,9 +29,10 @@
 # earlier root wins a duplicate id, so a user-root directory named `ptc` would
 # be shadowed by the shipped preset. This preset therefore lives as `my-ptc`.
 #
-# Managed by nix (modules/home/dsh)：0.1.7 起 preset 是声明行（不是目录），本文件是
-# 那条声明 `config.plugins` 的增量部分；声明由 presetDeclarations 在构建期生成，经
-# web profile 的 user layer 下发，行里的相对说明符重写到 ./nix-presets/...。
+# Managed by nix (pkgs/dsh-local/presets.nix)：0.1.7 起 preset 是声明行（不是目录），
+# 本文件是那条声明 `config.plugins` 的增量部分；声明在构建期生成，随 bundle 下发。
+# 行里的相对说明符由构建期重写成绝对包名（`.name` 走 dsh 的两锚点解析，不依赖
+# profile 目录），所以文件里可以继续写 `./tool-processes.js` 这类相对写法。
 
 # ── background processes ────────────────────────────────────────────────────
 
