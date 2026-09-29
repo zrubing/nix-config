@@ -83,16 +83,16 @@ in
           "image/x-tga" = [ "imv-dir.desktop" ];
           "image/x-xbitmap" = [ "imv-dir.desktop" ];
 
-          "x-scheme-handler/http" = [ "firefox.desktop" ];
-          "x-scheme-handler/https" = [ "firefox.desktop" ];
-          "x-scheme-handler/chrome" = [ "firefox.desktop" ];
-          "text/html" = [ "firefox.desktop" ];
-          "application/xhtml+xml" = [ "firefox.desktop" ];
-          "application/x-extension-htm" = [ "firefox.desktop" ];
-          "application/x-extension-html" = [ "firefox.desktop" ];
-          "application/x-extension-shtml" = [ "firefox.desktop" ];
-          "application/x-extension-xhtml" = [ "firefox.desktop" ];
-          "application/x-extension-xht" = [ "firefox.desktop" ];
+          "x-scheme-handler/http" = [ "brave.desktop" ];
+          "x-scheme-handler/https" = [ "brave.desktop" ];
+          "x-scheme-handler/chrome" = [ "brave.desktop" ];
+          "text/html" = [ "brave.desktop" ];
+          "application/xhtml+xml" = [ "brave.desktop" ];
+          "application/x-extension-htm" = [ "brave.desktop" ];
+          "application/x-extension-html" = [ "brave.desktop" ];
+          "application/x-extension-shtml" = [ "brave.desktop" ];
+          "application/x-extension-xhtml" = [ "brave.desktop" ];
+          "application/x-extension-xht" = [ "brave.desktop" ];
 
           "x-scheme-handler/mailto" = [ "thunderbird.desktop" ];
           "x-scheme-handler/mid" = [ "thunderbird.desktop" ];
