@@ -62,13 +62,15 @@ in
     };
     # 设置系统级的 X resources
     #
-    # 多屏 DPI 折中策略（2026-03）：
-    # - eDP-1: 2880x1800, scale 1.75 → X11 app 需要 dpi ≈ 96 × 1.75 = 168 才能在此屏正常显示
-    # - HDMI-A-1: 1920x1080, scale 1.0 → X11 app 需要 dpi = 96
-    # - xwayland-satellite 0.8 统一使用最低 scale（1.0），所以 X11 像素在 HDMI 上 1:1 映射，
-    #   在 eDP 上被 niri 按 1.75x 缩放
-    # - 设为 144（1.5x）是折中值：HDMI 上略大但可用，eDP 上 144/1.75 ≈ 82 也还行
-    # - 如果主要在 eDP 上用 X11 程序，可以改成 168；主要在 HDMI 上用则改成 96
+    # 多屏 DPI 策略：
+    # - eDP-1: 2880x1800, scale 1.75 → 与此屏匹配的 dpi ≈ 96 × 1.75 = 168
+    # - HDMI-A-1: 1920x1080, scale 1.0 → 复用同一套 X11 像素并降采样，不单独设 dpi
+    # - X11 只有一个全局 scale，xwayland-satellite 报的就是最大值 1.75
+    #   （补丁行为，见 overlays/xwayland-satellite），故匹配值是 168
+    # - 自 0.8.3 起上游（PR #477，commit 324ef5d）会按该 scale 自己设 Xft.dpi=168，
+    #   而下面的 xrdb 会把它覆盖掉
+    # - 144（1.5x）是更早、误以为全局 scale 是 1.0 时留下的折中值，按现在的前提
+    #   偏小一档；改成 168 即与 X11 几何一致
     xresources.properties = {
       "Xft.dpi" = xftDpi;
       "Xft.antialias" = true;

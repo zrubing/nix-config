@@ -90,9 +90,10 @@ in
 
     programs.niri.settings = {
       outputs = {
-        # ── 多屏配置（mixed DPI workaround）──
-        # xwayland-satellite 0.8 会取最低 scale（1.0）统一报告给 Xwayland，
-        # 所以这里主要确保 niri 端的逻辑尺寸和位置正确。
+        # ── 多屏配置 ──
+        # 常规的每屏 scale / mode / position，不是 mixed-DPI workaround：
+        # X11 只有一个全局 scale，混合 DPI 的处理在 xwayland-satellite 侧
+        # （补丁取最大 scale，见 overlays/xwayland-satellite）。
         "eDP-1" = {
           scale = 1.75;
           mode = {
@@ -177,8 +178,9 @@ in
       # 窗口规则：自动打开到特定工作区
       window-rules = [
         # ── X11 应用锁定到主屏（eDP-1）──
-        # xwayland-satellite 0.8 在混合 DPI 下，X11 应用在低 DPI 屏上容易偏大/偏小，
-        # 把常见 X11 应用锁定到高 DPI 主屏可获得最佳体验。
+        # X11 全局 scale 取最大值 1.75，所以 X11 应用在 HDMI-A-1（scale 1.0）上
+        # 尺寸与 Wayland 应用一致，只是会被 niri 按 1.75→1.0 降采样而发虚；
+        # 锁到 eDP-1 才能 1:1 像素映射。属画质偏好，不是尺寸正确性问题。
         # 通过 is-window-rule 无法直接匹配 X11，这里按已知的 X11 app-id 来锁定。
         {
           matches = [
