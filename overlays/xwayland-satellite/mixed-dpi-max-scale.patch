@@ -1,0 +1,252 @@
+diff --git a/src/server/event.rs b/src/server/event.rs
+index acf51d9..1b94751 100644
+--- a/src/server/event.rs
++++ b/src/server/event.rs
+@@ -95,11 +95,18 @@ impl Event for SurfaceEvents {
+                 wp_fractional_scale_v1::Event::PreferredScale { scale } => {
+                     let state = state.deref_mut();
+                     let entity = state.world.entity(target).unwrap();
+-                    let factor = scale as f64 / 120.0;
++                    let raw = scale as f64 / 120.0;
++                    let max_scale = max_output_scale(&state.world).max(raw);
++                    let factor = if max_scale != raw || state.mixed_scale {
++                        max_scale
++                    } else {
++                        raw
++                    };
+                     debug!(
+-                        "{} scale factor: {}",
++                        "{} scale factor: {} (raw {raw}, mixed {})",
+                         entity.get::<&WlSurface>().unwrap().id(),
+-                        factor
++                        factor,
++                        state.mixed_scale,
+                     );
+ 
+                     entity.get::<&mut SurfaceScaleFactor>().unwrap().0 = factor;
+@@ -231,7 +238,19 @@ impl SurfaceEvents {
+ 
+                     if state.fractional_scale.is_none() {
+                         let output_scale = output_data.get::<&OutputScaleFactor>().unwrap().get();
+-                        data.get::<&mut SurfaceScaleFactor>().unwrap().0 = output_scale;
++                        let max_scale = max_output_scale(&state.world).max(output_scale);
++                        let scale = if max_scale != output_scale || state.mixed_scale {
++                            max_scale
++                        } else {
++                            output_scale
++                        };
++                        debug!(
++                            "{} entered output {}: output_scale={output_scale} mixed={} final_scale={scale}",
++                            surface.id(),
++                            output.id(),
++                            state.mixed_scale,
++                        );
++                        data.get::<&mut SurfaceScaleFactor>().unwrap().0 = scale;
+                         drop(query);
+                         update_surface_viewport(
+                             &state.world,
+@@ -1023,6 +1042,20 @@ impl OutputScaleFactor {
+     }
+ }
+ 
++/// Largest scale among the currently known outputs.
++///
++/// X11 only has one global scale, so in a mixed-DPI setup every X11 client gets the
++/// largest output scale and the lower-DPI outputs downsample the result. Picking the
++/// smallest scale instead (upstream's default) makes X11 apps blurry and oversized on
++/// HiDPI outputs. This mirrors what KWin does.
++pub(super) fn max_output_scale(world: &World) -> f64 {
++    world
++        .query::<&OutputScaleFactor>()
++        .iter()
++        .map(|(_, scale)| scale.get())
++        .fold(0.0, f64::max)
++}
++
+ #[must_use]
+ fn update_output_scale(
+     mut output_scale: hecs::QueryOne<&mut OutputScaleFactor>,
+@@ -1107,6 +1140,26 @@ fn update_output_offset(
+             return;
+         }
+ 
++        // Everything X11 sees lives in the coordinate space of the largest output
++        // scale, so output positions have to be scaled by max_scale / this_scale.
++        let (x, y) = {
++            let my_scale = state
++                .world
++                .get::<&OutputScaleFactor>(output)
++                .map(|scale| scale.get())
++                .unwrap_or(1.0);
++            let max_scale = max_output_scale(&state.world).max(my_scale);
++            if (max_scale - my_scale).abs() > f64::EPSILON {
++                let ratio = max_scale / my_scale;
++                (
++                    (x as f64 * ratio).round() as i32,
++                    (y as f64 * ratio).round() as i32,
++                )
++            } else {
++                (x, y)
++            }
++        };
++
+         let global_offset = &mut state.global_output_offset;
+         let mut maybe_update_dimension = |value, dim: &mut GlobalOutputOffsetDimension| {
+             if value < dim.value {
+@@ -1319,6 +1372,17 @@ impl OutputEvent {
+                 height,
+                 refresh,
+             } => {
++                // Output dimensions are what X11 clients size themselves against, so in
++                // a mixed-DPI setup report them in the largest output scale's space.
++                let my_scale = state
++                    .world
++                    .get::<&OutputScaleFactor>(target)
++                    .map(|scale| scale.get())
++                    .unwrap_or(1.0);
++                let max_scale = max_output_scale(&state.world).max(my_scale);
++                let mixed = (max_scale - my_scale).abs() > f64::EPSILON;
++                let ratio = if mixed { max_scale / my_scale } else { 1.0 };
++
+                 let Ok((output, dimensions)) = state
+                     .world
+                     .query_one_mut::<(&WlOutput, &mut OutputDimensions)>(target)
+@@ -1326,15 +1390,25 @@ impl OutputEvent {
+                     return;
+                 };
+ 
++                let scaled_width = (width as f64 * ratio).round() as i32;
++                let scaled_height = (height as f64 * ratio).round() as i32;
++
+                 if flags
+                     .into_result()
+                     .is_ok_and(|f| f.contains(client::wl_output::Mode::Current))
+                 {
+-                    dimensions.width = width;
+-                    dimensions.height = height;
+-                    debug!("{} dimensions: {width}x{height}", output.id());
++                    dimensions.width = scaled_width;
++                    dimensions.height = scaled_height;
++                    if mixed {
++                        debug!(
++                            "{} dimensions: {width}x{height} -> {scaled_width}x{scaled_height} (mixed scale, ratio {ratio:.2})",
++                            output.id(),
++                        );
++                    } else {
++                        debug!("{} dimensions: {scaled_width}x{scaled_height}", output.id());
++                    }
+                 }
+-                output.mode(convert_wenum(flags), width, height, refresh);
++                output.mode(convert_wenum(flags), scaled_width, scaled_height, refresh);
+             }
+             Event::Scale { factor } => {
+                 debug!(
+diff --git a/src/server/mod.rs b/src/server/mod.rs
+index a436331..933ba9f 100644
+--- a/src/server/mod.rs
++++ b/src/server/mod.rs
+@@ -491,6 +491,7 @@ pub struct InnerServerState<S: X11Selection> {
+     updated_outputs: Vec<Entity>,
+     new_scale: Option<f64>,
+     current_scale: f64,
++    mixed_scale: bool,
+ }
+ 
+ impl<S: X11Selection> ServerState<NoConnection<S>> {
+@@ -600,6 +601,7 @@ impl<S: X11Selection> ServerState<NoConnection<S>> {
+             updated_outputs: Vec::new(),
+             new_scale: None,
+             current_scale: 1.0,
++            mixed_scale: false,
+             decoration_manager,
+             world,
+         };
+@@ -726,19 +728,20 @@ impl<C: XConnection> ServerState<C> {
+                 for (_, output_scale) in outputs {
+                     if output_scale.get() != scale {
+                         mixed_scale = true;
+-                        scale = scale.min(output_scale.get());
++                        scale = scale.max(output_scale.get());
+                     }
+                 }
+ 
+                 if mixed_scale {
+                     warn!(
+-                        "Mixed output scales detected, choosing to give apps the smallest detected scale ({scale}x)"
++                        "Mixed output scales detected, giving X11 clients the largest scale ({scale}x). Lower-DPI outputs will downsample."
+                     );
+                 }
+ 
+                 debug!("Using new scale {scale}");
+                 self.new_scale = Some(scale);
+                 self.current_scale = scale;
++                self.mixed_scale = mixed_scale;
+             }
+         }
+ 
+@@ -1126,8 +1129,8 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+                     ((event.y() as i32 - win.output_offset.y) as f64 / scale_factor.0) as i32,
+                 );
+                 popup.positioner.set_size(
+-                    1.max((event.width() as f64 / scale_factor.0) as i32),
+-                    1.max((event.height() as f64 / scale_factor.0) as i32),
++                    1.max((event.width() as f64 / scale_factor.0).ceil() as i32),
++                    1.max((event.height() as f64 / scale_factor.0).ceil() as i32),
+                 );
+                 popup.popup.reposition(&popup.positioner, 0);
+             }
+@@ -1609,32 +1612,45 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+             .unwrap();
+         let (parent_window, parent_scale, parent_role) = parent_query.get().unwrap();
+         let parent_dims = parent_window.attrs.dims;
+-        let initial_scale = parent_scale.0;
++        let parent_scale_factor = parent_scale.0;
+         *scale = *parent_scale;
+ 
++        // A popup is an X11 child of its parent toplevel, so it lives in the same
++        // coordinate space: keep the parent's scale, unless the mixed-DPI setup forces
++        // the larger global scale.
++        let use_scale = {
++            let max_scale = max_output_scale(&self.world).max(parent_scale_factor);
++            if max_scale != parent_scale_factor || self.mixed_scale {
++                *scale = SurfaceScaleFactor(max_scale);
++                max_scale
++            } else {
++                parent_scale_factor
++            }
++        };
++
+         debug!(
+-            "creating popup ({:?}) {:?} {:?} {:?} {entity:?} (scale: {initial_scale})",
++            "creating popup ({:?}) parent={:?} parent_scale={parent_scale_factor} mixed={} use_scale={use_scale} dims={:?}",
+             *self.world.get::<&x::Window>(entity).unwrap(),
+             parent,
++            self.mixed_scale,
+             window.attrs.dims,
+-            xdg.id()
+         );
+ 
+         let positioner = self.xdg_wm_base.create_positioner(&self.qh, ());
+         positioner.set_size(
+-            1.max((window.attrs.dims.width as f64 / initial_scale) as i32),
+-            1.max((window.attrs.dims.height as f64 / initial_scale) as i32),
++            1.max((window.attrs.dims.width as f64 / use_scale).ceil() as i32),
++            1.max((window.attrs.dims.height as f64 / use_scale).ceil() as i32),
+         );
+-        let x = ((window.attrs.dims.x - parent_dims.x) as f64 / initial_scale) as i32;
+-        let y = ((window.attrs.dims.y - parent_dims.y) as f64 / initial_scale) as i32;
++        let x = ((window.attrs.dims.x - parent_dims.x) as f64 / use_scale) as i32;
++        let y = ((window.attrs.dims.y - parent_dims.y) as f64 / use_scale) as i32;
+         positioner.set_offset(x, y);
+         positioner.set_anchor(Anchor::TopLeft);
+         positioner.set_gravity(Gravity::BottomRight);
+         positioner.set_anchor_rect(
+             0,
+             0,
+-            (parent_window.attrs.dims.width as f64 / initial_scale) as i32,
+-            (parent_window.attrs.dims.height as f64 / initial_scale) as i32,
++            (parent_window.attrs.dims.width as f64 / use_scale).ceil() as i32,
++            (parent_window.attrs.dims.height as f64 / use_scale).ceil() as i32,
+         );
+         positioner
+             .set_constraint_adjustment(ConstraintAdjustment::SlideX | ConstraintAdjustment::SlideY);

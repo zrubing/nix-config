@@ -39,7 +39,8 @@ in
       swayidle.enable = false;
       hypridle.enable = true;
 
-      # 使用niri-flake自带的xwayland-satellite
+      # niri-flake.enable 目前是空壳（见 modules/home/niri-flake），保留仅为兼容，
+      # xwayland-satellite 的包来源已改为 overlays/xwayland-satellite。
       niri-flake.enable = true;
 
     };
