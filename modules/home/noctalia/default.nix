@@ -133,14 +133,9 @@ in
               "noctalia-shell"
             ];
           }
+          # 曾用 spawn-at-startup 跑 xrdb 的变通方案已不需要：X resources 现由
+          # modules/home/xwayland-satellite 的 xrdb.service 在 Xwayland 起来后装载。
           # https://github.com/Supreeeme/xwayland-satellite/issues/301
-          # {
-          #   argv = [
-          #     "${pkgs.xorg.xrdb}/bin/xrdb"
-          #     "-merge"
-          #     (toString config.xwayland.x-resources.source)
-          #   ];
-          # }
         ];
 
         # 窗口规则：自动打开到特定工作区
