@@ -1,13 +1,35 @@
 diff --git a/src/server/event.rs b/src/server/event.rs
-index acf51d9..1b94751 100644
+index acf51d9..1d2ef73 100644
 --- a/src/server/event.rs
 +++ b/src/server/event.rs
-@@ -95,11 +95,18 @@ impl Event for SurfaceEvents {
+@@ -51,6 +51,17 @@ use wayland_server::protocol::{
+ #[derive(Copy, Clone)]
+ pub(super) struct SurfaceScaleFactor(pub f64);
+ 
++/// 合成器最后一次要求这张 surface 使用的 scale（`wp_fractional_scale_v1`
++/// 的 preferred_scale），与 `SurfaceScaleFactor` 分开保存。
++///
++/// `SurfaceScaleFactor` 是报给 X11 的值，混合 DPI 下会被抬到全局最大 scale。
++/// 把它当作「这个输出的真实 scale」回写会自我强化：合成器给的整数
++/// `wl_output.scale` 是向上取整的（1.75 会报成 2），于是被抬高的最大值永远
++/// 降不回来，输出的 X11 尺寸和窗口尺寸会差一个比例，窗口右下角落到屏幕外。
++/// 原始值单独留一份，登记输出时用它。
++#[derive(Copy, Clone)]
++pub(super) struct PreferredScaleFactor(pub f64);
++
+ #[derive(hecs::Bundle)]
+ pub(super) struct SurfaceBundle {
+     pub client: client::wl_surface::WlSurface,
+@@ -94,20 +105,32 @@ impl Event for SurfaceEvents {
+             SurfaceEvents::FractionalScale(event) => match event {
                  wp_fractional_scale_v1::Event::PreferredScale { scale } => {
                      let state = state.deref_mut();
++                    let raw = scale as f64 / 120.0;
++                    // preferred_scale 早于 wl_surface.enter 到达，此刻还不知道这张
++                    // surface 在哪个输出上，先把原始值记在 surface 上留给 enter 用。
++                    let _ = state.world.insert(target, (PreferredScaleFactor(raw),));
                      let entity = state.world.entity(target).unwrap();
 -                    let factor = scale as f64 / 120.0;
-+                    let raw = scale as f64 / 120.0;
 +                    let max_scale = max_output_scale(&state.world).max(raw);
 +                    let factor = if max_scale != raw || state.mixed_scale {
 +                        max_scale
@@ -24,7 +46,18 @@ index acf51d9..1b94751 100644
                      );
  
                      entity.get::<&mut SurfaceScaleFactor>().unwrap().0 = factor;
-@@ -231,7 +238,19 @@ impl SurfaceEvents {
+ 
++                    // 登记到输出上用 raw，不能用 factor：factor 已被抬到全局最大值，
++                    // 回写会让这个最大值自我强化、再也降不下来。
+                     if let Some(OnOutput(output)) = entity.get::<&OnOutput>().as_deref().copied() {
+                         if update_output_scale(
+                             state.world.query_one(output).unwrap(),
+-                            OutputScaleFactor::Fractional(factor),
++                            OutputScaleFactor::Fractional(raw),
+                         ) {
+                             state.updated_outputs.push(output);
+                         }
+@@ -231,20 +254,44 @@ impl SurfaceEvents {
  
                      if state.fractional_scale.is_none() {
                          let output_scale = output_data.get::<&OutputScaleFactor>().unwrap().get();
@@ -45,7 +78,34 @@ index acf51d9..1b94751 100644
                          drop(query);
                          update_surface_viewport(
                              &state.world,
-@@ -1023,6 +1042,20 @@ impl OutputScaleFactor {
+                             state.world.query_one(target).unwrap(),
+                         );
+                     } else {
+-                        let scale = data.get::<&SurfaceScaleFactor>().unwrap();
++                        // 用合成器给的原始 preferred scale 登记输出，而不是 surface 上的
++                        // SurfaceScaleFactor（那是已经抬到全局最大值的副本）。
++                        let raw = match data.get::<&PreferredScaleFactor>() {
++                            Some(preferred) => preferred.0,
++                            None => data.get::<&SurfaceScaleFactor>().unwrap().0,
++                        };
+                         if update_output_scale(
+                             state.world.query_one(on_output.0).unwrap(),
+-                            OutputScaleFactor::Fractional(scale.0),
++                            OutputScaleFactor::Fractional(raw),
+                         ) {
+                             state.updated_outputs.push(on_output.0);
+                         }
++                        // 登记完，全局最大值可能变小（整数的向上取整被真实值取代），
++                        // surface 自己的 X11 scale 必须跟着重算，否则窗口仍按偏大的
++                        // scale 尺寸化、超出所在输出，右下角点不到。
++                        let max_scale = max_output_scale(&state.world).max(raw);
++                        if max_scale != raw || state.mixed_scale {
++                            data.get::<&mut SurfaceScaleFactor>().unwrap().0 = max_scale;
++                        }
+                     }
+                 }
+                 cmd.insert_one(target, on_output);
+@@ -1023,6 +1070,20 @@ impl OutputScaleFactor {
      }
  }
  
@@ -66,7 +126,7 @@ index acf51d9..1b94751 100644
  #[must_use]
  fn update_output_scale(
      mut output_scale: hecs::QueryOne<&mut OutputScaleFactor>,
-@@ -1107,6 +1140,26 @@ fn update_output_offset(
+@@ -1107,6 +1168,26 @@ fn update_output_offset(
              return;
          }
  
@@ -93,7 +153,7 @@ index acf51d9..1b94751 100644
          let global_offset = &mut state.global_output_offset;
          let mut maybe_update_dimension = |value, dim: &mut GlobalOutputOffsetDimension| {
              if value < dim.value {
-@@ -1319,6 +1372,17 @@ impl OutputEvent {
+@@ -1319,6 +1400,17 @@ impl OutputEvent {
                  height,
                  refresh,
              } => {
@@ -111,7 +171,7 @@ index acf51d9..1b94751 100644
                  let Ok((output, dimensions)) = state
                      .world
                      .query_one_mut::<(&WlOutput, &mut OutputDimensions)>(target)
-@@ -1326,15 +1390,25 @@ impl OutputEvent {
+@@ -1326,15 +1418,25 @@ impl OutputEvent {
                      return;
                  };
  
