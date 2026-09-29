@@ -1,7 +1,7 @@
 { ... }:
 {
   # --------------------------
-  # 多屏 HiDPI 环境变量（mixed DPI workaround）
+  # X11 工具链环境变量（多屏 HiDPI）
   # --------------------------
   environment.variables = {
     # 全局光标大小（与 xwayland-conf 的 cursorSize 保持一致）
