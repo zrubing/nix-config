@@ -73,36 +73,9 @@ in
     };
 
     programs.niri.settings = {
-      outputs = {
-        # ── 多屏配置 ──
-        # 常规的每屏 scale / mode / position，不是 mixed-DPI workaround：
-        # X11 只有一个全局 scale，混合 DPI 的处理在 xwayland-satellite 侧
-        # （补丁取最大 scale，见 overlays/xwayland-satellite）。
-        "eDP-1" = {
-          scale = 1.75;
-          mode = {
-            width = 2880;
-            height = 1800;
-            refresh = 120.003;
-          };
-          position = {
-            x = 0;
-            y = 0;
-          };
-        };
-        "HDMI-A-1" = {
-          scale = 1.0;
-          mode = {
-            width = 1920;
-            height = 1080;
-            refresh = 60.0;
-          };
-          position = {
-            x = -1920;
-            y = 0;
-          };
-        };
-      };
+      # 输出配置的唯一来源（含每屏 scale/mode/position、X11 全局 scale 的推导）：
+      # modules/home/niri 的 internal.desktop.outputs。
+      outputs = config.${namespace}.desktop.outputs;
 
       layout = {
         always-center-single-column = true;
