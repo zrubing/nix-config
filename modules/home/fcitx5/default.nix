@@ -45,13 +45,19 @@ in
 
   config = lib.mkIf cfg.enable {
 
-    # WeChat runs through Xwayland and uses XIM. Start fcitx only after the
-    # X server is ready, otherwise its XIM connection may silently disappear
-    # and WeChat will keep accepting Chinese input without showing candidates.
+    # fcitx5 只在进程构造时建立一次 X11 连接（xcbmodule.cpp 的 XCBModule 构造函数
+    # 调用 openConnection），Xwayland 换进程后它不会自行重连 —— 于是 X11 应用就永久
+    # 失去输入法。而且"事后重连"救不回来：已经建立的输入上下文绑死在旧的 X11 UI 上，
+    # 2026-09-29 实测 `fcitx5-remote -x` 重连成功后（日志有 Created classicui for x11
+    # display::0）微信依旧弹不出候选窗，重启 fcitx5 才立刻恢复。
+    # 所以让 fcitx5 的生命周期跟随 Xwayland：After 保证启动顺序，PartOf 保证
+    # xwayland-satellite 重启时（每次 switch 改到该单元、或它崩溃重启）fcitx5 一起重启。
+    # 用 Wants 而不是 Requires：fcitx5 还要服务 Wayland 应用，不该被 Xwayland 拖死。
     systemd.user.services.fcitx5-daemon = {
       Unit = {
         After = lib.mkAfter [ "xwayland-satellite.service" ];
         Wants = [ "xwayland-satellite.service" ];
+        PartOf = [ "xwayland-satellite.service" ];
       };
       Install.WantedBy = lib.mkForce [ "graphical-session.target" ];
       Service = {
@@ -98,7 +104,11 @@ in
         # Make Fcitx5 work on XWayland (e.g. wechat)
         # Niri used xwayland-satellite doesn't support IME yet.
         # https://github.com/Supreeeme/xwayland-satellite/issues/92#issuecomment-2881949607
+        # [XIM] 组头不能省：fcitx5 的 ini 解析器遇到组头之前的键会挂到配置根
+        # （iniparser.cpp: readFromIni 里 currentGroup 为空时走 config.get(name)），
+        # 而 xim 插件读的是 XIM/UseOnTheSpot，少了组头这行会被静默丢弃。
         "fcitx5/conf/xim.conf".text = ''
+          [XIM]
           UseOnTheSpot=True
         '';
 
