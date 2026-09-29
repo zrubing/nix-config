@@ -65,7 +65,7 @@ in
       Service = {
         Type = "notify";
         NotifyAccess = "all";
-        ExecStart = "${lib.getExe pkgs.xwayland-satellite-unstable} :0";
+        ExecStart = "${lib.getExe pkgs.xwayland-satellite} :0";
         StandardOutput = "journal";
         Restart = "on-failure";
         Environment = "RUST_BACKTRACE=1 RUST_LOG=trace";
