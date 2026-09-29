@@ -1,5 +1,5 @@
 diff --git a/src/server/event.rs b/src/server/event.rs
-index acf51d9..1d2ef73 100644
+index acf51d9..d1e00a9 100644
 --- a/src/server/event.rs
 +++ b/src/server/event.rs
 @@ -51,6 +51,17 @@ use wayland_server::protocol::{
@@ -105,10 +105,162 @@ index acf51d9..1d2ef73 100644
                      }
                  }
                  cmd.insert_one(target, on_output);
-@@ -1023,6 +1070,20 @@ impl OutputScaleFactor {
+@@ -1023,6 +1070,172 @@ impl OutputScaleFactor {
      }
  }
  
++/// 这个输出的 X11 坐标相对合成器逻辑坐标的倍数：全局最大 scale / 它自己的 scale。
++///
++/// 混合 DPI 下 X11 只有一个全局 scale，低 scale 的输出要按这个比例放大，让所有
++/// 输出的 X11 像素落在同一个坐标系里。
++fn output_scale_ratio(world: &World, output: Entity) -> f64 {
++    let my_scale = world
++        .get::<&OutputScaleFactor>(output)
++        .map(|scale| scale.get())
++        .unwrap_or(1.0);
++    max_output_scale(world).max(my_scale) / my_scale
++}
++
++/// 把合成器给的逻辑坐标换算成 X11 坐标。
++fn scaled_output_pos(world: &World, output: Entity, x: i32, y: i32) -> (i32, i32) {
++    let ratio = output_scale_ratio(world, output);
++    if (ratio - 1.0).abs() > f64::EPSILON {
++        (
++            (x as f64 * ratio).round() as i32,
++            (y as f64 * ratio).round() as i32,
++        )
++    } else {
++        (x, y)
++    }
++}
++
++/// 把一个输出的 x 或 y 并进全局最小偏移，返回是否发生了变化。
++fn consider_output_offset(value: i32, output: Entity, dim: &mut GlobalOutputOffsetDimension) -> bool {
++    if value < dim.value {
++        *dim = GlobalOutputOffsetDimension {
++            owner: Some(output),
++            value,
++        };
++        true
++    } else if dim.owner == Some(output) && value > dim.value {
++        // 另一个输出的位置可能比新值更小，交给调用方重算
++        dim.owner = None;
++        true
++    } else {
++        false
++    }
++}
++
++/// 全局 scale 变化后，把所有输出的 X11 几何按新值重算并重新播给 Xwayland。
++///
++/// 输出的 X11 尺寸和位置都是「合成器给的原始值 × 当期全局 scale」算好后缓存的。
++/// 而合成器给的整数 `wl_output.scale` 是向上取整的（scale 1.75 报成 2），所以启动
++/// 瞬间只有整数可用时算出的全局 scale 偏大，等第一张 surface 报出真实的
++/// fractional scale 才降下来。此时若只改全局 scale 而不重算输出，就会留下一个比例
++/// 差：窗口按新 scale 尺寸化，输出却仍按旧 scale 申报，多出来的那条区域不属于任何
++/// 显示器、鼠标永远到不了 —— 表现就是窗口的边角点不中。
++pub(super) fn rescale_outputs(
++    world: &World,
++    global_output_offset: &mut GlobalOutputOffset,
++    connection: &mut impl XConnection,
++) {
++    let outputs: Vec<Entity> = world
++        .query::<&OutputDimensions>()
++        .iter()
++        .map(|(output, _)| output)
++        .collect();
++
++    // 1) 尺寸：按新比例重算存下来的原始 mode，整个 mode 列表重新播一遍
++    for output in &outputs {
++        let ratio = output_scale_ratio(world, *output);
++        let Ok(server) = world.get::<&WlOutput>(*output) else {
++            continue;
++        };
++        let Ok(mut dimensions) = world.get::<&mut OutputDimensions>(*output) else {
++            continue;
++        };
++
++        for (flags, width, height, refresh) in dimensions.modes.clone() {
++            let scaled_width = (width as f64 * ratio).round() as i32;
++            let scaled_height = (height as f64 * ratio).round() as i32;
++            if flags
++                .into_result()
++                .is_ok_and(|f| f.contains(client::wl_output::Mode::Current))
++            {
++                dimensions.width = scaled_width;
++                dimensions.height = scaled_height;
++            }
++            server.mode(convert_wenum(flags), scaled_width, scaled_height, refresh);
++        }
++
++        if let Ok(xdg) = world.get::<&XdgOutputServer>(*output) {
++            if dimensions.rotated_90 {
++                xdg.logical_size(dimensions.height, dimensions.width);
++            } else {
++                xdg.logical_size(dimensions.width, dimensions.height);
++            }
++        }
++    }
++
++    // 2) 位置：从原始逻辑坐标重算，并重新聚合全局最小偏移
++    *global_output_offset = GlobalOutputOffset {
++        x: GlobalOutputOffsetDimension {
++            owner: None,
++            value: i32::MAX,
++        },
++        y: GlobalOutputOffsetDimension {
++            owner: None,
++            value: i32::MAX,
++        },
++    };
++    for output in &outputs {
++        let Ok(dimensions) = world.get::<&OutputDimensions>(*output) else {
++            continue;
++        };
++        let (raw_x, raw_y) = (dimensions.raw_x, dimensions.raw_y);
++        drop(dimensions);
++
++        let (x, y) = scaled_output_pos(world, *output, raw_x, raw_y);
++        if let Ok(mut dimensions) = world.get::<&mut OutputDimensions>(*output) {
++            dimensions.x = x;
++            dimensions.y = y;
++        }
++        consider_output_offset(x, *output, &mut global_output_offset.x);
++        consider_output_offset(y, *output, &mut global_output_offset.y);
++    }
++
++    // 3) 推给 Xwayland：位置 + 各自窗口的 output offset
++    for output in &outputs {
++        update_global_output_offset(*output, global_output_offset, world, connection);
++    }
++
++    // 4) 已存在的 X11 窗口，它们的 SurfaceScaleFactor 也是按旧全局 scale 定的；
++    //    不刷新的话下一次 reconfigure 仍会按偏大的 scale 尺寸化。
++    let max_scale = max_output_scale(world);
++    let surfaces: Vec<Entity> = world
++        .query::<(&PreferredScaleFactor, &WindowData)>()
++        .iter()
++        .map(|(surface, _)| surface)
++        .collect();
++    for surface in surfaces {
++        let raw = match world.get::<&PreferredScaleFactor>(surface) {
++            Ok(raw) => raw.0,
++            Err(_) => continue,
++        };
++        let scale = max_scale.max(raw);
++        {
++            let Ok(mut factor) = world.get::<&mut SurfaceScaleFactor>(surface) else {
++                continue;
++            };
++            if (factor.0 - scale).abs() <= f64::EPSILON {
++                continue;
++            }
++            factor.0 = scale;
++        }
++        update_surface_viewport(world, world.query_one(surface).unwrap());
++    }
++}
++
 +/// Largest scale among the currently known outputs.
 +///
 +/// X11 only has one global scale, so in a mixed-DPI setup every X11 client gets the
@@ -126,57 +278,79 @@ index acf51d9..1d2ef73 100644
  #[must_use]
  fn update_output_scale(
      mut output_scale: hecs::QueryOne<&mut OutputScaleFactor>,
-@@ -1107,6 +1168,26 @@ fn update_output_offset(
+@@ -1066,6 +1279,12 @@ pub(super) struct OutputDimensions {
+     pub width: i32,
+     pub height: i32,
+     rotated_90: bool,
++    // 以下是合成器给的原始值，没有乘全局 scale。x/y/width/height 是「原始值 ×
++    // 当期全局 scale」算好后缓存的，而全局 scale 会变（见 rescale_outputs），
++    // 所以原始值得留着才能重算。
++    raw_x: i32,
++    raw_y: i32,
++    modes: Vec<(WEnum<client::wl_output::Mode>, i32, i32, i32)>,
+ }
+ 
+ impl Default for OutputDimensions {
+@@ -1084,6 +1303,9 @@ impl Default for OutputDimensions {
+             width: 0,
+             height: 0,
+             rotated_90: false,
++            raw_x: 0,
++            raw_y: 0,
++            modes: Vec::new(),
+         }
+     }
+ }
+@@ -1107,17 +1329,16 @@ fn update_output_offset(
              return;
          }
  
 +        // Everything X11 sees lives in the coordinate space of the largest output
 +        // scale, so output positions have to be scaled by max_scale / this_scale.
-+        let (x, y) = {
-+            let my_scale = state
-+                .world
-+                .get::<&OutputScaleFactor>(output)
-+                .map(|scale| scale.get())
-+                .unwrap_or(1.0);
-+            let max_scale = max_output_scale(&state.world).max(my_scale);
-+            if (max_scale - my_scale).abs() > f64::EPSILON {
-+                let ratio = max_scale / my_scale;
-+                (
-+                    (x as f64 * ratio).round() as i32,
-+                    (y as f64 * ratio).round() as i32,
-+                )
-+            } else {
-+                (x, y)
-+            }
-+        };
++        // 原始逻辑坐标留一份，全局 scale 变化时据此重算（见 rescale_outputs）。
++        dimensions.raw_x = x;
++        dimensions.raw_y = y;
++        let (x, y) = scaled_output_pos(&state.world, output, x, y);
 +
          let global_offset = &mut state.global_output_offset;
          let mut maybe_update_dimension = |value, dim: &mut GlobalOutputOffsetDimension| {
-             if value < dim.value {
-@@ -1319,6 +1400,17 @@ impl OutputEvent {
+-            if value < dim.value {
+-                *dim = GlobalOutputOffsetDimension {
+-                    owner: Some(output),
+-                    value,
+-                };
+-                state.global_offset_updated = true;
+-            } else if dim.owner == Some(output) && value > dim.value {
+-                // Another output's position could be less than the new value, so recalculate
+-                dim.owner = None;
++            if consider_output_offset(value, output, dim) {
+                 state.global_offset_updated = true;
+             }
+         };
+@@ -1319,6 +1540,12 @@ impl OutputEvent {
                  height,
                  refresh,
              } => {
 +                // Output dimensions are what X11 clients size themselves against, so in
 +                // a mixed-DPI setup report them in the largest output scale's space.
-+                let my_scale = state
-+                    .world
-+                    .get::<&OutputScaleFactor>(target)
-+                    .map(|scale| scale.get())
-+                    .unwrap_or(1.0);
-+                let max_scale = max_output_scale(&state.world).max(my_scale);
-+                let mixed = (max_scale - my_scale).abs() > f64::EPSILON;
-+                let ratio = if mixed { max_scale / my_scale } else { 1.0 };
++                let ratio = output_scale_ratio(&state.world, target);
++                let scaled_width = (width as f64 * ratio).round() as i32;
++                let scaled_height = (height as f64 * ratio).round() as i32;
 +
                  let Ok((output, dimensions)) = state
                      .world
                      .query_one_mut::<(&WlOutput, &mut OutputDimensions)>(target)
-@@ -1326,15 +1418,25 @@ impl OutputEvent {
+@@ -1326,15 +1553,30 @@ impl OutputEvent {
                      return;
                  };
  
-+                let scaled_width = (width as f64 * ratio).round() as i32;
-+                let scaled_height = (height as f64 * ratio).round() as i32;
++                // 原始 mode 存一份：全局 scale 变化时 rescale_outputs 要据此重算，
++                // 并把整个 mode 列表按新比例重新播给 Xwayland。
++                if !dimensions.modes.iter().any(|mode| {
++                    mode.0 == flags && mode.1 == width && mode.2 == height && mode.3 == refresh
++                }) {
++                    dimensions.modes.push((flags, width, height, refresh));
++                }
 +
                  if flags
                      .into_result()
@@ -187,7 +361,7 @@ index acf51d9..1d2ef73 100644
 -                    debug!("{} dimensions: {width}x{height}", output.id());
 +                    dimensions.width = scaled_width;
 +                    dimensions.height = scaled_height;
-+                    if mixed {
++                    if (ratio - 1.0).abs() > f64::EPSILON {
 +                        debug!(
 +                            "{} dimensions: {width}x{height} -> {scaled_width}x{scaled_height} (mixed scale, ratio {ratio:.2})",
 +                            output.id(),
@@ -202,7 +376,7 @@ index acf51d9..1d2ef73 100644
              Event::Scale { factor } => {
                  debug!(
 diff --git a/src/server/mod.rs b/src/server/mod.rs
-index a436331..933ba9f 100644
+index a436331..46728e3 100644
 --- a/src/server/mod.rs
 +++ b/src/server/mod.rs
 @@ -491,6 +491,7 @@ pub struct InnerServerState<S: X11Selection> {
@@ -221,30 +395,69 @@ index a436331..933ba9f 100644
              decoration_manager,
              world,
          };
-@@ -726,19 +728,20 @@ impl<C: XConnection> ServerState<C> {
-                 for (_, output_scale) in outputs {
-                     if output_scale.get() != scale {
-                         mixed_scale = true;
+@@ -716,29 +718,45 @@ impl<C: XConnection> ServerState<C> {
+                 }
+             }
+ 
+-            let mut mixed_scale = false;
+-            let mut scale;
++            // 全局 scale 变了就得重算所有输出的 X11 几何，先记下旧值。
++            let previous_scale = self.current_scale;
++            let new_scale = {
++                let mut mixed_scale = false;
++                let mut scale = None;
+ 
+-            let mut outputs = self.world.query_mut::<&OutputScaleFactor>().into_iter();
+-            if let Some((_, output_scale)) = outputs.next() {
+-                scale = output_scale.get();
++                let mut outputs = self.world.query_mut::<&OutputScaleFactor>().into_iter();
++                if let Some((_, output_scale)) = outputs.next() {
++                    let mut s = output_scale.get();
+ 
+-                for (_, output_scale) in outputs {
+-                    if output_scale.get() != scale {
+-                        mixed_scale = true;
 -                        scale = scale.min(output_scale.get());
-+                        scale = scale.max(output_scale.get());
++                    for (_, output_scale) in outputs {
++                        if output_scale.get() != s {
++                            mixed_scale = true;
++                            s = s.max(output_scale.get());
++                        }
                      }
-                 }
+-                }
  
-                 if mixed_scale {
-                     warn!(
+-                if mixed_scale {
+-                    warn!(
 -                        "Mixed output scales detected, choosing to give apps the smallest detected scale ({scale}x)"
-+                        "Mixed output scales detected, giving X11 clients the largest scale ({scale}x). Lower-DPI outputs will downsample."
-                     );
-                 }
+-                    );
+-                }
++                    if mixed_scale {
++                        warn!(
++                            "Mixed output scales detected, giving X11 clients the largest scale ({s}x). Lower-DPI outputs will downsample."
++                        );
++                    }
  
-                 debug!("Using new scale {scale}");
+-                debug!("Using new scale {scale}");
++                    debug!("Using new scale {s}");
++                    scale = Some((s, mixed_scale));
++                }
++                scale
++            };
++            if let Some((scale, mixed_scale)) = new_scale {
                  self.new_scale = Some(scale);
                  self.current_scale = scale;
 +                self.mixed_scale = mixed_scale;
++
++                if (scale - previous_scale).abs() > f64::EPSILON {
++                    // 直接 &self.world 与 &mut self.connection 会分别走 Deref 和
++                    // DerefMut 借走整个 self，这里按字段拆开。
++                    let Self { inner, connection } = self;
++                    rescale_outputs(&inner.world, &mut inner.global_output_offset, connection);
++                }
              }
          }
  
-@@ -1126,8 +1129,8 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+@@ -1126,8 +1144,8 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
                      ((event.y() as i32 - win.output_offset.y) as f64 / scale_factor.0) as i32,
                  );
                  popup.positioner.set_size(
@@ -255,7 +468,7 @@ index a436331..933ba9f 100644
                  );
                  popup.popup.reposition(&popup.positioner, 0);
              }
-@@ -1609,32 +1612,45 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+@@ -1609,32 +1627,45 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
              .unwrap();
          let (parent_window, parent_scale, parent_role) = parent_query.get().unwrap();
          let parent_dims = parent_window.attrs.dims;
