@@ -1,14 +1,14 @@
-{ ... }:
+{ config, namespace, ... }:
 
 let
   # ── 多屏 X11 DPI ──
-  # X11 只有一个全局 scale，xwayland-satellite 报的是所有输出里的最大值
-  # （补丁行为，见 overlays/xwayland-satellite）：主屏 eDP-1 scale = 1.75。
-  # 因此匹配的 dpi = 96 × 1.75 = 168。
+  # X11 全局 scale = 所有输出 scale 的最大值（补丁行为，见 overlays/xwayland-satellite），
+  # 从 internal.desktop.outputs 派生，不要在别处再写一份字面量。
+  # 匹配的 dpi = 96 × scale（当前 1.75 → 168）。
   # 副屏 HDMI-A-1（scale 1.0）复用同一套 X11 像素、由 niri 降采样，不单独设 dpi。
-  # 上游自 0.8.3 起（PR #477）也会按该 scale 自己设 Xft.dpi = 168，
+  # 上游自 0.8.3 起（PR #477）也会按该 scale 自己设 Xft.dpi，
   # 这里显式设成同一个值，不依赖上游行为。
-  xftDpi = 168;
+  xftDpi = builtins.floor (config.${namespace}.desktop.x11Scale * 96);
   cursorSize = 32;
 in
 {
