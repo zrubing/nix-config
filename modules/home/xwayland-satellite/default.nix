@@ -8,7 +8,6 @@
 }:
 let
   cfg = config.services.xwayland-satellite;
-  cfg-xwayland = config.xwayland;
   hm = config.lib;
 in
 {
@@ -45,7 +44,11 @@ in
 
       Service = {
         Type = "oneshot";
-        ExecStart = "/usr/bin/env 'DISPLAY=:0' ${pkgs.xrdb}/bin/xrdb ${cfg-xwayland.x-resources.source}";
+        # 装载 home-manager 生成的那一份 ~/.Xresources（唯一来源，见
+        # modules/home/xwayland-conf）。xrdb 默认动作就是 -load（整体替换），
+        # 显式写出来是为了说明这里会清掉 Xwayland 自己设的 Xft.dpi —— 两者取值
+        # 相同（都是 96 × 全局 scale），所以不冲突。
+        ExecStart = "/usr/bin/env 'DISPLAY=:0' ${pkgs.xrdb}/bin/xrdb -load ${config.xresources.path}";
         Environment = "DISPLAY=:0";
       };
     };
