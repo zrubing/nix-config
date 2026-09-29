@@ -1,8 +1,6 @@
-diff --git a/src/server/event.rs b/src/server/event.rs
-index acf51d9..d1e00a9 100644
 --- a/src/server/event.rs
 +++ b/src/server/event.rs
-@@ -51,6 +51,17 @@ use wayland_server::protocol::{
+@@ -51,6 +51,17 @@
  #[derive(Copy, Clone)]
  pub(super) struct SurfaceScaleFactor(pub f64);
  
@@ -20,7 +18,7 @@ index acf51d9..d1e00a9 100644
  #[derive(hecs::Bundle)]
  pub(super) struct SurfaceBundle {
      pub client: client::wl_surface::WlSurface,
-@@ -94,20 +105,32 @@ impl Event for SurfaceEvents {
+@@ -94,20 +105,32 @@
              SurfaceEvents::FractionalScale(event) => match event {
                  wp_fractional_scale_v1::Event::PreferredScale { scale } => {
                      let state = state.deref_mut();
@@ -57,7 +55,7 @@ index acf51d9..d1e00a9 100644
                          ) {
                              state.updated_outputs.push(output);
                          }
-@@ -231,20 +254,44 @@ impl SurfaceEvents {
+@@ -231,20 +254,44 @@
  
                      if state.fractional_scale.is_none() {
                          let output_scale = output_data.get::<&OutputScaleFactor>().unwrap().get();
@@ -105,7 +103,7 @@ index acf51d9..d1e00a9 100644
                      }
                  }
                  cmd.insert_one(target, on_output);
-@@ -1023,6 +1070,172 @@ impl OutputScaleFactor {
+@@ -1023,6 +1070,172 @@
      }
  }
  
@@ -278,7 +276,7 @@ index acf51d9..d1e00a9 100644
  #[must_use]
  fn update_output_scale(
      mut output_scale: hecs::QueryOne<&mut OutputScaleFactor>,
-@@ -1066,6 +1279,12 @@ pub(super) struct OutputDimensions {
+@@ -1066,6 +1279,12 @@
      pub width: i32,
      pub height: i32,
      rotated_90: bool,
@@ -291,7 +289,7 @@ index acf51d9..d1e00a9 100644
  }
  
  impl Default for OutputDimensions {
-@@ -1084,6 +1303,9 @@ impl Default for OutputDimensions {
+@@ -1084,6 +1303,9 @@
              width: 0,
              height: 0,
              rotated_90: false,
@@ -301,7 +299,7 @@ index acf51d9..d1e00a9 100644
          }
      }
  }
-@@ -1107,17 +1329,16 @@ fn update_output_offset(
+@@ -1107,17 +1329,16 @@
              return;
          }
  
@@ -327,7 +325,7 @@ index acf51d9..d1e00a9 100644
                  state.global_offset_updated = true;
              }
          };
-@@ -1319,6 +1540,12 @@ impl OutputEvent {
+@@ -1319,6 +1540,12 @@
                  height,
                  refresh,
              } => {
@@ -340,7 +338,7 @@ index acf51d9..d1e00a9 100644
                  let Ok((output, dimensions)) = state
                      .world
                      .query_one_mut::<(&WlOutput, &mut OutputDimensions)>(target)
-@@ -1326,15 +1553,30 @@ impl OutputEvent {
+@@ -1326,15 +1553,30 @@
                      return;
                  };
  
@@ -375,11 +373,9 @@ index acf51d9..d1e00a9 100644
              }
              Event::Scale { factor } => {
                  debug!(
-diff --git a/src/server/mod.rs b/src/server/mod.rs
-index a436331..46728e3 100644
 --- a/src/server/mod.rs
 +++ b/src/server/mod.rs
-@@ -491,6 +491,7 @@ pub struct InnerServerState<S: X11Selection> {
+@@ -491,6 +491,7 @@
      updated_outputs: Vec<Entity>,
      new_scale: Option<f64>,
      current_scale: f64,
@@ -387,7 +383,7 @@ index a436331..46728e3 100644
  }
  
  impl<S: X11Selection> ServerState<NoConnection<S>> {
-@@ -600,6 +601,7 @@ impl<S: X11Selection> ServerState<NoConnection<S>> {
+@@ -600,6 +601,7 @@
              updated_outputs: Vec::new(),
              new_scale: None,
              current_scale: 1.0,
@@ -395,7 +391,7 @@ index a436331..46728e3 100644
              decoration_manager,
              world,
          };
-@@ -716,29 +718,45 @@ impl<C: XConnection> ServerState<C> {
+@@ -716,29 +718,45 @@
                  }
              }
  
@@ -406,23 +402,30 @@ index a436331..46728e3 100644
 +            let new_scale = {
 +                let mut mixed_scale = false;
 +                let mut scale = None;
- 
--            let mut outputs = self.world.query_mut::<&OutputScaleFactor>().into_iter();
--            if let Some((_, output_scale)) = outputs.next() {
--                scale = output_scale.get();
++
 +                let mut outputs = self.world.query_mut::<&OutputScaleFactor>().into_iter();
 +                if let Some((_, output_scale)) = outputs.next() {
 +                    let mut s = output_scale.get();
- 
--                for (_, output_scale) in outputs {
--                    if output_scale.get() != scale {
--                        mixed_scale = true;
--                        scale = scale.min(output_scale.get());
++
 +                    for (_, output_scale) in outputs {
 +                        if output_scale.get() != s {
 +                            mixed_scale = true;
 +                            s = s.max(output_scale.get());
 +                        }
++                    }
+ 
+-            let mut outputs = self.world.query_mut::<&OutputScaleFactor>().into_iter();
+-            if let Some((_, output_scale)) = outputs.next() {
+-                scale = output_scale.get();
+-
+-                for (_, output_scale) in outputs {
+-                    if output_scale.get() != scale {
+-                        mixed_scale = true;
+-                        scale = scale.min(output_scale.get());
++                    if mixed_scale {
++                        warn!(
++                            "Mixed output scales detected, giving X11 clients the largest scale ({s}x). Lower-DPI outputs will downsample."
++                        );
                      }
 -                }
  
@@ -430,17 +433,11 @@ index a436331..46728e3 100644
 -                    warn!(
 -                        "Mixed output scales detected, choosing to give apps the smallest detected scale ({scale}x)"
 -                    );
--                }
-+                    if mixed_scale {
-+                        warn!(
-+                            "Mixed output scales detected, giving X11 clients the largest scale ({s}x). Lower-DPI outputs will downsample."
-+                        );
-+                    }
- 
--                debug!("Using new scale {scale}");
 +                    debug!("Using new scale {s}");
 +                    scale = Some((s, mixed_scale));
-+                }
+                 }
+-
+-                debug!("Using new scale {scale}");
 +                scale
 +            };
 +            if let Some((scale, mixed_scale)) = new_scale {
@@ -457,7 +454,7 @@ index a436331..46728e3 100644
              }
          }
  
-@@ -1126,8 +1144,8 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+@@ -1126,8 +1144,8 @@
                      ((event.y() as i32 - win.output_offset.y) as f64 / scale_factor.0) as i32,
                  );
                  popup.positioner.set_size(
@@ -468,7 +465,89 @@ index a436331..46728e3 100644
                  );
                  popup.popup.reposition(&popup.positioner, 0);
              }
-@@ -1609,32 +1627,45 @@ impl<S: X11Selection + 'static> InnerServerState<S> {
+@@ -1464,29 +1482,24 @@
+         splash: bool,
+     ) -> ToplevelData {
+         let window = self.world.get::<&WindowData>(entity).unwrap();
++        // Copied out here because `window` (a world borrow guard) is dropped
++        // further down, before the world gets mutably borrowed.
++        let size_hints = window.attrs.size_hints.clone();
++        let window_dims = window.attrs.dims;
+         debug!(
+             "creating toplevel for {:?} fullscreen: {fullscreen:?}",
+             *self.world.get::<&x::Window>(entity).unwrap()
+         );
+ 
+         let toplevel = xdg.get_toplevel(&self.qh, entity);
+-        if let Some(hints) = &window.attrs.size_hints {
+-            if let Some(min) = &hints.min_size {
+-                toplevel.set_min_size(min.width, min.height);
+-            }
+-            if let Some(max) = &hints.max_size {
+-                toplevel.set_max_size(max.width, max.height);
+-            }
+-        }
+-        // Application splash windows are usually startup displays, so reporting their dimensions
+-        // as fixed has no downside. The upside is tiling Wayland compositors use fixed size as a
+-        // heurisitc to display those windows on a seperate floating level.
+-        // https://yalter.github.io/niri/Floating-Windows.html
+-        if splash {
+-            let dims = window.attrs.dims;
+-            toplevel.set_min_size(dims.width.into(), dims.height.into());
+-            toplevel.set_max_size(dims.width.into(), dims.height.into());
+-        }
++        // NOTE(mixed-dpi): the min/max size hints are NOT forwarded here anymore.
++        // They are X11 pixels while xdg_toplevel wants logical pixels, and the
++        // satellite decorations (whose titlebar height also shifts the numbers)
++        // are not known yet at this point. `event::update_size_hints` performs
++        // the conversion and is called below, once the toplevel data exists.
++        // Forwarding them raw here made the compositor read a window's minimum
++        // size as `hints.min_size` *logical* pixels; with a global scale of 1.75
++        // that is a minimum height larger than the entire screen.
+ 
+         let group = window.attrs.group.and_then(|win| {
+             let id = self.windows.get(&win).copied()?;
+@@ -1581,7 +1594,7 @@
+             b.run_on(&mut self.world);
+         }
+ 
+-        ToplevelData {
++        let toplevel_data = ToplevelData {
+             xdg: XdgSurfaceData {
+                 surface: xdg,
+                 configured: false,
+@@ -1593,7 +1606,30 @@
+                 wl: wl_decoration,
+                 satellite: sat_decoration,
+             },
++        };
++
++        // Forward the size hints now that the decorations are known, converting
++        // from X11 pixels to logical pixels exactly like the WM_NORMAL_HINTS
++        // change path does.
++        let mut scale_query = self.world.query_one::<&SurfaceScaleFactor>(entity).unwrap();
++        if let Some(scale_factor) = scale_query.get() {
++            let scale = scale_factor.0;
++            if splash {
++                // Application splash windows are usually startup displays, so reporting their
++                // dimensions as fixed has no downside. The upside is tiling Wayland compositors
++                // use fixed size as a heurisitc to display those windows on a seperate floating
++                // level.
++                // https://yalter.github.io/niri/Floating-Windows.html
++                let width = 1.max((window_dims.width as f64 / scale).ceil() as i32);
++                let height = 1.max((window_dims.height as f64 / scale).ceil() as i32);
++                toplevel_data.toplevel.set_min_size(width, height);
++                toplevel_data.toplevel.set_max_size(width, height);
++            } else if let Some(hints) = &size_hints {
++                event::update_size_hints(&toplevel_data, hints, scale);
++            }
+         }
++
++        toplevel_data
+     }
+ 
+     fn create_popup(&mut self, entity: Entity, xdg: XdgSurface, parent: x::Window) -> PopupData {
+@@ -1609,32 +1645,45 @@
              .unwrap();
          let (parent_window, parent_scale, parent_role) = parent_query.get().unwrap();
          let parent_dims = parent_window.attrs.dims;
