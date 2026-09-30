@@ -169,8 +169,8 @@ let
   # 用 `!!js process.env.APIPOST_MCP_TOKEN` 之类取密钥，而交互 shell 里没有这些变量
   # （默认 env 只覆盖 pi/codex 用的那批）→ 表达式求值成 undefined → MCP 条目的
   # headers 变成 {} → 撞 mcp-client 的 schema 校验 → 该条目不激活。
-  # 2026-09-28 实测：未 source 时 5 条 MCP（agent-docs/apipost/context7/figma/
-  # zai-mcp-server）全部 ValidationError。
+  # 2026-09-28 实测：未 source 时 MCP 条目（agent-docs/apipost/context7/figma）
+  # 全部 ValidationError。
   dshTui = pkgs.writeShellScriptBin "dsh-tui" ''
     declare -r env_file=${lib.escapeShellArg (if cfg.envFile != null then cfg.envFile else "/dev/null")}
     if [ -r "$env_file" ]; then

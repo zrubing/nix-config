@@ -266,51 +266,6 @@ rec {
       };
     };
 
-    # 智谱 Z.ai MCP（图像/视频理解等）。key 走 ZAI_CODING_CN_API_KEY
-    # （← sops anthropic/api_key，与 dsh.env 同一份值）。
-    zai-mcp-server = {
-      description = "Z.ai MCP（视觉/多模态，智谱 key，三方均 npx stdio）";
-      pi = {
-        type = "stdio";
-        command = "npx";
-        args = [
-          "-y"
-          "@z_ai/mcp-server"
-        ];
-        env = {
-          Z_AI_API_KEY = "\${ZAI_CODING_CN_API_KEY}";
-          Z_AI_MODE = "ZHIPU";
-        };
-      };
-      dsh = {
-        transport = "stdio";
-        command = "npx";
-        args = [
-          "-y"
-          "@z_ai/mcp-server"
-        ];
-        env = {
-          Z_AI_API_KEY = {
-            env = "ZAI_CODING_CN_API_KEY";
-          };
-          Z_AI_MODE = "ZHIPU";
-        };
-      };
-      codex = {
-        command = "npx";
-        args = [
-          "-y"
-          "@z_ai/mcp-server"
-        ];
-        env = {
-          Z_AI_API_KEY = {
-            sops = "anthropic/api_key";
-          };
-          Z_AI_MODE = "ZHIPU";
-        };
-      };
-    };
-
     # Figma 设计数据 MCP（Framelink / figma-developer-mcp）。Figma 官方远端
     # mcp.figma.com 只服务其 catalog 白名单客户端（实测 DCR 按 client_name 放行，
     # 仅 "Claude Code" / "Codex" 通过，pi / dsh / Cursor / VS Code 均 403），
