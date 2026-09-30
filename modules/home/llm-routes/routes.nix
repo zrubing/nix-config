@@ -4,11 +4,6 @@
 #   relay        —— dsh 与 pi 都声明这个 provider（dsh 走 cordis patch，
 #                   pi 走 models-overlay.json），字段必须一致，否则同一网关
 #                   两侧的 key / 模型集合 / 能力元数据会各自漂移。
-#   runinfraModelOverrides —— 两侧都要给 deepseek-v4-flash 同一个输出上限。
-#                   runinfra 的 provider 由 pi-runinfra-provider 扩展在运行时
-#                   注册，模型清单只有 dsh 需要（dsh 的 adapter 从扩展源码树
-#                   派生），故清单留在 dsh 模块，不在这里。
-#
 # 本文件只产出数据（含求值期校验），不做渲染：dsh 用它已有的 YAML emitter，
 # pi 用它自己的 schema 转换器。
 {
@@ -130,13 +125,4 @@ in
     ];
   };
 
-  # runinfra 唯一需要共享的事实：两侧给同一个模型同一个输出上限。
-  # 扩展 patch.json 给 deepseek-v4-flash 的 maxTokens 是 32768，而网关
-  # /v1/models 报 max_output_tokens=1048576、pi 侧既有 overlay 钉在 65536。
-  # dsh 的 adapter 把本值叠加到派生清单上，pi 直接放进 overlay。
-  runinfraModelOverrides = {
-    deepseek-v4-flash = {
-      maxTokens = 65536;
-    };
-  };
 }

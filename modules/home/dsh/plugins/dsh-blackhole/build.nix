@@ -9,7 +9,12 @@
 #     logic instead of a hand-ported snapshot. Upstream updates = re-pin the
 #     flake rev + rebuild.
 #   - adds a node_modules shim so bare @deepseek-ai/* imports resolve against
-#     the mounted dsh package's own dependency tree.
+#     the mounted dsh package's own dependency tree. Because the peer IS the
+#     runtime — exactly one copy, the kernel's — package.json declares it as
+#     `workspace:*`, the dsh-recognized token that app-boot's
+#     evaluatePluginCompatibility resolves to the running version. A literal
+#     range (the former "^0.1.0") goes stale at every dsh bump and gets the
+#     bundle disabled at startup with "incompatible with dsh <version>".
 #
 # Consumed by pkgs/dsh-local/default.nix, which wraps the result in a dsh bundle:
 #   blackholeAdapter = import ./plugins/dsh-blackhole/build.nix { inherit lib pkgs inputs kernelPatched; };

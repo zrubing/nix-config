@@ -11,11 +11,9 @@ let
   flakeLock = builtins.fromJSON (builtins.readFile ../../../flake.lock);
   guardrailsRev = flakeLock.nodes."pi-guardrails-src".locked.rev;
   guardrailsPackage = "git:github.com/zrubing/pi-guardrails#${guardrailsRev}";
-  # pi-runinfra-provider：RunInfra 网关 provider（DeepSeek V4 / Nemotron 3.5 / Qwen3.8）
-  # rev 由 flake input pi-runinfra-provider-src pin，flake.lock 更新时自动同步
-  # 注意：pi 的 git 包 pin ref 用 @ref 后缀（见 pi 文档 packages.md）
-  runinfraRev = flakeLock.nodes."pi-runinfra-provider-src".locked.rev;
-  runinfraPackage = "git:github.com/monotykamary/pi-runinfra-provider@${runinfraRev}";
+  # RunInfra provider 不再由上游 pi-runinfra-provider 包提供（2026-09-30 退役）：
+  # 它内嵌 models.json 快照且合并时永不删 id，网关改名后 pi 会一直展示旧 id，
+  # 与 dsh 漂移。现由本仓库的本地扩展读 dsh autosync 发布的 catalog。
 
   # 共享的 relay 路由事实（modules/home/llm-routes/routes.nix），与 dsh 侧同源。
   # baseUrl 不在共享声明里：pi 只对 apiKey / headers 做 "$VAR" env 插值，
@@ -78,6 +76,20 @@ let
       '  if (false) pi.on("session_before_compact", async (event, ctx) => {'
   '';
 
+  # ── MCP servers：统一源（modules/home/mcp-servers/servers.nix）的 pi 视图 ──
+  # pi 0.99 起内置 mcp 扩展直接支持 MCP（/mcp、codemode、OAuth 等），不再需要
+  # pi-mcp-adapter 包：两者都注册 /mcp 命令，装了插件内置 mcp 会拒绝加载
+  # （实测启动警告：extension registers command /mcp, built-in mcp was not loaded）。
+  mcpServers = import ../mcp-servers/servers.nix {
+    inherit lib pkgs namespace;
+    homeDirectory = config.home.homeDirectory;
+    # 内置 mcp 只对 env / headers 做 ${VAR} 插值，url 必须是合法 http(s)
+    # 字面量 → { sops = "…"; var = "…"; } 值在此换成 sops 占位符，
+    # 随下方 mcp.json 模板在激活期替换为明文。
+    piValue = { sops, ... }: config.sops.placeholder.${sops};
+  };
+  piMcpJson = builtins.toJSON { mcpServers = mcpServers.piServers; };
+
   # pi-blackhole 三个 memory worker 共用的模型（deepseek-v4-flash 便宜快，适合后台任务）
   # contextWindow 显式声明 1M，OM pipeline 会在调用前检查输入是否放得下
   # 注意：provider 与 id 是分开的字段，id 只写模型名（不带 provider 前缀），
@@ -90,7 +102,7 @@ let
   };
   piSettings = builtins.toJSON {
     packages = [
-      "npm:pi-mcp-adapter@2.18.0"
+      # MCP 由内置 mcp 扩展提供（/mcp、codemode），不装 pi-mcp-adapter。
       "npm:@howaboua/pi-codex-conversion@2.2.7"
       "npm:pi-blackhole@0.4.3"
       "npm:context-mode@1.0.169"
@@ -98,7 +110,7 @@ let
       "npm:pi-deepseek-search@1.0.15"
       # pi-deepseek-cache 不在此声明：其 P3 compaction 与 pi-blackhole 冲突（覆盖语义），
       # 改用 deepseekCacheExt 经本地扩展目录加载，理由见上方 deepseekCacheExt 注释。
-      runinfraPackage
+      # runinfra 不在此声明：见上文本地扩展。
       # NVIDIA NIM 网关 provider（integrate.api.nvidia.com/v1，100+ 模型，
       # 运行时 live discovery）。dsh 侧对应 data/nvidia-nim-models.json 静态
       # 快照（见 modules/home/dsh），升级时两边一起动。
@@ -109,18 +121,12 @@ let
   };
   # models.json overlay：非机密模型配置，与 agenix secrets(agents/pi/models.json) 深合并生成最终 models.json
   #（merge 逻辑见 modules/home/agenix/default.nix）。settings.json 不能放 providers，只能放这里。
-  # runinfra 是扩展注册 provider，models.json 里没有，故经此 overlay 叠加：
-  # 仅改 deepseek-v4-flash 的 maxTokens，其余字段保留、未知 id 静默忽略。
+  # runinfra 由本地扩展运行时注册，模型清单与 per-model 容量都来自 dsh 发布的
+  # catalog，这里不再叠加 modelOverrides（那份覆盖值只在 dsh 侧生效，随 catalog 传出）。
   piModelsOverlayJson = builtins.toJSON {
     providers = {
       # relay：字段全部来自 routes.nix；只有 baseUrl 仍需 age 密文提供。
       "${relayRoute.name}" = relayProvider;
-      # runinfra：provider 由 pi-runinfra-provider 扩展在运行时注册，故只叠加
-      # modelOverrides（两侧同一个输出上限）。不声明 models：pi 的 models 数组
-      # 按 id upsert 且会替换同名项，重复声明等于用静态快照冻结扩展的 live 发现。
-      runinfra = {
-        modelOverrides = llmRoutes.runinfraModelOverrides;
-      };
     };
   };
   # pi-blackhole 独立配置文件（不读 settings.json 的 observational-memory 块）
@@ -169,6 +175,11 @@ in
     # 故只 link index.ts，不动目录内其余运行时文件。
     home.file.".pi/agent/extensions/deepseek-cache/index.ts".source =
       "${deepseekCacheExt}/index.ts";
+    # RunInfra provider：本地薄扩展，只读 dsh autosync 发布的 catalog
+    # （~/.cache/llm/runinfra-models.json）。同步逻辑唯一实现在
+    # modules/home/dsh/plugins/autosync/lib/runinfra.js，pi 侧不重复实现。
+    home.file.".pi/agent/extensions/runinfra/index.ts".source =
+      ./extensions/runinfra/index.ts;
     # skills 声明已移到 modules/home/skills（共享 skill 模块）：同一份清单同时投放到
     # ~/.agents/skills（pi / DSH / Codex）与 ~/.claude/skills（Claude Code）。
     # git 权威源仍是 .pi/skill-sources/*；此处不再单独声明。
@@ -186,6 +197,17 @@ in
     sops.templates."pi-agents-md" = {
       path = "/home/${config.snowfallorg.user.name}/.pi/agent/AGENTS.md";
       content = builtins.readFile ./AGENTS.md + "\n\n" + config.sops.placeholder."agents/AGENTS.md";
+    };
+
+    # ~/.pi/agent/mcp.json：内置 mcp 读该文件（项目级 .pi/mcp.json 另算）。
+    # 整个文件走 sops 渲染的理由：agent-docs 的 url 内置 mcp 不做 ${VAR} 插值，
+    # 必须落成字面量，而仓库不放明文地址（见 mcp-servers/servers.nix 头部）。
+    # 副作用：pi mcp add / /mcp 面板对该文件的改动会在下次 switch 被覆盖——
+    # 增删 server 一律改 servers.nix 的 pi 视图。
+    sops.templates."pi-mcp-json" = {
+      path = "/home/${config.snowfallorg.user.name}/.pi/agent/mcp.json";
+      mode = "0600";
+      content = piMcpJson;
     };
 
     # nvidia-nim key：clan vars（nvidia-nim-api-key generator）→ home sops

@@ -50,6 +50,12 @@ in
         "https://cache.numtide.com"
         "https://attic.xuyh0120.win/lantian"
         "https://noctalia.cachix.org"
+
+        # dsh 打包仓（Moraxyc/deepseek-harness.nix）自己推的缓存。kernel 从源码构建
+        # 整个 monorepo，本地命中它才不用重建 76 个 derivation；dsh-tui 这类 bundle
+        # 的 pnpm 构建同样在里面。放末位：它只覆盖 dsh 一族，热路径（nixpkgs）先命中
+        # cache.nixos.org，不必让每个 path 都先问一次小缓存。
+        "https://deepseek-harness-nix.cachix.org"
       ];
 
       trusted-public-keys = [
@@ -60,6 +66,7 @@ in
         "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
         "lantian:EeAUQ+W+6r7EtwnmYjeVwx5kOGEBpjlBfPlzGlTNvHc="
         "noctalia.cachix.org-1:pCOR47nnMEo5thcxNDtzWpOxNFQsBRglJzxWPp3dkU4="
+        "deepseek-harness-nix.cachix.org-1:5NrkwLN9veNMhiINtU5ZeV4isXFhFsOwn6Ms7J1M+TA="
       ];
     };
 

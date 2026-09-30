@@ -7,12 +7,15 @@
 }: let
   # 统一 MCP server 定义（pi / dsh / claude 共用源，见该文件头部注释）。
   # 新增或修改 server 只改 modules/home/mcp-servers/servers.nix 一处，
-  # pi 侧由此处的 piServers 渲染，dsh 侧由 modules/home/dsh 的同一份渲染。
-  # 密钥不写明文：pi 视图用 ${VAR} 引用（pi-mcp-adapter 对 env/headers/url
-  # 插值），值来自 shell 的 ~/.config/default.env（sops 渲染）。
+  # dsh 侧由 modules/home/dsh 渲染，pi 侧由 modules/home/pi 渲染成 sops 模板。
+  # 密钥不写明文：env/headers 用 ${VAR} 引用（值来自 shell 的
+  # ~/.config/default.env，sops 渲染）；url 这类内置客户端不插值的字段在
+  # servers.nix 里写 { sops = "…"; var = "…"; }，此处把 sops 值降级成 ${VAR}
+  # 引用（Claude Code 支持 url 插值），pi 侧则由 sops 模板渲染成明文。
   mcpServers = import ../mcp-servers/servers.nix {
     inherit lib pkgs namespace;
     homeDirectory = config.home.homeDirectory;
+    piValue = { var, ... }: "\${${var}}";
   };
 
   # 序列化为 JSON 供 activation 脚本 merge（替代 runCommand+jq 拼接）
@@ -24,7 +27,8 @@ in {
     ".claude/CLAUDE.md".source = ./CLAUDE.md;
   };
 
-  # 把 nix 管理的 mcpServers merge 进各 agent 的 MCP 配置文件。
+  # 把 nix 管理的 mcpServers merge 进 Claude Code / eca 的配置文件。
+  # （~/.pi/agent/mcp.json 不在此列：它是 pi 模块独占的 sops 模板。）
   # 合并顺序：用户手写条目 + agenix secret + nix 管理（后者优先级最高）。
   # ⚠️ 用 jq `+`（顶层键替换）而不是 `*`（深合并）：nix 管理的 server 整条替换，
   # 否则改配置形状时旧字段会残留（实测：agent-docs 从 stdio 桥改成远程 HTTP 后，
@@ -70,7 +74,6 @@ in {
     }
 
     merge_mcp_servers "$HOME/.claude.json"
-    merge_mcp_servers "$HOME/.pi/agent/mcp.json"
 
     # eca：mcpServers 完全从 claude.json 同步
     eca_config="$HOME/.config/eca/config.json"

@@ -218,8 +218,10 @@ in
 
     # 平台文档 MCP 端点：密文由 clan vars 管理（clan/zen14.nix 的
     # agent-docs-url generator）。渲染进 default.env / dsh.env 的
-    # AGENT_DOCS_MCP_URL（pi/claude/dsh 的 MCP 配置读它），codex 侧以 sops 占位符
-    # 写进 config.toml 的 mcp_servers.agent-docs.url。加密 recipients 同 apipost。
+    # AGENT_DOCS_MCP_URL（claude/dsh 的 MCP 配置在连接时引用它）；pi 侧因其
+    # 内置 mcp 不插值 url，与 codex 一样以 sops 占位符直接写进配置文件
+    # （~/.pi/agent/mcp.json / config.toml 的 mcp_servers.agent-docs.url）。
+    # 加密 recipients 同 apipost。
     sops.secrets."agent-docs/url" = {
       sopsFile = ../../../vars/per-machine/zen14/agent-docs-url/url/secret;
       format = "binary";
@@ -322,7 +324,7 @@ in
         # GH_TOKEN 复用 github-mcp/api_token 同一份 PAT（clan/zen14.nix github-mcp-token），
         # 供 gh CLI / git 等读标准 GH_TOKEN 完成认证。单一来源，随 MCP token 一起轮换。
         export GH_TOKEN="${config.sops.placeholder."github-mcp/api_token"}"
-        # Context7 MCP：pi 侧（npx stdio 版）读 CONTEXT7_API_KEY，pi-mcp-adapter
+        # Context7 MCP：pi 侧（npx stdio 版）读 CONTEXT7_API_KEY，pi 内置 mcp
         # 连接时对 env 做 ''${VAR} 插值，故必须出现在启动 pi 的 shell 环境里；
         # dsh 侧同名变量由 dsh.env 提供（同一份 context7/api_key）。
         export CONTEXT7_API_KEY="${config.sops.placeholder."context7/api_key"}"
