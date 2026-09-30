@@ -48,6 +48,9 @@
       flake = false;
     };
 
+    # RunInfra 的策划数据（models.json / patch.json / custom-models.json）。
+    # 只作 dsh 路由的 seed 与 compat 覆盖来源：pi 侧 2026-09-30 起不再跑这个
+    # 上游扩展（它内嵌清单且永不删 id），改读 dsh autosync 发布的 catalog。
     pi-runinfra-provider-src = {
       url = "github:monotykamary/pi-runinfra-provider?rev=42c8ff4db0d039499daf81a8806819068bf1789c";
       flake = false;

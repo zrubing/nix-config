@@ -229,8 +229,9 @@ let
   # relay 的 provider 声明（api / key env / compat / reasoning / models 的能力
   # 元数据）pi 侧也要读，故放共享模块——两处各写一份会漂移（2026-09-14 实测：
   # 两侧 relay key 不同，dsh key 对 v4-flash/v4-pro 全部 403）。
-  # runinfra 的模型清单只有本模块需要（pi 侧由扩展运行时注册），故 adapter 留在
-  # 下面；共享的只有两侧都要的那个 maxTokens 修正。
+  # runinfra 的 seed 清单由本模块从 pi 扩展源码树（flake input）派生，pi 侧改为
+  # 读 autosync 发布的 catalog（见下方 adapter 注释），故 adapter 留在下面；
+  # 容量不再有本地覆盖——网关 /v1/models 是唯一来源。
   llmRoutes = import ../llm-routes/routes.nix { inherit lib; };
   relayRoute = llmRoutes.relay;
   # nvidia-nim adapter 与本文件的 emitter 共用同一套级别枚举
@@ -288,17 +289,17 @@ let
       (builtins.attrNames relayRoute.compat)
   );
 
-  # ---- runinfra models adapter -------------------------------------------
-  # 单一数据源 = pi 扩展 monotykamary/pi-runinfra-provider（flake input
-  # pi-runinfra-provider-src，flake=false 源码树），与 pi 侧扩展安装共用
-  # flake.lock 同一 rev。合并管线复刻扩展 index.ts buildModels：
+  # ---- runinfra models adapter（seed，非权威）----------------------------
+  # 策划数据来源 = pi 扩展 monotykamary/pi-runinfra-provider 的源码树（flake input
+  # pi-runinfra-provider-src）。合并管线复刻其 index.ts buildModels：
   # base(models.json) → apply patch.json（compat 一层深合并）→ merge
   # custom-models.json（覆盖同 id）。deprecated-models.json 是 pi 运行时的
   # grace-period 概念，不进静态清单。
   #
-  # 本 adapter 只服务 dsh：pi 侧 provider 由扩展在运行时注册
-  # （stale-while-revalidate），故那些内容不属共享层。两侧共用的只有
-  # routes.nix 的 runinfraModelOverrides（同一个输出上限）。
+  # 这份清单只是 seed：权威是网关 /v1/models，dsh-autosync/runinfra 首轮
+  # reconcile 就会删掉网关不再广告的 id、补上新增 id（容量/价格一律取 listing）。
+  # snapshot 之后 pi 不再自己同步——pi 的 provider 扩展读 autosync 发布的
+  # ~/.cache/llm/runinfra-models.json，两侧因此只有一份模型清单。
   #
   # 字段映射：thinkingLevelMap → reasoningEfforts（级别枚举一致）；compat 只保留
   # 两侧交集的键；cost 不在 dsh patch schema，丢弃。
@@ -404,12 +405,8 @@ let
     assert lib.assertMsg (lib.length orderedIds > 0) "runinfra: 扩展模型清单为空";
     lib.map (id: toDshModel idMap.${id}) orderedIds;
 
-  # 叠加共享的两侧修正（见 routes.nix 的 runinfraModelOverrides）
-  runinfraModelsFinal = lib.map (
-    m: m // (llmRoutes.runinfraModelOverrides.${m.id} or { })
-  ) runinfraModels;
   runinfraModelsYaml = yamlIndent10 (
-    lib.concatStringsSep "\n" (lib.concatMap yamlScalarModel runinfraModelsFinal)
+    lib.concatStringsSep "\n" (lib.concatMap yamlScalarModel runinfraModels)
   );
 
   # runinfra 路由的接入事实。pi 侧不读这些（provider 由扩展运行时注册），
@@ -520,7 +517,7 @@ let
           reasoning: ${relayRoute.reasoning}
           # 职责划分：本表提供 *能力元数据*（reasoningEfforts/compat/容量），
           # 因为 /v1/models 只给 id；id 集合的增删由
-          # dsh-deepseek-relay-autosync 对 /v1/models 同步（scope 限
+          # dsh-autosync/deepseek-relay 对 /v1/models 同步（scope 限
           # deepseek-*，其余手工条目不受影响）。每条必须显式声明
           # reasoningEfforts，缺失 = 该模型"无推理能力"→ 选择器不显示思考强度。
           models:
@@ -533,7 +530,7 @@ let
         # 兼容端）。catalog 是混合 api（anthropic/openai-completions/
         # openai-responses），sharedCatalogApi 返回 undefined，而 dsh schema 只认
         # 路由级 api（request.api ?? base?.api；models 条目不接受 api/baseURL），
-        # 故补 catalog 未描述的模型（如 qwen3.8-flash 等，由 dsh-opencode-autosync
+        # 故补 catalog 未描述的模型（如 qwen3.8-flash 等，由 dsh-autosync/opencode
         # 自动发现）必须给路由声明 api + baseURL。这会顺带让 catalog 里少数
         # anthropic 模型改走 openai-completions（已验证可用）。
         opencode-go:
@@ -546,13 +543,13 @@ let
           apiKeyEnv: OPENROUTER_API_KEY
         # ox-alpha（stealth/ox-alpha）已转正为智谱 GLM-5.3-Flash，走 zai-coding-cn
         # 端点，此 openrouter 独立路由已移除（2026-08-26）。
-        # runinfra：openai-completions 网关。路由事实（apiKeyEnv/baseURL/models）
-        # 全部来自 modules/home/llm-routes/routes.nix 的单一来源，此处只做 YAML
-        # 传输：模型清单由该模块从 pi 扩展源码树（pi-runinfra-provider-src，与
-        # pi 侧同一 rev）的 models.json→patch.json→custom-models.json 合并得出。
+        # runinfra：openai-completions 网关。apiKeyEnv/displayName/api/baseURL 与
+        # autosync 行取自本模块的 runinfraRoute（同一处值，避免两行分叉）；
+        # 模型清单见上方 adapter（seed）。
         # key 与 pi 侧同一个 clan var（runinfra/gateway_key）。
-        # 静态清单无 live 通路，网关新模型会落伍；由下方 runinfra-autosync 插件
-        # 按 /v1/models 做 reconcile（增删同步，保留既有条目 compat）。
+        # 上表是 seed：dsh-autosync/runinfra 按网关 /v1/models 做 reconcile
+        # （增删同步，保留既有条目 compat），并把结果发布成 pi 读的 catalog —
+        # 两侧同一个同步器、同一份清单。
         # 注意 schema：api/baseURL 在 provider 层（models 条目不接受这些字段）；
         # cost 不在 dsh patch schema，渲染器已丢弃。
         runinfra:

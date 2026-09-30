@@ -2,3 +2,6 @@
 
 .envrc
 result
+
+# 本地 nix 缓存（binary-cache / fetcher sqlite），跑 nix 时落在仓库根目录
+.nix-cache/

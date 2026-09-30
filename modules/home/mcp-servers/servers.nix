@@ -8,10 +8,16 @@
 #
 # 每个 server 可声明三个视图（缺省某侧 = 该侧不启用）：
 #
-#   pi  = 写入 ~/.pi/agent/mcp.json 的条目。密钥不写明文，用 ${VAR} 引用——
-#         pi-mcp-adapter 对 env / headers / url / cwd / socket 做插值（args 不做，
-#         故密钥必须走 env 或 headers，不能塞进 args）。变量由 shell 的
-#         ~/.config/default.env（sops 渲染，见 modules/home/sops）提供。
+#   pi  = 写入 ~/.pi/agent/mcp.json 的条目。整个文件由 pi 模块用 sops 模板
+#         渲染（见 modules/home/pi），密钥两种落法：
+#         - env / headers 值用 ${VAR} 引用，pi 内置 mcp 在连接时从进程环境
+#           插值（变量由 shell 的 ~/.config/default.env 提供，sops 渲染）；
+#         - url 内置 mcp 不插值、必须是合法 http(s) 字面量，故写
+#           { sops = "…"; var = "ENV"; }：pi 侧换成 sops 占位符（激活期替换为
+#           明文）；Claude Code 复用本视图但 .claude.json 不走 sops 模板，
+#           由 claude-code 模块求值成 ${ENV} 运行时引用（Claude Code 支持 url
+#           插值）。
+#         args 不做插值，密钥不可塞进 args。
 #
 #   dsh = dsh-mcp-client 插件 config，渲染进 cordis.patch.yml。密钥不写明文，
 #         用 { env = "VAR"; } 表示运行时读宿主 env（渲染成 !!js process.env.VAR）；
@@ -24,12 +30,15 @@
 #           config.toml 的 sops 模板在激活期替换为明文（文件 mode 0600）。
 #           { sops = "…"; prefix = "Bearer "; } 表示加前缀。
 #
-# 密钥值本身不在本文件：pi 侧 ~/.config/default.env、dsh 侧 ~/.config/dsh.env、
-# codex 侧同 config.toml（sops 模板）。轮换 key 只改 sops/clan vars，本文件不动。
+# 密钥值本身不在本文件：pi 侧落进 mcp.json 的 sops 模板与 ~/.config/default.env、
+# dsh 侧 ~/.config/dsh.env、codex 侧 config.toml（sops 模板）。轮换 key 只改
+# sops/clan vars，本文件不动。
 #
-# 注意：pi 视图里含密钥的字段必须整字段重写（jq `*` 深合并，数组整体替换）。
-# 例：context7 的 key 从 args 的 --api-key 迁到 env.CONTEXT7_API_KEY，这样
-# nix 覆盖 args 时不会丢密钥（@upstash/context7-mcp 支持该环境变量，实测 npm
+# 注意：.claude.json 的合并按 server 名整条替换（jq `+`，不是 `*` 深合并）——
+# 改配置形状时必须整条重写，否则旧字段残留（实测：agent-docs 从 stdio 桥改成
+# 远程 HTTP 后，`command`/`env` 仍留在文件里，客户端按 stdio 处理，url/headers
+# 形同不存在）。同理 env 字段整体重写：context7 的 key 从 args 的 --api-key
+# 迁到 env.CONTEXT7_API_KEY（@upstash/context7-mcp 支持该环境变量，实测 npm
 # readme：`--api-key <key>` 或 `CONTEXT7_API_KEY` env 二选一）。
 {
   lib,
@@ -38,6 +47,11 @@
   # codex 视图里 { sops = "…"; } 的求值器：codex 模块传 config.sops.placeholder。
   # pi/dsh 调用方不引用 codex 视图，故默认值只在误用时才抛错（惰性求值）。
   sopsPlaceholder ? (_: throw "sopsPlaceholder is only needed by the codex view"),
+  # pi 视图里 { sops = "…"; var = "ENV"; } 的求值器：
+  # - pi 模块（mcp.json 走 sops 模板）传 ({ sops, ... }: sopsPlaceholder sops)；
+  # - claude-code 模块（.claude.json 非 sops 模板）传 ({ var, ... }: "${var}")。
+  # 默认值只在调用方引用了 pi 视图却没传求值器时抛错（惰性求值）。
+  piValue ? (_: throw "piValue is required when the pi view is used"),
   # godot server 的启用开关（各模块传自己的 option）。默认 false：它需要外部
   # 常驻编辑器监听 :6550，不开编辑器时连不上，dsh 启动会按退避反复重连。
   godotEnabled ? false,
@@ -398,7 +412,12 @@ rec {
       description = "平台文档 MCP（URL + LLDAP 用户名/密码，服务端兑换）";
       pi = {
         type = "http";
-        url = "\${AGENT_DOCS_MCP_URL}";
+        # pi 内置 mcp 不对 url 做 ${VAR} 插值（必须是合法 http(s) 字面量），
+        # 故走 sops 占位符由 mcp.json 模板渲染明文；var 供 Claude Code 降级使用。
+        url = {
+          sops = "agent-docs/url";
+          var = "AGENT_DOCS_MCP_URL";
+        };
         headers = {
           X-Agent-Docs-User = "\${OPENBAO_LDAP_AGENT_USERNAME}";
           X-Agent-Docs-Password = "\${OPENBAO_LDAP_AGENT_PASSWORD}";
@@ -479,8 +498,6 @@ rec {
     };
   };
 
-  # ------------------------------------------------- pi 侧渲染（mcpServers 对象）
-  # 只输出声明了 pi 视图的 server；密钥保持 ${VAR} 引用，由 pi-mcp-adapter 在
   # ── 按需启用的 server（enabled 开关）────────────────────────────────────
   # server 可声明 `enabled = <bool 表达式>`：false 时三个视图都不投递。
   # 用途：依赖外部常驻进程的 server（如 godot 需先起一个监听 :6550 的编辑器），
@@ -490,8 +507,12 @@ rec {
   isEnabled = s: s.enabled or true;
   activeServers = lib.filterAttrs (_: s: isEnabled s) servers;
 
-  # 连接时插值（值来自 shell 的 default.env）。
-  piServers = lib.mapAttrs (_: s: s.pi) (lib.filterAttrs (_: s: s ? pi) activeServers);
+  # ------------------------------------------------- pi 侧渲染（mcpServers 对象）
+  # 只输出声明了 pi 视图的 server。字符串（含 ${VAR}）原样保留，由客户端在连接
+  # 时插值；{ sops = …; var = …; } 交 piValue 按消费方能力求值（见模块参数注释）。
+  piServers = lib.mapAttrs (
+    _: s: lib.mapAttrs (_: v: if lib.isAttrs v && v ? sops then piValue v else v) s.pi
+  ) (lib.filterAttrs (_: s: s ? pi) activeServers);
 
   # --------------------------------------------- dsh 侧渲染（cordis 条目 YAML）
   # 只输出声明了 dsh 视图的 server。每行已是最终列位（列 0 起），插进

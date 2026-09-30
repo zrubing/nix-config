@@ -51,15 +51,67 @@ let
   # 代价是对上游改写敏感，因此全部用 `--replace-fail`：上游一改这行，构建立刻失败
   # 而不是静默变回「需要 token 登录」。
   #
-  # 补丁内容（dsh-client-connection 的 HostConnectionService）：
-  #   上游 = 先过 Host/Origin fence，再过浏览器会话 cookie；未持 cookie 一律 401，
-  #          索引页也必须走 ?token= 交换。
-  #   本地 = 过了 fence 就免 cookie。fence 本身已挡住 DNS rebinding 与跨站
-  #          （实测非信任 Host → 401），cookie 这层在内网反代部署里只是登录摩擦。
+  # 补丁内容：
+  #
+  #   1. dsh-client-connection 的 HostConnectionService
+  #      上游 = 先过 Host/Origin fence，再过浏览器会话 cookie；未持 cookie 一律 401，
+  #             索引页也必须走 ?token= 交换。
+  #      本地 = 过了 fence 就免 cookie。fence 本身已挡住 DNS rebinding 与跨站
+  #             （实测非信任 Host → 401），cookie 这层在内网反代部署里只是登录摩擦。
+  #
+  #   2. dsh-config-editor 的 edit：整轮写入跑在编辑器自己的 async scope 里。
+  #      上游 = `edit` 的 `run` 闭包在调用者的 async 上下文里执行，而它做的事全是 dsh
+  #             自己的引导工作：`reconcileProfilePatches(root, …)`（末句是
+  #             `ctx.emit("app-boot/config-reload")`，app-boot:3507）、root include 的
+  #             `entry.update(...)`（即守卫里的 `root.fiber.update`）、loader 等待。
+  #             dsh-tui 会全局改写 `Fiber.prototype._execute`，把插件回调的**每一个
+  #             异步延续**都打上 activation token（host-access.js 自注："Carry an
+  #             activation token through every async continuation created by a Cordis
+  #             plugin callback"），并守卫组合根的 events.emit / fiber.* 等方法。
+  #             于是宿主插件发起的 settings 写入必定撞上
+  #               dsh-tui: root.events.emit is unavailable from a plugin activation
+  #             （2026-09-29 实测：`edit` 进门第一件事就是
+  #             `reconcileProfilePatches(root, beforePatches)`，连无变化的对账都过不去），
+  #             随后被 edit 的 catch 写回 before → 一个字节都不落盘
+  #             （`~/.dsh/profiles/nix-dsh-tui/cordis.patch.yml` 停在 17 字节模板）。
+  #      本地 = 这轮写入是宿主在替调用者改配置，不是调用者在驱动组合根，所以整轮跑在
+  #             config-editor 自己的 AsyncResource scope 里，继承来的归因随之消失。
+  #             守卫本身一个字节都不动：reload 期间每个插件体的 activation 仍由 dsh-tui
+  #             的 runActivation 各自设 token（token.fiber ≠ rootFiber），插件照样被拒。
+  #             残留面：reload 期间由 cordis 派发、不经 `_execute` 的插件回调（如
+  #             `internal/plugin` 监听器）也会失去继承的归因；这类回调本就不是写配置的
+  #             主体，且插件与宿主同进程，守卫是纪律边界而非沙箱，接受。
+  #
+  #   3. dsh-llm-pi-ai 的 internal/config 监听器：`Config()` 校验前先求值 `!!js`。
+  #      上游 = pi-ai 在 `internal/config` waterfall 里注册
+  #               const raw = next(); ... const candidate = Config(raw);
+  #             loader 的全局 interpolate 监听器在 chain 的**外层**（它把下游结果变换
+  #             后再返回），所以下游的 pi-ai 拿到的是 bundle 层原样的
+  #             `{__jsExpr:"process.env.DEEPSEEK_RELAY_BASE_URL"}` 对象，而
+  #             `dsh-llm-pi-ai` 的 `profile.baseURL` 是 `z.string()`（lib/index.js:1017）
+  #             → 抛
+  #               $.providers.deepseek-relay.baseURL expected string but got [object Object]
+  #             （该消息格式已用 schemastery 单独复现确认，`$` 路径前缀就是它自带的）。
+  #             pi-ai 的监听器只在 apply 里注册，而 fiber 的首次配置解析发生在 apply
+  #             **之前** → 启动不炸、此后任何一次 reload 必炸。settings 的每次写入都会
+  #             触发 reload，所以宿主插件的写入、dsh-tap 的宿主镜像、设置页写入全部
+  #             失败，且失败发生在 pre-write reconcile 处，文件一个字节不改
+  #             （2026-09-30 01:08 实测 dsh-web 日志：dsh-tap 只写
+  #             `providers.codebuddy.models`，报的却是 deepseek-relay 的 baseURL ——
+  #             校验覆盖整个命名空间）。
+  #      本地 = `Config(interpolate(ctx, raw))`，与 loader 在 `_commitVolatile` 里
+  #             "先跑 waterfall、再 resolveConfig" 的既定做法一致。
+  #             （曾误判为 config-editor 的 resolveConfig 少了求值；实测那条路径的
+  #             waterfall 已经插值，真正看到未插值值的是下游的 pi-ai 监听器。）
+  #
+  # 补丁 2 / 3 都是上游 bug 的本地兜法，上游修好后删除即可；`--replace-fail` 会在
+  # 上游改写这些行时先炸构建，不会静默退回旧行为。
   kernelPatched =
     let
       version = upstreamPkgs.dsh.dsh-kernel.version;
       rel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js";
+      configEditorRel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-config-editor/lib/index.js";
+      piAiRel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js";
     in
     upstreamPkgs.runCommand "dsh-kernel-patched"
       {
@@ -89,6 +141,55 @@ let
           --replace-fail \
           'return this.browserAuth.authorizeIndex(request, response);' \
           'return isTrustedApiRequest(request, this.trustedHosts) || this.browserAuth.authorizeIndex(request, response);'
+
+        # ── 补丁 2：dsh-config-editor 的 edit 脱离调用者归因 ─────────────────
+        ce="$out/${configEditorRel}"
+        [ -f "$ce" ] || {
+          printf 'dsh-local: kernel layout changed, missing %s\n' ${configEditorRel} >&2
+          exit 1
+        }
+
+        # 注入的 JS 续行一律顶格写：nix 缩进字符串的公共缩进由**最短**缩进行决定，
+        # 而替换串首行紧跟引号（缩进为 0），所以续行写多少就原样进文件。
+        substituteInPlace "$ce" \
+          --replace-fail \
+          'import { withFileLock, writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";' \
+          'import { AsyncResource } from "node:async_hooks";
+import { withFileLock, writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
+
+// LOCAL PATCH (nix-config)：整轮写入跑在编辑器自己的 async scope 里，剥掉继承自
+// 调用者的 dsh-tui activation 归因。守卫本身不动：reload 期间每个插件体的 activation
+// 仍由 dsh-tui 的 runActivation 各自设 token，插件照样被拒。
+// 见 pkgs/dsh-local/default.nix 补丁 2。
+const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
+
+        substituteInPlace "$ce" \
+          --replace-fail \
+          'await (hmr === void 0 ? run() : hmr.runExclusive(run));' \
+          'await (hmr === void 0 ? DSH_CONFIG_EDIT_SCOPE.runInAsyncScope(run) : hmr.runExclusive(() => DSH_CONFIG_EDIT_SCOPE.runInAsyncScope(run)));'
+
+        # ── 补丁 3：dsh-llm-pi-ai 校验前先求值 !!js ─────────────────────────
+        pa="$out/${piAiRel}"
+        [ -f "$pa" ] || {
+          printf 'dsh-local: kernel layout changed, missing %s\n' ${piAiRel} >&2
+          exit 1
+        }
+
+        substituteInPlace "$pa" \
+          --replace-fail \
+          'import z from "@deepseek-ai/schemastery";' \
+          'import z from "@deepseek-ai/schemastery";
+import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
+
+        substituteInPlace "$pa" \
+          --replace-fail \
+          'const candidate = Config(raw);' \
+          'const candidate = Config(interpolate(ctx, raw));'
+
+        # 语法自检：注入的 import / const 一旦位置不对，这里立刻失败，
+        # 而不是等运行期在启动路径上抛 SyntaxError。
+        ${lib.getExe upstreamPkgs.nodejs-slim} --check "$ce"
+        ${lib.getExe upstreamPkgs.nodejs-slim} --check "$pa"
       '';
 
   # bundle 的 node_modules 是指向 kernel node_modules 的软链，装配包的 nodeModules
@@ -174,10 +275,11 @@ let
   # ## patch = "" 的 bundle
   #
   # 有些本地包不自己挂顶层行，而是被 preset 的 `plugins` 数组按名字引用
-  # （三个 shell-env 实现包、三个 autosync 实现包、两个 tool 包、blackhole）。
+  # （三个 shell-env 实现包、两个 tool 包、blackhole）。
   # 它们仍必须是 bundle —— 只有出现在 `dsh.profile.bundles` 里的包才会被 symlinkJoin
   # 进安装的 node_modules，进而才能被名字解析到 —— 但 patch 为空，不产生顶层行。
   # 这与官方 `dsh-tool-bash` 的处境完全相同：包在安装里，挂载与否由 preset 决定。
+  # （autosync 不走这条路：它自己既声明三条路由行、也实现它们，见下。）
 
   # MCP 工具描述里的字面 {{...}} 组会让 dsh-system-prompt 的严格渲染器抛
   # "malformed prompt variable reference" 并失败整轮对话（上游 issue #711）。
@@ -239,16 +341,22 @@ let
     meta.description = "Inject the HuggingFace token as DSH_HF_TOKEN";
   };
 
-  autosync = mkDeclBundle {
+  # 三条模型同步路由（opencode-go / runinfra / deepseek-relay）合成一个 bundle：
+  # 它们的实现共用一个骨架（modules/home/dsh/plugins/autosync/lib/plugin.js），
+  # 只有路由默认值与合并策略不同，所以行里的 name 指向同包的子路径导出。
+  # 拆成四个 bundle 时每次修复都要改三遍，副本还已经漂移（只有 runinfra/relay
+  # 保留了既有条目的 compat）。
+  autosync = mkBundle {
     name = "dsh-autosync";
-    description = "Live model discovery for the opencode-go / runinfra / deepseek-relay routes.";
+    src = pluginsDir + "/autosync";
+    meta.description = "Live model discovery for the opencode-go / runinfra / deepseek-relay routes.";
     patch = ''
       # relay / runinfra 的 /v1/models 是权威所以 reconcile（增删同步，保留仍在 live
       # 的既有条目的 compat / reasoningEfforts / 用户修正容量）；opencode-go 是
       # add-only —— pi-ai 的 catalog 是静态清单，reconcile 会把刚发现的模型当 stale 删掉。
       - insert:
           - id: opencode-autosync
-            name: dsh-opencode-autosync
+            name: dsh-autosync/opencode
             config:
               route: opencode-go
               baseURL: https://opencode.ai/zen/go/v1
@@ -257,7 +365,7 @@ let
               intervalMs: 43200000
 
           - id: runinfra-autosync
-            name: dsh-runinfra-autosync
+            name: dsh-autosync/runinfra
             config:
               route: runinfra
               baseURL: https://api.runinfra.ai/v1
@@ -268,7 +376,7 @@ let
           # baseURL 走运行时 env：与 llm-pi-ai 的 deepseek-relay.baseURL 同一变量
           # （clan vars openai-relay/base-url，单一来源）。
           - id: deepseek-relay-autosync
-            name: dsh-deepseek-relay-autosync
+            name: dsh-autosync/deepseek-relay
             config:
               route: deepseek-relay
               baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
@@ -285,24 +393,6 @@ let
                 high: high
                 max: max
     '';
-  };
-
-  opencodeAutosync = mkBundle {
-    name = "dsh-opencode-autosync";
-    src = pluginsDir + "/opencode-autosync";
-    meta.description = "Add-only discovery of the opencode.ai Go-tier model list";
-  };
-
-  runinfraAutosync = mkBundle {
-    name = "dsh-runinfra-autosync";
-    src = pluginsDir + "/runinfra-autosync";
-    meta.description = "Reconcile the runinfra route against the live /v1/models listing";
-  };
-
-  deepseekRelayAutosync = mkBundle {
-    name = "dsh-deepseek-relay-autosync";
-    src = pluginsDir + "/deepseek-relay-autosync";
-    meta.description = "Reconcile the deepseek-relay route against the live /v1/models listing";
   };
 
   presets = mkBundle {
@@ -650,9 +740,6 @@ in
     woodpeckerShellEnv
     hfShellEnv
     autosync
-    opencodeAutosync
-    runinfraAutosync
-    deepseekRelayAutosync
     presets
     toolProcesses
     toolAstGrep
