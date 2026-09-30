@@ -266,8 +266,8 @@ rec {
       };
     };
 
-    # 智谱 Z.ai MCP（图像/视频理解等）。key 与 web-search-prime 同一份智谱 key
-    # （ZAI_CODING_CN_API_KEY ← sops anthropic/api_key，两侧实测同值）。
+    # 智谱 Z.ai MCP（图像/视频理解等）。key 走 ZAI_CODING_CN_API_KEY
+    # （← sops anthropic/api_key，与 dsh.env 同一份值）。
     zai-mcp-server = {
       description = "Z.ai MCP（视觉/多模态，智谱 key，三方均 npx stdio）";
       pi = {
@@ -374,28 +374,6 @@ rec {
             sops = "figma/api_key";
           };
           FRAMELINK_TELEMETRY = "off";
-        };
-      };
-    };
-
-    # 智谱 web 搜索（远程 HTTP，Bearer 认证）
-    # 只声明 pi / dsh 视图：codex 侧不挂此 server。其 initialized 通知的响应是
-    # 200 + 空 body 且无 Content-Type，codex 内嵌 rmcp 以 "missing-content-type"
-    # 判定握手失败（202/204 或带 Content-Type 才被接受）。codex 改用内置
-    # web_search（见 modules/home/codex）。服务端修好后，补回下方 codex 视图即可。
-    web-search-prime = {
-      description = "智谱 web 搜索 MCP（远程 HTTP，Bearer 智谱 key；codex 改用内置 web_search）";
-      pi = {
-        type = "http";
-        url = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp";
-        headers.Authorization = "Bearer \${ZAI_CODING_CN_API_KEY}";
-      };
-      dsh = {
-        transport = "streamable-http";
-        url = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp";
-        headers.Authorization = {
-          env = "ZAI_CODING_CN_API_KEY";
-          prefix = "Bearer ";
         };
       };
     };

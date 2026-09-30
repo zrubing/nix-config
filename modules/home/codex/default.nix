@@ -47,10 +47,10 @@ in
         # 其枚举为 none/minimal/low/medium/high/xhigh/max。
         # https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/
         model_reasoning_effort = "max"
-        # 内置原生 web_search（Responses API 服务端搜索）。
-        # codex 侧不再挂智谱 web-search-prime MCP：其服务端对 notifications/initialized
-        # 返回 200 + 无 Content-Type，被 rmcp 判为 "missing-content-type" 而握手失败
-        # （国内站与 z.ai 国际站同病，且 pi/dsh 侧不受影响）。
+        # 内置原生 web_search（Responses API 服务端搜索）。第三方 web 搜索 MCP
+        # （智谱 web-search-prime）已从统一 MCP 源删除；codex 侧它本就挂不上
+        # （其 notifications/initialized 响应是 200 + 无 Content-Type，被 rmcp
+        # 判为 "missing-content-type" 而握手失败），故这里只留内置搜索。
         web_search = "live"
         model_catalog_json = "~/.codex/models.json"
 
