@@ -29,17 +29,17 @@ in {
 
   # 把 nix 管理的 mcpServers merge 进 Claude Code / eca 的配置文件。
   # （~/.pi/agent/mcp.json 不在此列：它是 pi 模块独占的 sops 模板。）
-  # 合并顺序：用户手写条目 + agenix secret + nix 管理（后者优先级最高）。
+  # 合并顺序：用户手写条目（已在 .claude.json 里的）+ nix 管理（后者优先）。
   # ⚠️ 用 jq `+`（顶层键替换）而不是 `*`（深合并）：nix 管理的 server 整条替换，
   # 否则改配置形状时旧字段会残留（实测：agent-docs 从 stdio 桥改成远程 HTTP 后，
   # `command`/`env` 仍留在文件里，客户端会按 stdio 处理，url/headers 形同不存在）。
   # 非 nix 管理的用户条目原样保留。
   #
-  # 2026-09 起 nix 源已覆盖全部 7 个 server（github/context7/zai/figma/搜索/
-  # agent-docs/chrome-devtools），
-  # 且密钥字段（env/args/headers）整体重写为 ${VAR} 引用，故 agenix secret 里的
-  # 明文 mcpServers 不再出现在最终文件中，仅作「nix 源漏配时的兜底」保留。
-  # 新增 server 的正确做法是改 modules/home/mcp-servers/servers.nix，不是改 secret。
+  # 2026-09-30 起不再合并 agenix secret（claude.settings.json）里的 mcpServers：
+  # nix 源已覆盖其中每一个 server，密钥也全部走 ${VAR} 引用，secret 里那份只是
+  # 带明文 key 的旧副本——更糟的是它会把从 nix 源删掉的 server 复活（实测：
+  # 删掉 web-search-prime 后仍会被 secret 合并回来）。单一事实来源 =
+  # modules/home/mcp-servers/servers.nix，增删都改那里。
   home.activation.mergeMcpConfigs = config.lib.dag.entryAfter ["writeBoundary"] ''
     # 设置 XDG_RUNTIME_DIR 默认值，避免在 systemd 服务中报错
     export XDG_RUNTIME_DIR=''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
@@ -47,10 +47,9 @@ in {
     jq_bin=${pkgs.jq}/bin/jq
     mv_bin=${pkgs.coreutils}/bin/mv
     mkdir_bin=${pkgs.coreutils}/bin/mkdir
-    secret_path=${config.age.secrets."claude.settings.json".path}
     nix_mcp=${mcpServersJson}
 
-    # 把 secret + nix 管理的 mcpServers merge 进目标文件（保留用户手写条目）
+    # 把 nix 管理的 mcpServers merge 进目标文件（保留用户手写条目）
     merge_mcp_servers() {
       local target="$1"
       local target_dir
@@ -59,18 +58,10 @@ in {
       "$mkdir_bin" -p "$target_dir"
       [[ -f "$target" ]] || echo '{}' > "$target"
 
-      if [[ -f "$secret_path" ]]; then
-        "$jq_bin" \
-          --slurpfile secret "$secret_path" \
-          --slurpfile nix "$nix_mcp" \
-          '.mcpServers = ((.mcpServers // {}) + ($secret[0].mcpServers // {}) + ($nix[0].mcpServers // {}))' \
-          "$target" > "$target.tmp" && "$mv_bin" "$target.tmp" "$target"
-      else
-        "$jq_bin" \
-          --slurpfile nix "$nix_mcp" \
-          '.mcpServers = ((.mcpServers // {}) + ($nix[0].mcpServers // {}))' \
-          "$target" > "$target.tmp" && "$mv_bin" "$target.tmp" "$target"
-      fi
+      "$jq_bin" \
+        --slurpfile nix "$nix_mcp" \
+        '.mcpServers = ((.mcpServers // {}) + ($nix[0].mcpServers // {}))' \
+        "$target" > "$target.tmp" && "$mv_bin" "$target.tmp" "$target"
     }
 
     merge_mcp_servers "$HOME/.claude.json"
