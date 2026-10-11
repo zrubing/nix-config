@@ -19,6 +19,43 @@ let
   };
   easytierIp = easytierIpByHost.${hostName} or null;
   useMultiInstancePortal = hostName == "zen14" && easytierIp != null;
+
+  # P2P 行为参数 —— zen14 / nova13 两节点的**单一来源**。
+  #
+  # 背景（2026-10-11 实测）：两机因 `disable_p2p` 且从未声明 `need_p2p`，
+  # 被 EasyTier 归入官方组合表里最后一行「彻底安静，只走中继，不建任何 P2P」
+  # 的语义 —— 两机永不直连，流量全部绕本地 ali 中转：
+  #     easytier-cli peer → nova13  cost=relay(2)  lat=98ms  rx/tx=0 B
+  # 根因是 2026-05-12（7b0b323）为压制「ET 拿 cilium/Meta 虚拟地址当候选打洞」
+  # 而一并关掉了普通 P2P —— 那一步是过度的：真正挡住递归路径的是 bind_device
+  # （连接 socket 只从物理网卡出，报文不会拐进 cilium 隧道）。
+  #
+  # 官方 p2p-optimize 文档给的组合正是本需求（「只想和特定节点建 P2P，
+  # 不想被普通节点打扰」）：
+  #   · disable_p2p  不主动连普通节点，普通节点也不会主动来连（挡住无关节点）
+  #   · need_p2p     声明「请主动来连我」——disable_p2p 下**仍会**与 need_p2p 节点互连
+  # 两者叠加 = 只在 zen14 ↔ nova13 之间建 P2P，其余仍走 relay。
+  #
+  # ⚠️ zen14 是**移动设备**：每天都可能换网络，两机**大多数时候不在同一局域网**，
+  #    且 zen14 会随时下线。所以本配置：
+  #      · **不写死任何对方地址**（LAN IP / 公网 IP 都不写）—— 写死必失效；
+  #      · 依赖 need_p2p 的**动态打洞**：
+  #          同 LAN  → 内网地址直连（实测 4~13ms）
+  #          不同网络 → 走各自 NAT 的公网打洞（实测同城 80ms / 跨省更差）
+  #          打不通  → 自动退回经 ali 的 relay，功能不中断（只是慢）
+  #    也就是说：**能不能直连取决于当时的网络，但不影响可用性**。
+  #    「同 LAN 4~13ms」只是最好情况，不是本配置的收益前提。
+  etFlags = {
+    accept_dns = true;
+    bind_device = true;
+    disable_p2p = true;
+    need_p2p = true;
+  };
+  # 渲染成 TOML `[flags]` 段。两台机器共用，避免"同一语义两处各写一份"
+  # （改这次 need_p2p 就得同时改 TOML 与 --need-p2p 两处，正是漂移的温床）。
+  renderFlags = lib.concatStringsSep "\n" (
+    lib.mapAttrsToList (k: v: "${k} = ${lib.boolToString v}") etFlags
+  );
 in
 {
   # 单实例模式：保留原有行为，给非 zen14 主机使用。
@@ -32,6 +69,9 @@ in
 
       [[peer]]
       uri = "${config.sops.placeholder."easytier/ali/peer"}"
+
+      [flags]
+      ${renderFlags}
     '';
   };
 
@@ -58,9 +98,7 @@ in
       uri = "${config.sops.placeholder."easytier/ali/peer"}"
 
       [flags]
-      accept_dns = true
-      bind_device = true
-      disable_p2p = true
+      ${renderFlags}
     '';
   };
 
@@ -110,24 +148,15 @@ in
     enable = true;
     package = pkgs-unstable.easytier;
     instances."easytier-net-${hostName}" = {
+      # ⚠️ flags（accept_dns / bind_device / disable_p2p / need_p2p）经 configFile 的
+      #    `[flags]` 段下发，**不在这里重复写 CLI 参数** —— 两处各写一份正是过去
+      #    漂移的成因（改 need_p2p 时要记得同时改两个地方，漏一处就静默不生效）。
+      #    configFile 与 extraArgs 同源（etFlags），由 Nix 保证一致。
       extraArgs = [
         "-i"
         easytierIp
-        "--accept-dns"
-        "true"
         "--rpc-portal"
         "127.0.0.1:15888"
-        # k0s build/proxy 节点同时有 cilium_host/PodCIDR、mihomo Meta 和 EasyTier tun0。
-        # EasyTier 自动 P2P 会把这些内部/虚拟地址也作为候选连接地址传播，
-        # 典型表现是 zen14 反复尝试 tcp://10.244.x.x:<port> 连接 nova13，
-        # 形成"集群网络承载 VPN，VPN 又承载集群控制面"的递归路径，导致
-        # apiserver/konnectivity 偶发 EOF、deadline exceeded。
-        # 这里让连接 socket 绑定到物理出口，并禁用自动 P2P 打洞，只保留到
-        # 声明 peer 的稳定连接，避免选择 cilium/Meta/tun 等虚拟路径。
-        "--bind-device"
-        "true"
-        "--disable-p2p"
-        "true"
       ];
       configFile = "${config.sops.templates."easytier-config".path}";
     };
