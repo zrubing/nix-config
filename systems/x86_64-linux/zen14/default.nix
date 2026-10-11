@@ -248,6 +248,14 @@ in
   services.gvfs.enable = true; # Mount, trash, and other functionalities
   services.tumbler.enable = true; # Thumbnail support for images
 
+  # Steam 声明式安装（此前只在 nix shell 里临时跑）。enable 会连带开启 32 位
+  # 图形栈 + steam-hardware udev 规则，并把系统字体（含 Noto CJK）注入 Steam
+  # 的 FHS 环境；protontricks 用于给 Proton 前缀装依赖。
+  programs.steam = {
+    enable = true;
+    protontricks.enable = true;
+  };
+
   # 上游 programs.niri 默认用 Nautilus 做 xdg-desktop-portal-gnome 的文件选择器。
   # 关掉后 portal 文件选择器回退到 GTK，同时不再把 Nautilus 拉进 dbus.packages。
   # 注意：portal 进程常驻、缓存了启动时的路由，改这个开关后必须重启才生效：
@@ -316,7 +324,8 @@ in
     #dae.enable = true;
     miho = {
       enable = true;
-      extraConfig = import ./miho-extra-config.nix;
+      # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
+      extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
     xray-client = {
       enable = true;
@@ -439,24 +448,51 @@ in
   environment.etc."k0s/containerd.d/mirrors.toml".text = ''
     # zot.zot mirror 已删（2026-08-14 zot 退役）
 
-    # CI infra 镜像（kubectl-shell-runner / git-cache-clone-runner）统一走 bj upstream。
-    # 节点无法解析 cluster.local（mihomo DNS 链路过 cilium BPF 黑洞，见 miho-extra-config.nix 注释），
-    # 故直接 mirror 到本机 NodePort 30003（registry-bj-upstream DaemonSet 同机，internalTrafficPolicy Local）。
-    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry-bj-upstream.registry.svc.cluster.local:5000"]
-      endpoint = ["http://127.0.0.1:30003"]
+    # CI infra 镜像（kubectl-shell-runner / git-cache-clone-runner）走本机 upstream。
+    # 节点无法解析 cluster.local（mihomo DNS 链路过 cilium BPF 黑洞，见 modules/nixos/miho/build-node-extra-config.nix），
+    # 故直接 mirror 到本机 NodePort（upstream DaemonSet 与 build 节点同机，
+    # internalTrafficPolicy=Local ⇒ 只有本节点跑着 upstream pod 时该 NodePort 才应答）。
+    #
+    # ⚠️ 2026-10-11 zen14 迁入新集群 hinihao-sg-prod，此处从 bj(30003) 改为 sg(30002)。
+    #    改错的表现：pull 被转到本机一个**不存在的** NodePort → 连接被拒 →
+    #    clone/deploy step ImagePullBackOff，而镜像名看起来完全正常。
+    #
+    # ⚠️ 本文件**刻意不含 `registry.local:5000` 的映射**：zen14 只负责 build+push，
+    #    不拉业务镜像（业务镜像由 test 节点从 bj/sg 桶拉、prod 节点从 SG COS 拉）。
+    #    故无需（也不应）给 zen14 配业务镜像的拉取入口。
+    #
+    # ⚠️ 插件路径必须是 containerd **v2** 形式 `io.containerd.cri.v1.images`：
+    #    k0s 1.36 的 containerd 升到 2.x，启动前的 pre-flight check 会**拒绝**旧写法
+    #      Rejected: configuration contains a [plugins."io.containerd.grpc.v1.cri"]
+    #      section which is the containerd v1 CRI plugin format
+    #    并直接拒绝启动（Error: pre-flight checks failed）。
+    #    这与 zen14 本次升级 1.35→1.36 直接相关；对照实现见
+    #    system-manager-hinihao-net/systems/x86_64-linux/hinihao-net/k0s.nix。
+    [plugins."io.containerd.cri.v1.images".registry.mirrors."registry-sg-upstream.registry.svc.cluster.local:5000"]
+      endpoint = ["http://127.0.0.1:30002"]
 
-    [plugins."io.containerd.grpc.v1.cri".registry.configs."registry-bj-upstream.registry.svc.cluster.local:5000".tls]
+    [plugins."io.containerd.cri.v1.images".registry.configs."registry-sg-upstream.registry.svc.cluster.local:5000".tls]
       insecure_skip_verify = true
   '';
 
   services.k0s = {
     enable = true;
-    package = inputs.k0s-nix.packages.${system}.k0s;
+    # ⚠️ 显式 pin 到 1.36，**不用** `inputs.k0s-nix.packages.${system}.k0s`：
+    #    那个默认值当时是 k0s_1_35，而集群主体（老集群 net/world/test、
+    #    新集群 hinihao-sg-prod-net/world）全是 **1.36.3+k0s**。
+    #    zen14 迁入新集群后应与它一致 —— k0s 要求 worker 版本与 controller
+    #    相差不超过 1 个 minor，且此处是迁移，对齐版本消除一个变量。
+    #    用显式属性名也给 nova13（仍在老集群、刻意不升）留出独立选择。
+    package = inputs.k0s-nix.packages.${system}.k0s_1_36;
     role = "worker";
     # 首次 join 需要提前放置 token 文件到 /var/lib/k0s/k0stoken
     tokenFile = "/var/lib/k0s/k0stoken";
     dataDir = "/var/lib/k0s";
-    extraArgs = ''--kubelet-extra-args="--node-ip=10.144.200.2 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=zen14:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
+    # ⚠️ 2026-10-11 zen14 迁入新集群 hinihao-sg-prod：
+    #    · node-ip 从 10.144.200.2（老 Build ET）改为 10.144.150.3（新集群 ET）
+    #    · 标签/tolerations 保持不变（新集群的 buildNodeLabelKey 同为
+    #      node-role.kubernetes.io/build，故 buildkitd 能直接调度到本节点）
+    extraArgs = ''--kubelet-extra-args="--node-ip=10.144.150.3 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=zen14:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
     spec.api.address = "0.0.0.0";
     spec.workerProfiles = [
       {
