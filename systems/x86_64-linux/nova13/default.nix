@@ -223,7 +223,8 @@ in
     #dae.enable = true;
     miho = {
       enable = true;
-      extraConfig = import ./miho-extra-config.nix;
+      # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
+      extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
     desktop-programs.enable = false;
     # nova13 是 k0s worker（build/proxy 角色），不需要桌面虚拟化栈（libvirtd/qemu/virt-manager）。
@@ -404,24 +405,53 @@ in
   environment.etc."k0s/containerd.d/mirrors.toml".text = ''
     # zot.zot mirror 已删（2026-08-14 zot 退役）
 
-    # CI infra 镜像（kubectl-shell-runner / git-cache-clone-runner）统一走 bj upstream。
-    # 节点无法解析 cluster.local（mihomo DNS 链路过 cilium BPF 黑洞，见 miho-extra-config.nix 注释），
-    # 故直接 mirror 到本机 NodePort 30003（registry-bj-upstream DaemonSet 同机，internalTrafficPolicy Local）。
-    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry-bj-upstream.registry.svc.cluster.local:5000"]
-      endpoint = ["http://127.0.0.1:30003"]
+    # CI infra 镜像（kubectl-shell-runner / git-cache-clone-runner）。
+    #
+    # ⚠️ 2026-10-12 nova13 迁入新集群 acme-prod：mirror 从
+    #    registry-bj-upstream(30003) 改为 registry-sg-upstream(30002)。
+    #    改错的表现：pull 被转到本机一个**不存在的** NodePort → 连接被拒 →
+    #    clone/deploy step ImagePullBackOff，而镜像名看起来完全正常。
+    #    （zen14 同日迁移时踩过同一个点，见其 default.nix 的同类注释。）
+    #
+    # 节点无法解析 cluster.local（mihomo DNS 链路过 cilium BPF 黑洞，见
+    # modules/nixos/miho/build-node-extra-config.nix 注释），故直接 mirror 到本机 NodePort
+    # （upstream DaemonSet 与 build 节点同机，internalTrafficPolicy=Local
+    #  ⇒ 只有本节点跑着 upstream pod 时该 NodePort 才应答）。
+    #
+    # ⚠️ 本文件**刻意不含 `registry.local:5000`**：build 节点只负责 build+push，
+    #    不拉业务镜像（业务镜像由 test 节点从各区域桶拉、prod 节点从 SG COS 拉）。
+    #
+    # ⚠️ 插件路径必须是 containerd **v2** 形式 `io.containerd.cri.v1.images`：
+    #    k0s 1.36 的 containerd 升到 2.x，启动前的 pre-flight check 会**拒绝**旧写法
+    #      Rejected: configuration contains a [plugins."io.containerd.grpc.v1.cri"]
+    #      section which is the containerd v1 CRI plugin format
+    #    并直接拒绝启动（Error: pre-flight checks failed）。
+    [plugins."io.containerd.cri.v1.images".registry.mirrors."registry-sg-upstream.registry.svc.cluster.local:5000"]
+      endpoint = ["http://127.0.0.1:30002"]
 
-    [plugins."io.containerd.grpc.v1.cri".registry.configs."registry-bj-upstream.registry.svc.cluster.local:5000".tls]
+    [plugins."io.containerd.cri.v1.images".registry.configs."registry-sg-upstream.registry.svc.cluster.local:5000".tls]
       insecure_skip_verify = true
   '';
 
   services.k0s = {
     enable = true;
-    package = inputs.k0s-nix.packages.${system}.k0s;
+    # ⚠️ 显式 pin 到 1.36（2026-10-12 随迁入新集群 acme-prod 从 1.35 升级）。
+    #    k0s 要求 worker 与 controller 相差不超过 1 个 minor，且集群主体
+    #    （老集群 net/world/test、新集群两节点、zen14）全是 **1.36.3+k0s**。
+    #    不用 `inputs.k0s-nix.packages.${system}.k0s`：它的默认值当时是 k0s_1_35。
+    package = inputs.k0s-nix.packages.${system}.k0s_1_36;
     role = "worker";
     # 首次 join 需要提前放置 token 文件到 /var/lib/k0s/k0stoken
     tokenFile = "/var/lib/k0s/k0stoken";
     dataDir = "/var/lib/k0s";
-    extraArgs = ''--kubelet-extra-args="--node-ip=10.144.200.3 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=nova13:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
+    # ⚠️ 2026-10-12 nova13 迁入新集群 acme-prod：
+    #    · node-ip 从 10.144.200.3（老 Build ET）改为 **10.144.150.4**（新集群 ET）
+    #      —— 该地址由 modules/nixos/easytier/default.nix 的 etNetworksByHost
+    #      分配，两处必须一致，否则 kubelet 注册的 InternalIP 在 ET 网络里不可达。
+    #    · 标签/tolerations 保持不变（新集群的 build 节点标签同为
+    #      wants-role/build → promoter 派生成 node-role.kubernetes.io/build，
+    #      故 buildkitd 能直接调度到本节点）。
+    extraArgs = ''--kubelet-extra-args="--node-ip=10.144.150.4 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=nova13:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
     spec.api.address = "0.0.0.0";
     spec.workerProfiles = [
       {
