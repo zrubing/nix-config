@@ -7,16 +7,16 @@
 }:
 
 let
-  version = "1.19.31";
+  version = "1.19.32";
 
   binaries = {
     x86_64-linux = {
       artifact = "mihomo-linux-amd64-v${version}.gz";
-      hash = "sha256-1edLvdvf/0mhrvd3W/WRHaWfDXGW7VCaCskUs2U91fE=";
+      hash = "sha256-hFEQCDbJ7aGUMxwrq/rUkLL68wzrwaBLDnb9isLTXRA=";
     };
     aarch64-linux = {
       artifact = "mihomo-linux-arm64-v${version}.gz";
-      hash = "sha256-ng8Rr784QmuL2I/cWUZ4+BYcV+zLTht3rLErSTkE8dQ=";
+      hash = "sha256-ndhi4otG/313XxaczuvCjezKoKnoBCN9QhzSVx4Mq6A=";
     };
   };
 
