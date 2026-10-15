@@ -57,6 +57,12 @@ let
   # schema 默认）。从原文提取保证上游改 config 时自动跟随，不会静默漂移。
   #
   # 这是显示偏好（非功能开关），所以只进 dsh-tui profile。
+  #
+  # 产出的是一份**文件**，作为 bundle 的构建输入传下去（mkRowBundle 的 patch）。
+  # 不要在这里或调用侧 `builtins.readFile` 它：那是 IFD，会把上游 dsh-tui bundle 的
+  # 构建（pnpm + 自检，实测 6 分钟）拖进每一次**求值**（nixos-rebuild / nix eval /
+  # 编辑器 LSP），而且它失败时 nix 只报 "Cannot build ... 1 dependency failed"，
+  # 没有一个字的 builder 日志（2026-10-15 实测）。
   tuiDisplayRow = pkgs.runCommand "dsh-tui-display-row.yml" {
     nativeBuildInputs = [ pkgs.yq-go ];
   } ''
@@ -98,7 +104,7 @@ let
 
   tuiDisplayBundle = mkRowBundle {
     name = "dsh-tui-display";
-    patch = builtins.readFile tuiDisplayRow;
+    patch = tuiDisplayRow;
     description = "dsh-tui display preferences (whale / whaleIdle off, minimal off)";
   };
 
@@ -115,7 +121,7 @@ let
   # 关掉后 headless 的 codebuddy 路由仍可通过 api-key 直连使用，只是不走桥。
   headlessBundle = mkRowBundle {
     name = "dsh-headless-tap";
-    patch = ''
+    patch = dshLocal.patchText "dsh-headless-tap" ''
       - id: dsh-tap
         config:
           bridgeEnabled: false
@@ -162,6 +168,15 @@ let
     defaultProfile = profileNames.web;
   };
 
+  # 宿主包 shim（见 pkgs/dsh-local 的 mkDshHostPackage）：dsh-tui 0.15.0 的默认启动线
+  # 是它**自己的入口**（先画界面、后台组 profile）。入口只肯托管"顺着 PATH 上第一个
+  # dsh 的 realpath 能找到 @deepseek-ai/dsh 包目录"的宿主；nix 的 dsh 没有那个目录，
+  # 会回退 `dsh --profile`（本机实测首帧：入口 0.9~1.6s，回退线 5.7~6.6s）。
+  dshHostPackage = dshLocal.mkDshHostPackage dshPackage;
+
+  # 入口本体：取自**装配进 profile 的那份** TUI bundle，与 profile 里的 dsh-tui 行同源。
+  tuiHostEntry = "${dshLocal.upstreamBundles.tui}/lib/node_modules/@deepseek-harness-tui/dsh-tui/lib/types/dsh-adapter/host-entry.js";
+
   # TUI 启动器：显式指定 profile。必须传 `--profile` 而不是靠默认值，因为 CLI 的
   # 默认已固定给 web（服务的需要）。
   #
@@ -178,7 +193,47 @@ let
       . "$env_file"
       set +a
     fi
-    exec ${lib.getExe dshPackage} --profile ${profileNames.tui} "$@"
+    # 落地页（Launchpad）是单行编辑器，不支持粘贴图片：剪贴板里是图片时
+    # Ctrl+V 会复用 "no usable wl-paste / xclip / xsel" 文案误报（见
+    # dsh-tui 的 Launchpad.js，content.kind === 'image' 分支）。默认跳过
+    # 落地页，启动直接进对话页，图片可正常粘贴；要看落地页时
+    # `DSH_TUI_NO_LAUNCHPAD=0 dsh-tui` 临时恢复。
+    export DSH_TUI_NO_LAUNCHPAD="''${DSH_TUI_NO_LAUNCHPAD:-1}"
+    # 默认 full access（不设沙箱、不弹审批）。DSH_PERMISSION_MODE 是上游唯一的部署级
+    # 权限开关，下游有三处消费点，所以一个变量就够、且彼此不会错位：
+    #   1. tui bundle 的 sandbox-policy.mode；
+    #   2. 同 bundle 的 approval.policy（danger-full-access ⇒ never）；
+    #   3. dsh-permission-presets 的默认预设推断 —— 新会话据此被写入
+    #      permission/preset + sandbox/mode + approval/policy 三个事件。
+    # 第 3 点是状态栏显示正确的关键：dsh-tui 的模式指示器只从会话日志 fold，
+    # 没有这些事件时会回落到 index 0 的「默认」，与现实不符。
+    # 保留 `:-`：dsh.env 或命令行里显式赋值仍可覆盖。Shift+Tab 循环照旧
+    # （完全访问 → 默认 → 计划），临时回受限模式不必改配置。
+    export DSH_PERMISSION_MODE="''${DSH_PERMISSION_MODE:-danger-full-access}"
+    # 启动线分流：dsh 自己的启动期选项仍走 `dsh --profile` —— 入口不重现 --patch /
+    # --dump-config* / --from-default-profile（上游 host-contract.js 的
+    # HOST_DEVIATIONS.no-overlays 写明 "the launcher passes none"）。只看 `--` 之前
+    # 的前缀，其余参数照旧原样透传。
+    # DSH_TUI_HOST_ENTRY=0 是上游的逃生门（"恢复原启动方式"），同义实现。
+    if [ "''${DSH_TUI_HOST_ENTRY:-1}" = 0 ]; then
+      exec ${lib.getExe dshPackage} --profile ${profileNames.tui} "$@"
+    fi
+    for arg in "$@"; do
+      case "$arg" in
+        --) break ;;
+        --profile|--profile=*|--patch|--patch=*|--from-default-profile|--from-default-profile=*|--dump-config|--dump-default-config|--dump-config-schema|-V|--version)
+          exec ${lib.getExe dshPackage} --profile ${profileNames.tui} "$@"
+          ;;
+      esac
+    done
+    # 默认线：先把可交互界面挂上终端（首帧 ~1s），DSH 在同一进程里随后组合 ——
+    # 插件树、MCP 握手、模型目录同步都落在首帧之后，加载期间可输入草稿。
+    # PATH 首位必须是 shim：findHostDsh 认的是 PATH 上第一个 `dsh`。
+    # --expose-internals 必需：dsh 的 node-addon-require-builtin 依赖它，缺了入口会以
+    # "the installed dsh cannot host this launch" 回退（2026-10-15 实测）。
+    export PATH=${dshHostPackage}:$PATH
+    export DSH_TUI_PROFILE=${profileNames.tui}
+    exec ${lib.getExe dshLocal.upstreamPkgs.nodejs-slim} --expose-internals ${tuiHostEntry} "$@"
   '';
 
   # 统一 MCP server 定义（pi / dsh 共用源，见该文件头部注释）：新增或修改
@@ -522,9 +577,15 @@ let
           # reasoningEfforts，缺失 = 该模型"无推理能力"→ 选择器不显示思考强度。
           models:
   ${relayModelsYaml}
-        # opencode-go 是 pi-ai 内置 catalog 路由（OpenCode Zen Go 网关，
+        # opencode-go 是 pi-ai 内置 catalog 路由（OpenCode Go 网关，
         # 含 deepseek-v4-pro/flash、glm-5.2、kimi-k3、qwen3.7 等模型），
         # 认证环境变量 OPENCODE_API_KEY 与 jojo home 注入一致。
+        # baseURL 用官方文档（opencode.ai/v2/docs/console/go）的规范拼写
+        # /inference/go/v1；旧拼写 /zen/go/v1 仍是活的别名（2026-10-14 实测
+        # 两者 GET /models 返回同一份 40 条清单，chat/messages 也都有应答）。
+        # 另：Go 档 2026-10 起强制 x-opencode-session 会话头，缺了直接 400
+        # MissingSessionID（先于鉴权判断）；pi-ai 对 baseURL 含 opencode.ai 的
+        # 路由已在 opencode-headers.js 里自动注入，这里无需手工加头。
         # 2026-08-29 实测：网关 /go/v1/chat/completions 对 catalog 判定为
         # anthropic-messages 的 minimax-m3 / qwen3.7-max 也 200（统一 OpenAI
         # 兼容端）。catalog 是混合 api（anthropic/openai-completions/
@@ -536,7 +597,15 @@ let
         opencode-go:
           apiKeyEnv: OPENCODE_API_KEY
           api: openai-completions
-          baseURL: https://opencode.ai/zen/go/v1
+          baseURL: https://opencode.ai/inference/go/v1
+        # 改本表 route 字段（baseURL/api）时注意：这里只是 seed。运行时生效值是
+        # profile 自己的 cordis.patch.yml（Settings 缝的落盘目标），而它排在 bundle
+        # 之后应用、且 config 是**整体替换**，所以已存在 profile 的 providers 表会
+        # 完全盖住本表（2026-10-14 在一次性 DSH_HOME 上用 marker 值实测确认）。
+        # 因此改完这里还要在 dsh 停止时同步改
+        # $DSH_HOME/profiles/nix-{dsh-tui,web,headless}/cordis.patch.yml 里的同名字段；
+        # 新建 profile 不受影响（其 cordis.patch.yml 是 `[]`，全部值来自 bundle）。
+        # 模型清单不受此限：dsh-autosync 按 /v1/models 对账并写回运行时，是活的那份。
         # openrouter 是 pi-ai 内置 catalog 路由（https://openrouter.ai/api/v1，
         # openai-completions），catalog 内置 276 个模型，无需手工声明 models。
         openrouter:
