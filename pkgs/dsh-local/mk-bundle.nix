@@ -36,11 +36,23 @@
   version ? "0.1.0",
   # 源码目录（必须含 package.json）。
   src,
-  # `cordis.patch.yml` 的内容。默认 `[]` = 不产生顶层行，只提供一个能被 preset
-  # 按名引用的包（官方 dsh-tool-bash 的处境相同：包在安装里，挂载与否由 preset 决定）。
-  # 必须是合法 YAML 数组 —— dsh 拒绝空文件（"must be a top-level YAML array of
-  # loader patch entries"）并跳过整个 bundle，是本轮实测踩到的坑。
-  patch ? "[]",
+  # `cordis.patch.yml` 的**文件**（路径、或另一个 derivation 的产物），
+  # `null` = 不产生顶层行，只提供一个能被 preset 按名引用的包（官方 dsh-tool-bash
+  # 的处境相同：包在安装里，挂载与否由 preset 决定）。必须是合法 YAML 数组 ——
+  # dsh 拒绝空文件（"must be a top-level YAML array of loader patch entries"）并跳过
+  # 整个 bundle，是本轮实测踩到的坑（`null` 由本文件落成 `[]`）。
+  #
+  # ## 为什么收文件而不是文本
+  #
+  # patch 可能由别的 derivation 产出（modules/home/dsh 的 dsh-tui-display：从上游
+  # bundle 的 cordis.patch.yml 里提取整份 config 再覆盖三个键）。收文件时那份产物
+  # 就是本 derivation 的普通构建输入；收文本就必须在**求值期** `builtins.readFile`
+  # 它，那是 IFD —— 整个 system toplevel 的求值被迫先构建上游 dsh-tui bundle
+  # （pnpm + 自检，实测 6 分钟），失败时还只报
+  # "Cannot build ... Reason: 1 dependency failed"，没有一个字的 builder 日志
+  # （2026-10-15 实测：真原因不可考，因为失败日志随后被成功构建覆盖）。
+  # 写在 nix 里的短 patch 用调用侧的 patchText 过一道即可。
+  patch ? null,
   # 该 bundle 声明的运行时依赖，会去重展平进 dsh 的 PATH。
   runtimeDeps ? [ ],
   meta,
@@ -48,6 +60,10 @@
 
 let
   kernelNodeModules = "${kernelPatched}/lib/deepseek-harness/node_modules";
+
+  # `patch = null` 的落地形态。空文件会让 dsh 跳过整个 bundle，所以是 `[]` 而不是
+  # 零字节。
+  noRows = builtins.toFile "cordis.patch.yml" "[]\n";
 in
 stdenvNoCC.mkDerivation {
   pname = name;
@@ -74,9 +90,12 @@ stdenvNoCC.mkDerivation {
     # dsh.bundle.patch 声明与 patch 文件由这里注入，而不是写在源码的 package.json 里：
     # 源码包保持可独立运行（`dsh plugin add <本地目录>` 也照样能用），
     # 「打包成 bundle」是 nix 的决定。
-    cat > "$dest/cordis.patch.yml" <<'YML'
-    ${patch}
-    YML
+    #
+    # `install` 而不是 `cp`：源文件在 store 里是 0444，直接 cp 会把只读位带进交付树
+    # （上面刚做过 chmod -R u+w，同一意图）。
+    # 内容字节原样落地（旧的 heredoc 写法会额外补一个换行）—— 于是 bundle 里的
+    # cordis.patch.yml 与来源文件逐字节相同，`diff` 就能验证接线没走样。
+    install -m 0644 ${if patch == null then noRows else patch} "$dest/cordis.patch.yml"
     ${lib.getExe nodejs-slim} -e '
       const fs = require("node:fs")
       const p = process.argv[1]

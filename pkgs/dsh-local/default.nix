@@ -59,6 +59,14 @@ let
   #      本地 = 过了 fence 就免 cookie。fence 本身已挡住 DNS rebinding 与跨站
   #             （实测非信任 Host → 401），cookie 这层在内网反代部署里只是登录摩擦。
   #
+  #      适配记录（0.2.1-alpha.2）：上游给 isAuthenticated / authorizeIndex 各加了
+  #      `secure` 参数（由监听器自身协议决定 cookie 是否带 Secure），isTrustedApiRequest
+  #      也从 2 参变 4 参 —— 新增 bindHost / protocol 决定监听器绑定地址的接受与默认
+  #      端口归一化。替换串必须把监听器自己的 host/protocol 一并传下去：漏掉 bindHost
+  #      会让「Host 等于监听器绑定 IP」这一支恒为假（该分支不读 trustedHosts），
+  #      漏掉 protocol 会让 https 默认端口按 http 归一化。
+  #      authorizeIndex 体内没有现成的 carrier，替换串自己取一次（与 requestRejection 同构）。
+  #
   #   2. dsh-config-editor 的 edit：整轮写入跑在编辑器自己的 async scope 里。
   #      上游 = `edit` 的 `run` 闭包在调用者的 async 上下文里执行，而它做的事全是 dsh
   #             自己的引导工作：`reconcileProfilePatches(root, …)`（末句是
@@ -134,13 +142,14 @@ let
 
         substituteInPlace "$f" \
           --replace-fail \
-          'return this.browserAuth.isAuthenticated(request) ? void 0 : 401;' \
+          'return this.browserAuth.isAuthenticated(request, carrier?.protocol === "https:") ? void 0 : 401;' \
           'return void 0;'
 
         substituteInPlace "$f" \
           --replace-fail \
-          'return this.browserAuth.authorizeIndex(request, response);' \
-          'return isTrustedApiRequest(request, this.trustedHosts) || this.browserAuth.authorizeIndex(request, response);'
+          'return this.browserAuth.authorizeIndex(request, response, this.ctx.get("webServer")?.protocol === "https:");' \
+          'const carrier = this.ctx.get("webServer");
+return isTrustedApiRequest(request, this.trustedHosts, carrier?.host, carrier?.protocol ?? "http:") || this.browserAuth.authorizeIndex(request, response, carrier?.protocol === "https:");'
 
         # ── 补丁 2：dsh-config-editor 的 edit 脱离调用者归因 ─────────────────
         ce="$out/${configEditorRel}"
@@ -211,6 +220,13 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
     inherit lib dshBundleResolver kernelPatched;
     inherit (upstreamPkgs) stdenvNoCC nodejs-slim;
   };
+
+  # 直接写在 nix 里的短 patch → mkBundle 要的文件形态。
+  # `builtins.toFile` 在**求值期**写 store：纯函数、不产生 derivation、不是 IFD
+  # （pkgs.writeText 也能用，但那是多一个构建步骤换同样的文件）。
+  # label 只决定 store 里的文件名（排查时认得出是谁），不能带 `/` —— 带 scope 的
+  # 包名（@jojo/...）要自己起一个无斜杠的 label。
+  patchText = label: text: builtins.toFile "${label}.cordis.patch.yml" text;
 
   pluginsDir = ../../modules/home/dsh/plugins;
   presetsDir = ../../modules/home/dsh/agent-presets;
@@ -288,7 +304,7 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
   bracesSanitize = mkBundle {
     name = "dsh-braces-sanitize";
     src = pluginsDir + "/braces-sanitize";
-    patch = ''
+    patch = patchText "dsh-braces-sanitize" ''
       - insert:
           - id: mcp-braces-sanitize
             name: dsh-braces-sanitize
@@ -300,13 +316,13 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
   mcp = mkDeclBundle {
     name = "dsh-mcp";
     description = "MCP server entries rendered from modules/home/mcp-servers/servers.nix.";
-    patch = mcpEntries;
+    patch = patchText "dsh-mcp" mcpEntries;
   };
 
   shellEnv = mkDeclBundle {
     name = "dsh-shell-env";
     description = "Credential injection through the trusted DSH_* shell-env registry (OpenBao / Woodpecker / HuggingFace).";
-    patch = ''
+    patch = patchText "dsh-shell-env" ''
       # 宿主 env 里名字命中 /KEY|PASSWORD|SECRET|TOKEN/i 的变量会被 dsh 的 subprocess
       # env 构建刻意擦除；shell-env 注册表是官方受信通道（executor 在 scrub **之后**
       # 注入，模型无法顶掉托管值）。
@@ -350,16 +366,19 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
     name = "dsh-autosync";
     src = pluginsDir + "/autosync";
     meta.description = "Live model discovery for the opencode-go / runinfra / deepseek-relay routes.";
-    patch = ''
+    patch = patchText "dsh-autosync" ''
       # relay / runinfra 的 /v1/models 是权威所以 reconcile（增删同步，保留仍在 live
       # 的既有条目的 compat / reasoningEfforts / 用户修正容量）；opencode-go 是
       # add-only —— pi-ai 的 catalog 是静态清单，reconcile 会把刚发现的模型当 stale 删掉。
       - insert:
+          # baseURL 用官方文档（opencode.ai/v2/docs/console/go）的规范拼写
+          # /inference/go/v1；旧拼写 /zen/go/v1 仍是活的别名，两者 2026-10-14
+          # 实测返回同一份 40 条清单，别名哪天撤了不影响这里。
           - id: opencode-autosync
             name: dsh-autosync/opencode
             config:
               route: opencode-go
-              baseURL: https://opencode.ai/zen/go/v1
+              baseURL: https://opencode.ai/inference/go/v1
               api: openai-completions
               apiKeyEnv: OPENCODE_API_KEY
               intervalMs: 43200000
@@ -397,7 +416,9 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
 
   presets = mkBundle {
     name = "dsh-local-presets";
-    patch = builtins.readFile presetsPatch;
+    # presetsPatch 本身就是产出 YAML 的 derivation：直接当构建输入，不再 readFile
+    # （那是 IFD，会把 presets 的全部校验步骤拖进求值期）。
+    patch = presetsPatch;
     src = upstreamPkgs.runCommand "dsh-local-presets-src" { } ''
       mkdir -p $out
       cat > $out/package.json <<'JSON'
@@ -477,7 +498,7 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
   modelSelectPlus = mkBundle {
     name = "@local/dsh-model-select-plus";
     src = pluginsDir + "/model-select-plus";
-    patch = ''
+    patch = patchText "dsh-model-select-plus" ''
       # 只进 web profile：装进 TUI/headless 会因为解析不到客户端半区而崩溃
       # （2026-09-28 实测：dsh-tui 启动日志里的 "failed to import"）。
       - insert:
@@ -713,6 +734,51 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
       profileDefaultProfile = defaultProfile;
     };
 
+  # ── 宿主包 shim：让 dsh-tui 自己的入口能"托管"这次启动 ──────────────────────
+  #
+  # dsh-tui 0.15.0 的默认启动线是它**自己的入口**（lib/types/dsh-adapter/host-entry.js）：
+  # 先把可交互界面挂到终端，再在同一进程组合 profile —— 插件树、MCP 握手、模型目录
+  # 同步全部落在首帧之后。`dsh --profile` 那条线要等整棵树装完才出画面（本机实测首帧：
+  # 入口 0.9~1.6s，`dsh --profile` 5.7~6.6s）。
+  #
+  # 入口用 host-dsh.js 的 findHostDsh 定位宿主：顺着 PATH 上第一个 `dsh` 的 realpath
+  # 往上找，必须找到一个 package.json 里 `name === "@deepseek-ai/dsh"` 的包目录，再从
+  # 那里以 file-URL 加载 8 个宿主模块（cordis / dsh-app-boot / cordis-plugin-loader /
+  # dsh-home-paths / dsh-launch-environment / dsh-cmdline / @deepseek-ai/dsh/profile-boot /
+  # dsh-http-proxy）。nix 的 dsh 是 wrapper 脚本 + 扁平 bin/lib 布局，没有这个包目录 →
+  # 入口打印 "the installed dsh cannot host this launch" 并回退 `dsh --profile`。
+  #
+  # 这里补一个最小的"看起来像 npm 装的 @deepseek-ai/dsh"的目录：
+  #   package.json   装配包的 manifest —— profile-boot 的 INSTALL_ANCHOR 就是
+  #                  <pkg>/package.json，profile bundle 从它旁边解析
+  #   lib/           → 装配包的 lib：**必须落到真路径**，ESM 的 import.meta.url 决定
+  #                  INSTALL_ANCHOR；指到 kernelPatched 那层会解析不到任何 bundle
+  #                  （实测：18 个 bundle 全部 "cannot resolve profile bundle"）
+  #   node_modules/  → 装配包的 node_modules（symlinkJoin 后的全量 bundle 在这里）
+  #   dsh            必须是 $out 里的真文件：findHostDsh 对候选取 realpath，若是指向
+  #                  store 脚本的 symlink，realpath 又会走出本目录 → 找不到包目录
+  #
+  # 所以它必须由**装配后的** dsh 生成，因此做成函数、由调用方传入。
+  mkDshHostPackage =
+    dsh:
+    upstreamPkgs.runCommand "dsh-host-package"
+      {
+        pname = "dsh-host-package";
+        version = upstreamPkgs.dsh.dsh-kernel.version;
+        meta.description = "Host package shim that lets dsh-tui's own entry host the launch";
+      }
+      ''
+        mkdir -p $out
+        cp ${dsh}/lib/deepseek-harness/package.json $out/package.json
+        ln -s ${dsh}/lib/deepseek-harness/lib $out/lib
+        ln -s ${dsh}/lib/deepseek-harness/node_modules $out/node_modules
+        cat > $out/dsh <<SHELL
+        #!${upstreamPkgs.runtimeShell}
+        exec ${dsh}/bin/dsh "$@"
+        SHELL
+        chmod +x $out/dsh
+      '';
+
   # dsh-tap：上游没有这个 bundle，且它自带的 llm-pi-ai 行必须与本仓库的路由表在
   # 构建期合成同一行（理由见该文件头部）。
   dshTap = import ./dsh-tap.nix {
@@ -727,7 +793,9 @@ in
     kernelPatched
     upstreamBundles
     mkBundle
+    patchText
     mkDsh
+    mkDshHostPackage
     ;
 
   # 三条 profile 共用的 host 插件（与前端形态无关）。
