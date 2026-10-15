@@ -29,8 +29,9 @@
  * (`request.apiKey ?? await storedApiKey?.()`; `storedApiKey` returns
  * `undefined` when no provider is given, so the key has to come from us).
  *
- * So, once at dsh startup (shortly after activation) and again on a
- * configurable interval, each plugin:
+ * So each plugin runs one pass after the app's boot window (FIRST_PASS_DELAY_MS)
+ * and then renews itself: the normal interval after a clean pass, an exponential
+ * backoff capped at that interval after a failed one (RETRY_DELAY_MS). A pass:
  *   1. reads its route's configured models from the `llm-pi-ai` settings
  *      namespace — the writable source that decides what the route actually
  *      serves, so per-model `compat` and `reasoningEfforts` are present;
@@ -82,6 +83,24 @@ export const NS = "llm-pi-ai";
 
 /** 12h check interval; override via the plugin row's `config.intervalMs`. */
 const DEFAULT_INTERVAL_MS = 12 * 60 * 60 * 1000;
+/**
+ * 首轮延迟：必须晚于应用启动窗口。
+ *
+ * 一轮对账一旦发生写盘，dsh 会重载 profile 并重新 apply 插件（dsh-tap 的插件注释
+ * 记过同一现象：「每次写入都会触发 profile patch 重载 → 插件 re-apply → boot 再走
+ * 一遍」）。原先首轮定在激活后 2s，正好落在这段窗口里：2026-10-14 在一份一次性
+ * DSH_HOME 上实测，首轮的写盘发生在启动第 7.5s，与启动期日志同段。
+ * 20s 足够越过它，而在 12h 的常态间隔下这 18s 没有任何感知代价。
+ */
+const FIRST_PASS_DELAY_MS = 20000;
+/**
+ * 一轮失败后的下一次间隔；每次连续失败翻倍，上限为常态间隔。
+ *
+ * 原先失败要等满一个 `intervalMs`（本行配置 12h）：一次几秒到几分钟的网络抖动
+ * （mihomo 重启丢 fake-IP 映射、代理节点切换）换来半天的清单陈旧。退避让抖动
+ * 只代价一次重试，而持续失败也不会退化成每 5 分钟一条日志（翻倍到常态间隔为止）。
+ */
+const RETRY_DELAY_MS = 5 * 60 * 1000;
 /** Capacities applied to an id the listing discloses but whose figures it hides. */
 const DEFAULT_CONTEXT_WINDOW = 128000;
 const DEFAULT_MAX_TOKENS = 32000;
@@ -523,10 +542,11 @@ export function resolveOptions(config, spec) {
  *
  * The settings service is a hard dependency: `ctx.inject(["settings"], ...)`
  * defers activation until the provider has installed it, so the first pass
- * still runs at startup but never races it (a fixed 2s timer did race it, and
- * the failed pass then waited a full interval). The injected child fiber also
- * owns both timers, so losing the settings service disposes them and regaining
- * it re-arms them.
+ * never races it (a fixed 2s timer did race it, and the failed pass then waited
+ * a full interval). The injected child fiber also owns the scheduler, so losing
+ * the settings service disposes it and regaining it re-arms it; the chain is
+ * stopped explicitly because a renewal happens in `run`'s continuation, where
+ * the fiber may already be gone.
  *
  * @param spec - `{ name, mode, route, baseURL, api, apiKeyEnv, deferToCatalog?,
  *                 includePrefixes?, defaultReasoningEfforts?, discover?, publish? }`.
@@ -538,28 +558,39 @@ export function createAutoSyncPlugin(spec) {
 
 	async function apply(ctx, config) {
 		const opts = resolveOptions(config, spec);
-		// Guard against overlapping runs that would each re-read and rewrite.
-		let running = false;
-		const run = async (runCtx) => {
-			if (running) return;
-			running = true;
-			try {
-				const report = await syncOnce(runCtx, opts);
-				console.log(`[${name}] ${JSON.stringify(report)}`);
-			} catch (error) {
-				console.error(`[${name}] ${messageOf(error)}`);
-			} finally {
-				running = false;
-			}
-		};
 		ctx.inject(["settings"], (settingsCtx) => {
-			// First pass shortly after activation (lets the llm service settle),
-			// then a periodic pass.
-			settingsCtx.timeout(() => void run(settingsCtx), 2000);
+			// 单条自续期链：成功按常态间隔续期、失败按退避续期（见 FIRST_PASS_DELAY_MS
+			// 与 RETRY_DELAY_MS）。链上任何时刻只有一个待触发的定时器，轮次因此天然
+			// 不重叠——旧写法的 running 旗标是为「首轮定时器 + 周期定时器」两个触发器
+			// 准备的，改成链之后不再需要。
+			let stopped = false;
+			let retryDelay = RETRY_DELAY_MS;
 			settingsCtx.effect(
-				() => settingsCtx.interval(() => void run(settingsCtx), opts.intervalMs),
-				`${name}.interval`
+				() => () => {
+					stopped = true;
+				},
+				`${name}.schedule`
 			);
+			const schedule = (delay) => {
+				// 续期发生在 run 的续体里：settings 若在这期间消失，子 fiber 已经下线，
+				// 此时再调 ctx.timeout() 会撞 cordis 的 INACTIVE_EFFECT。
+				if (stopped) return;
+				settingsCtx.timeout(() => void run(settingsCtx), delay);
+			};
+			const run = async (runCtx) => {
+				let ok = false;
+				try {
+					const report = await syncOnce(runCtx, opts);
+					ok = report.ok === true;
+					console.log(`[${name}] ${JSON.stringify(report)}`);
+				} catch (error) {
+					console.error(`[${name}] ${messageOf(error)}`);
+				}
+				const next = ok ? opts.intervalMs : retryDelay;
+				retryDelay = ok ? RETRY_DELAY_MS : Math.min(retryDelay * 2, opts.intervalMs);
+				schedule(next);
+			};
+			schedule(FIRST_PASS_DELAY_MS);
 		});
 	}
 

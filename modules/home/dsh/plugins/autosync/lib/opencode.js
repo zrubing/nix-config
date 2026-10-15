@@ -24,7 +24,10 @@ export const { name, inject, apply } = createAutoSyncPlugin({
 	mode: "add-only",
 	deferToCatalog: true,
 	route: "opencode-go",
-	baseURL: "https://opencode.ai/zen/go/v1",
+	// 官方文档（opencode.ai/v2/docs/console/go）的规范拼写是 /inference/go/v1；
+	// 旧拼写 /zen/go/v1 仍是活的别名（2026-10-14 实测两者 GET /models 返回同一份
+	// 40 条清单），用规范写法以免别名撤销时静默失效。
+	baseURL: "https://opencode.ai/inference/go/v1",
 	api: "openai-completions",
 	apiKeyEnv: "OPENCODE_API_KEY",
 });
