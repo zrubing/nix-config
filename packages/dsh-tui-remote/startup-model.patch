@@ -1,0 +1,201 @@
+diff --git a/src/dsh-adapter/remote/entry.ts b/src/dsh-adapter/remote/entry.ts
+--- a/src/dsh-adapter/remote/entry.ts
++++ b/src/dsh-adapter/remote/entry.ts
+
+@@ -6,3 +24,5 @@
+ import { installRemoteCommands } from './commands.js'
+ import { createClientRoot } from './connection.js'
++import { parseStartupModel } from './startup.js'
++import { readEffortPref } from '../../effortPrefs.js'
+ import { Config } from '../index.js'
+@@ -16,3 +16,21 @@
+   process.exit(2)
+ }
+-
++// `--model` is the launcher's flag, not TUI argv: the plugin reads raw argv
++// only for the startup prompt and the session selector, so the route arrives
++// through the environment. The launcher resolves the `:effort` suffix; a route
++// written without one starts on the tier this client last chose (`/effort`),
++// else the tier the Host's default carries (see `applySessionRoute`).
++const modelRoute = process.env.DSH_TUI_MODEL?.trim()
++if (modelRoute !== undefined && modelRoute !== '') {
++  const parsed = parseStartupModel(modelRoute)
++  if (parsed === undefined) {
++    process.stderr.write(`dsh-tui: DSH_TUI_MODEL must be "<provider>/<model>[:<effort>]", got "${modelRoute}"\n`)
++    process.exit(2)
++  }
++  process.env.DSH_TUI_STARTUP_PROVIDER = parsed.provider
++  process.env.DSH_TUI_STARTUP_MODEL = parsed.model
++  process.env.DSH_TUI_STARTUP_EFFORT = parsed.effort ?? readEffortPref() ?? ''
++}
++
++// The root comes from the connected installation, not from this package: a
++// packaged client ships no framework packages of its own.
+@@ -1556,5 +1556,77 @@
+   close(): Promise<void>
+ }
+ 
++/**
++ * The Session's route as a record: the shape `session/selectModel` resolves
++ * and returns, and the shape the `agent-default-model` row stores.
++ */
++export interface RouteRecord {
++  readonly provider: string
++  readonly model: string
++  readonly reasoningEffort?: string
++}
++
++/** The `agentDefaultModel` namespace `applySessionRoute` needs. */
++interface AgentDefaultModelRemote {
++  readConfig(): Promise<RemoteResult<RouteRecord | undefined>>
++  editConfig(change: (config: RouteRecord) => RouteRecord): Promise<RemoteResult<unknown>>
++}
++
++/**
++ * Whether the Session already runs on the requested model. The tier is not
++ * compared: the Host records a tier even when nobody chose one, so a launch
++ * that names only the model must not re-write a route that already holds.
++ */
++export function routeHolds(current: RouteRecord | undefined, wanted: RouteRecord): boolean {
++  return current !== undefined && current.provider === wanted.provider && current.model === wanted.model
++}
++
++/**
++ * Install a route on a Session that does not run it — `--model` at startup.
++ *
++ * `session/selectModel` is the Host's only remote entry for this, and it also
++ * saves the selection as the **deployment** default: `agentDefaultModel.saveSelection`
++ * replaces the `agent-default-model` row's whole config, reasoning tier
++ * included. A startup override belongs to this launch alone, so the saved
++ * config is read first and written back afterwards; the tier that default
++ * carries is also what applies when the override names none (the model
++ * catalog reports that tier, not the name's).
++ * @param remote - the mounted client Remote service.
++ * @param sessionId - the Session to install the route on.
++ * @param target - provider, model, and the tier when the launch names one.
++ * @returns the route the Host resolved and recorded.
++ */
++export async function applySessionRoute(
++  remote: unknown,
++  sessionId: string,
++  target: RouteRecord,
++): Promise<RouteRecord> {
++  const sessions = (remote as unknown as { readonly session: SessionRemote }).session
++  const defaults = (remote as unknown as { readonly agentDefaultModel: AgentDefaultModelRemote }).agentDefaultModel
++  const saved = await defaults.readConfig()
++  if (!saved.ok || saved.value === undefined) {
++    throw new Error(`remote: agentDefaultModel/readConfig failed: ${saved.error?.message ?? 'unknown error'}`)
++  }
++  const previous = saved.value
++  const reasoningEffort = target.reasoningEffort ?? previous.reasoningEffort
++  const result = await sessions.selectModel({
++    sessionId,
++    provider: target.provider,
++    model: target.model,
++    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
++  })
++  if (!result.ok) throw new Error(`remote: session/selectModel failed: ${result.error?.message ?? 'unknown error'}`)
++  const restored = await defaults.editConfig(() => previous)
++  if (!restored.ok) {
++    throw new Error(`remote: the route was installed but the deployment default could not be restored: ${restored.error?.message ?? 'unknown error'}`)
++  }
++  const selected = result.value?.selected
++  return {
++    provider: selected?.provider ?? target.provider,
++    model: selected?.model ?? target.model,
++    ...(selected?.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }),
++  }
++}
++
+ const EMPTY_CAPABILITIES: SessionCapabilities = { native: {} }
+ 
+@@ -14,6 +14,6 @@
+ import { bindRemoteCommands, refreshRemoteCommands } from './commands.js'
+ import { connectRemote, type RemoteConnection } from './connection.js'
+-import { createRemoteSession, listRemoteSessions, openRemoteSession, type RemoteSessionSummary } from './session.js'
++import { applySessionRoute, createRemoteSession, listRemoteSessions, openRemoteSession, routeHolds, type ModelSelectionProjection, type RouteRecord, type RemoteSessionSummary } from './session.js'
+ import { createRemoteSessionCatalog } from './sessions.js'
+ 
+ export interface RemoteStartupOptions {
+@@ -21,3 +21,33 @@
+   readonly sessionId?: string
+ }
+ 
++/**
++ * `<provider>/<model>`, optionally followed by `:<effort>`. The provider is
++ * one path segment (route names carry no `/`); everything after it is the
++ * model id, so gateway-style ids stay intact.
++ * @param raw - the override as written.
++ * @returns the route, or undefined when the string cannot name one.
++ */
++export function parseStartupModel(raw: string): RouteRecord | undefined {
++  const trimmed = raw.trim()
++  const slash = trimmed.indexOf('/')
++  if (slash <= 0) return undefined
++  const rest = trimmed.slice(slash + 1)
++  const colon = rest.lastIndexOf(':')
++  const model = colon === -1 ? rest : rest.slice(0, colon)
++  const effort = colon === -1 ? '' : rest.slice(colon + 1)
++  if (model === '' || (colon !== -1 && effort === '')) return undefined
++  return { provider: trimmed.slice(0, slash), model, ...(effort === '' ? {} : { reasoningEffort: effort }) }
++}
++
++/**
++ * The route handed over in the environment by the remote entry (`--model`).
++ * @returns the route, or undefined when this launch takes the Host's own.
++ */
++export function startupRouteOverride(): RouteRecord | undefined {
++  const provider = process.env.DSH_TUI_STARTUP_PROVIDER?.trim()
++  const model = process.env.DSH_TUI_STARTUP_MODEL?.trim()
++  if (provider === undefined || provider === '' || model === undefined || model === '') return undefined
++  const effort = process.env.DSH_TUI_STARTUP_EFFORT?.trim()
++  return { provider, model, ...(effort === undefined || effort === '' ? {} : { reasoningEffort: effort }) }
++}
+@@ -16,10 +49,33 @@
+ export async function openRemoteStartup(ctx: Context, options: RemoteStartupOptions) {
+   const connection = await connectRemote(options.url, ctx as unknown as Parameters<typeof connectRemote>[1])
+   const deps = { remote: connection.remote, projections: connection.projections, catalog: connection.catalog, approvals: connection.approvals }
+   const sessions = await listRemoteSessions(connection.remote)
+   const target = options.sessionId ?? sessions[0]?.sessionId
+   const sessionId = target ?? (await createRemoteSession(connection.remote, options.cwd))
++  // `--model` installs on the Session this launch opened and on the one it
++  // opens next (`/new`); a Session picked from the browser later keeps its own.
++  const requested = startupRouteOverride()
+   if (process.env.DSH_TUI_REMOTE_DEBUG === '1') {
+     process.stderr.write(`remote: sessions=[${sessions.map((s) => s.sessionId).join(',')}] opening=${sessionId}\n`)
+   }
++  if (requested !== undefined) {
++    // The Host publishes a projection only after the Session's first event, so
++    // a Session that never recorded a selection shows none yet. Wait for the
++    // record instead of guessing: reading once would see nothing, and acting
++    // on the deployment default would re-write a route that already holds.
++    const deadline = Date.now() + 5_000
++    let record = connection.projections.get<ModelSelectionProjection>(sessionId, 'modelSelection')
++    while (record === undefined) {
++      if (Date.now() > deadline) throw new Error(`remote: the host published no model selection for session ${sessionId}`)
++      await new Promise<void>((resolve) => setTimeout(resolve, 50))
++      record = connection.projections.get<ModelSelectionProjection>(sessionId, 'modelSelection')
++    }
++    const current = record.next ?? record.lastUsed ?? undefined
++    if (!routeHolds(current, requested)) {
++      const route = await applySessionRoute(connection.remote, sessionId, requested)
++      if (process.env.DSH_TUI_REMOTE_DEBUG === '1') {
++        process.stderr.write(`remote: startup route ${route.provider}/${route.model} effort=${route.reasoningEffort ?? '-'}\n`)
++      }
++    }
++  }
+   const handle = await openRemoteSession(deps, sessionId)
+@@ -95,7 +134,10 @@
+     resumeCommand: (id: string) => `dsh-tui --remote ${options.url} --resume ${id}`,
+     open: async (target: { readonly kind: 'create'; readonly cwd: string } | { readonly kind: 'resume'; readonly sessionId: string }): Promise<AgentSession> => {
+       if (target.kind === 'create') {
+-        const created = await createRemoteSession(connection.remote, target.cwd)
+-        await refreshRemoteCommands(created)
+-        return (await openRemoteSession(deps, created)).session
++        // A new Session inherits the Host's default; install this launch's
++        // route before its first request resolves one.
++        const created = await createRemoteSession(connection.remote, target.cwd)
++        if (requested !== undefined) await applySessionRoute(connection.remote, created, requested)
++        await refreshRemoteCommands(created)
++        return (await openRemoteSession(deps, created)).session
+       }

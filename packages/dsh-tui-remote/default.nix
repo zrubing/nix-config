@@ -69,7 +69,17 @@ stdenv.mkDerivation (finalAttrs: {
     fetchSubmodules = true;
   };
 
-  patches = [ ./remote-mode.patch ];
+  # remote-mode.patch 是完整的远程客户端改动；permission-presets.patch 叠加在它
+  # 之上，把 Host 的权限预设投影成远程会话的 typed `modes`（`/permission` 与
+  # Shift+Tab）。
+  #
+  # startup-model.patch 暂不接入：它按旧版源码行号生成（session.ts:1556），套不上
+  # v0.16.1；且它依赖的 agentDefaultModel 在 Host 侧没有 typert.remote-client 面。
+  # 修好前不参与构建，避免整个包被一个未验证的叠加补丁卡死。
+  patches = [
+    ./remote-mode.patch
+    ./permission-presets.patch
+  ];
 
   # pnpm 11 从 **workspace 清单**读 trustPolicy / minimumReleaseAge，命令行
   # `--config.*` 对这两个键无效（实测）：没有 registry metadata 时校验必然失败。
@@ -90,7 +100,7 @@ stdenv.mkDerivation (finalAttrs: {
     nativeBuildInputs = [ nodejs-slim pnpm cacert ];
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-ZXqS0IDp4vXZ7geKqa3Iw2+MN1FWwoURsVzYaQzOd1s="; # ROOT_HASH
+    outputHash = "sha256-ifTk1VKjcahWyyjBhsgUgaQdwp3JQ40Yk2q36J3gfGA="; # ROOT_HASH
     buildCommand = ''
       export HOME=/build/home
       export npm_config_cache=/build/cache
@@ -120,7 +130,7 @@ stdenv.mkDerivation (finalAttrs: {
     nativeBuildInputs = [ nodejs-slim pnpm cacert ];
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-I8TgbYpxMY9GErYG4OHTrFjMWH1YOK/xBhFA5wAsbuA="; # VENDOR_HASH
+    outputHash = "sha256-L0gXffTfUepZuBNbUMLhy9ZTPMKdJ/NVuO8i0P4rHUU="; # VENDOR_HASH
     buildCommand = ''
       export HOME=/build/home
       export npm_config_cache=/build/cache

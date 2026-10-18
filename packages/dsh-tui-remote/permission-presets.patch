@@ -1,0 +1,313 @@
+diff --git a/src/dsh-adapter/remote/connection.ts b/src/dsh-adapter/remote/connection.ts
+index 31e70a1..6aeada2 100644
+--- a/src/dsh-adapter/remote/connection.ts
++++ b/src/dsh-adapter/remote/connection.ts
+@@ -13,6 +13,7 @@ import { pathToFileURL } from 'node:url'
+ import { findHostDsh } from '../host-dsh.js'
+ import { openApprovals, type RemoteApprovals } from './approvals.js'
+ import { createRemoteCatalog, type RemoteCatalog } from './catalog.js'
++import { readRemotePermissionCatalog, type RemotePermissionCatalog } from './permissions.js'
+ import { openProjections, type RemoteProjections } from './projections.js'
+ 
+ /** Generated client descriptors mounted on connect. Surfaces land here as
+@@ -69,6 +70,8 @@ export interface RemoteConnection {
+   readonly projections: RemoteProjections
+   /** The connection's model catalog reader (`session/modelCatalog`). */
+   readonly catalog: RemoteCatalog
++  /** The Host's selectable permission presets (`permissionPresets/catalog`). */
++  readonly permissionCatalog: RemotePermissionCatalog | undefined
+   /** The connection's approval router (`approval/request` waterfall). */
+   readonly approvals: RemoteApprovals
+   close(): Promise<void>
+@@ -179,6 +182,15 @@ export async function connectRemote(baseUrl: string, root?: ClientContext): Prom
+     if (module.default === undefined) continue
+     mounted.push(await remote.$mount(module.default))
+   }
++  // `/permission`'s picker reads the process-level preset table. The catalog
++  // descriptor is optional at the mount layer: an older Host that predates the
++  // namespace keeps the roster unavailable instead of failing the connection.
++  const permissionModule = await load('@deepseek-ai/dsh-permission-presets/lib/typert.remote-client.js')
++    .then(module => module as { readonly default?: unknown })
++    .catch(() => undefined)
++  if (permissionModule?.default !== undefined) {
++    mounted.push(await remote.$mount(permissionModule.default))
++  }
+   note(`mounted ${mounted.length} descriptor(s)`)
+   await waitFor(
+     () => (ctx.connection?.generation.getSnapshot() === undefined ? undefined : true),
+@@ -189,6 +201,10 @@ export async function connectRemote(baseUrl: string, root?: ClientContext): Prom
+   const projections = openProjections(remote)
+   await projections.ready
+   note('projections baseline ready')
++  const permissionCatalog = await readRemotePermissionCatalog(remote)
++  if (permissionCatalog !== undefined) {
++    note(`permission presets: ${permissionCatalog.options.map(option => option.value).join(', ')}`)
++  }
+   const catalog = createRemoteCatalog(remote)
+   const approvals = openApprovals(ctx, remote)
+ 
+@@ -198,6 +214,7 @@ export async function connectRemote(baseUrl: string, root?: ClientContext): Prom
+     hostPackageDir: location.packageDir,
+     projections,
+     catalog,
++    permissionCatalog,
+     approvals,
+     async close() {
+       approvals.dispose()
+diff --git a/src/dsh-adapter/remote/permissions.ts b/src/dsh-adapter/remote/permissions.ts
+new file mode 100644
+index 0000000..bbe5067
+--- /dev/null
++++ b/src/dsh-adapter/remote/permissions.ts
+@@ -0,0 +1,124 @@
++/**
++ * The Host's permission-preset catalog, projected onto the typed `modes`
++ * capability a non-DSH session exposes.
++ *
++ * The TUI's `/permission` picker and Shift+Tab cycle read
++ * `AgentSession.capabilities.modes` on every backend that is not DSH (see
++ * `channel/core/actions.ts` and `capabilities.ts`). A remote Session has no
++ * kernel, so the catalog comes from the Host's process-level
++ * `permissionPresets/catalog`, and the current identity from the live
++ * `session/control` projection.
++ *
++ * This is read + switch only. The switch goes through the official
++ * `/permission <preset>` command (`commands/execute`), so the Host owns the
++ * durable `permission/preset` event and this client never manufactures one.
++ */
++import type { ModeOption, SessionCapabilities } from '../../agent/capabilities.js'
++import { permissionPresetDescription, permissionPresetKeys, permissionPresetLabel } from '../../permissionPresetLabels.js'
++import type { RemoteResult } from './connection.js'
++import type { RemoteProjections } from './projections.js'
++
++/** The derived identity the registry reports when no table entry matches. */
++const CUSTOM_PRESET = 'custom'
++
++/** The experimental preset whose risk gate only `/permission`'s DSH picker has. */
++const AUTO_PRESET = 'auto'
++
++/** One preset as `permissionPresets/catalog` publishes it. */
++export interface PermissionCatalogOption {
++  readonly value: string
++  readonly name: string
++  readonly description?: string
++}
++
++/** The process-level permission roster this client can present. */
++export interface RemotePermissionCatalog {
++  readonly options: readonly PermissionCatalogOption[]
++}
++
++/** The one Remote namespace this module consumes. */
++interface PermissionPresetsRemote {
++  catalog(): Promise<RemoteResult<{ readonly options: readonly PermissionCatalogOption[] }>>
++}
++
++/**
++ * Read the Host's selectable permission presets once per connection.
++ *
++ * `custom` is the derived non-preset state, never a switchable identity; `auto`
++ * is excluded because its session-scoped risk confirmation is implemented only
++ * by the DSH `/permission` preset picker, and presenting it as an ordinary
++ * backend mode would bypass that gate.
++ * @param remote - the connected Remote service.
++ * @returns the catalog, or undefined when the Host mounts no usable table.
++ */
++export async function readRemotePermissionCatalog(remote: unknown): Promise<RemotePermissionCatalog | undefined> {
++  const service = (remote as { readonly permissionPresets?: PermissionPresetsRemote }).permissionPresets
++  if (service === undefined) return undefined
++  try {
++    const result = await service.catalog()
++    if (!result.ok || result.value === undefined) return undefined
++    const options = result.value.options.filter(option => option.value !== CUSTOM_PRESET && option.value !== AUTO_PRESET)
++    return options.length === 0 ? undefined : { options }
++  } catch {
++    // An older Host without the namespace keeps `/permission` unavailable;
++    // the rest of the connection is unaffected.
++    return undefined
++  }
++}
++
++/** The current identity the Host projects for one Session. */
++function currentPreset(projections: RemoteProjections, sessionId: string): string {
++  const projected = projections.get<{ readonly currentValue?: unknown }>(sessionId, 'permissions')
++  return typeof projected?.currentValue === 'string' ? projected.currentValue : ''
++}
++
++/**
++ * Build the Session's `modes` capability from the Host catalog.
++ *
++ * `set` waits for the projection to confirm the switch instead of trusting the
++ * command's return value alone: the durable identity is what the picker and
++ * the next turn actually read.
++ * @param deps - catalog, projection fold, Session id and the command writer.
++ * @returns the typed capability; the caller omits `modes` when the Host has no
++ *   catalog, which keeps `/permission` out of the command list.
++ */
++export function createRemotePermissionModes(deps: {
++  readonly catalog: RemotePermissionCatalog
++  readonly projections: RemoteProjections
++  readonly sessionId: string
++  execute(line: string): Promise<RemoteResult<unknown>>
++}): NonNullable<SessionCapabilities['modes']> {
++  const options = deps.catalog.options
++  const current = (): string => currentPreset(deps.projections, deps.sessionId)
++  return {
++    list(): readonly ModeOption[] {
++      return options.map(option => {
++        const localized = permissionPresetKeys(option) !== undefined
++        const description = localized
++          ? permissionPresetDescription(option)
++          : option.description
++        return {
++          id: option.value,
++          label: permissionPresetLabel(option),
++          ...(description === undefined ? {} : { description }),
++        }
++      })
++    },
++    current,
++    async set(id: string): Promise<void> {
++      if (!options.some(option => option.value === id)) {
++        throw new Error(`remote: unknown permission preset "${id}"`)
++      }
++      const result = await deps.execute(`/permission ${id}`)
++      if (!result.ok) {
++        throw new Error(`remote: /permission ${id} failed: ${result.error?.message ?? 'unknown error'}`)
++      }
++      const deadline = Date.now() + 2_000
++      while (Date.now() < deadline) {
++        if (current() === id) return
++        await new Promise<void>(resolve => setTimeout(resolve, 50))
++      }
++      throw new Error(`remote: the Host did not confirm permission preset "${id}"`)
++    },
++  }
++}
+diff --git a/src/dsh-adapter/remote/session.ts b/src/dsh-adapter/remote/session.ts
+index 8e4a83a..d8cd191 100644
+--- a/src/dsh-adapter/remote/session.ts
++++ b/src/dsh-adapter/remote/session.ts
+@@ -18,6 +18,7 @@ import { createDshTranslator } from '../backend/translate.js'
+ import type { RemoteResult, RemoteStream } from './connection.js'
+ import type { RemoteApprovals, ApprovalOutcome, RemoteQuestionAnswer } from './approvals.js'
+ import type { RemoteCatalog, ModelCatalog } from './catalog.js'
++import { createRemotePermissionModes, type RemotePermissionCatalog } from './permissions.js'
+ import type { ModelSelectionProjection, RemoteProjections } from './projections.js'
+ 
+ /** The `session/*` methods this adapter calls. */
+@@ -139,6 +140,8 @@ export interface RemoteSessionDeps {
+   readonly projections: RemoteProjections
+   /** The connection's model catalog reader. */
+   readonly catalog: RemoteCatalog
++  /** The Host's selectable permission presets; absent keeps `modes` off. */
++  readonly permissionCatalog?: RemotePermissionCatalog
+   /** The connection's approval router. */
+   readonly approvals: RemoteApprovals
+ }
+@@ -408,6 +411,17 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+     return blocks
+   }
+ 
++  /** Run one official Host command through the mounted registry. */
++  const runHostCommand = async (line: string): Promise<RemoteResult<unknown>> => {
++    const api = (deps.remote as unknown as {
++      commands?: { execute(sessionId: string, line: string, images: readonly never[]): Promise<RemoteResult<unknown>> }
++    }).commands
++    if (api === undefined) {
++      return { ok: false, error: { code: 'remote/commands-unmounted', message: 'the host did not mount its command registry' } }
++    }
++    return api.execute(sessionId, line, [])
++  }
++
+   const ref: AgentSessionRef = { backendId: 'dsh', sessionId }
+   const session: AgentSession = {
+     ref,
+@@ -421,16 +435,23 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+     // host: the choice is Session-local, the roster is process-level.
+     capabilities: {
+       native: {},
++      // `/permission` on a non-DSH Session is the typed `modes` capability:
++      // the Host's preset table is the roster, and each pick runs the official
++      // `/permission <preset>` command. Absent when the Host has no catalog.
++      ...(deps.permissionCatalog === undefined ? {} : {
++        modes: createRemotePermissionModes({
++          catalog: deps.permissionCatalog,
++          projections,
++          sessionId,
++          execute: runHostCommand,
++        }),
++      }),
+       // Compaction runs on the Host, through its own `/compact` command. The
+       // channel routes `/compact` by this capability's presence, so declaring it
+       // is what makes the command available at all in a remote session.
+       compact: {
+         async run() {
+-          const api = (deps.remote as unknown as {
+-            commands?: { execute(sessionId: string, line: string, images: readonly never[]): Promise<{ ok: boolean; error?: { message?: string } }> }
+-          }).commands
+-          if (api === undefined) throw new Error('remote: the host did not mount its command registry')
+-          const result = await api.execute(sessionId, '/compact', [])
++          const result = await runHostCommand('/compact')
+           if (!result.ok) throw new Error(`remote: /compact failed: ${result.error?.message ?? 'unknown error'}`)
+         },
+       },
+diff --git a/src/dsh-adapter/remote/startup.ts b/src/dsh-adapter/remote/startup.ts
+index 2b63602..c371291 100644
+--- a/src/dsh-adapter/remote/startup.ts
++++ b/src/dsh-adapter/remote/startup.ts
+@@ -54,7 +54,13 @@ export function startupSessionFor(sessions: readonly RemoteSessionSummary[], cwd
+  */
+ export async function openRemoteStartup(ctx: Context, options: RemoteStartupOptions) {
+   const connection = await connectRemote(options.url, ctx as unknown as Parameters<typeof connectRemote>[1])
+-  const deps = { remote: connection.remote, projections: connection.projections, catalog: connection.catalog, approvals: connection.approvals }
++  const deps = {
++    remote: connection.remote,
++    projections: connection.projections,
++    catalog: connection.catalog,
++    permissionCatalog: connection.permissionCatalog,
++    approvals: connection.approvals,
++  }
+   const sessions = await listRemoteSessions(connection.remote)
+   const target = options.sessionId ?? startupSessionFor(sessions, options.cwd)
+   const sessionId = target ?? (await createRemoteSession(connection.remote, options.cwd))
+diff --git a/src/dsh-adapter/remote/verify.ts b/src/dsh-adapter/remote/verify.ts
+index af5ef78..1cddb66 100644
+--- a/src/dsh-adapter/remote/verify.ts
++++ b/src/dsh-adapter/remote/verify.ts
+@@ -94,6 +94,16 @@ if (commands !== undefined) {
+   check(missingCommands.length === 0, `commands methods: ${missingCommands.length === 0 ? COMMANDS_METHODS.join(', ') : `missing ${missingCommands.join(', ')}`}`)
+ }
+ 
++// `/permission` on a non-DSH Session is the typed `modes` capability; the
++// connection must read the Host's process-level catalog before the Session
++// opens, or the command never reaches the channel's command list.
++const permissionCatalog = connection.permissionCatalog
++check(permissionCatalog !== undefined, 'permission catalog (permissionPresets/catalog mounted)')
++if (permissionCatalog !== undefined) {
++  const names = permissionCatalog.options.map(option => option.value)
++  check(names.length > 0, `permission presets: ${names.join(', ')}`)
++}
++
+ if (!live) finish()
+ 
+ // ── live half: one throwaway session, one turn ──────────────────────────────
+@@ -101,9 +111,17 @@ const sessionId = await createRemoteSession(remote, '/tmp')
+ check(true, `scratch session: ${sessionId}`)
+ 
+ const handle = await openRemoteSession(
+-  { remote, projections: connection.projections, catalog: connection.catalog, approvals: connection.approvals },
++  {
++    remote,
++    projections: connection.projections,
++    catalog: connection.catalog,
++    permissionCatalog: connection.permissionCatalog,
++    approvals: connection.approvals,
++  },
+   sessionId,
+ )
++const permissionModes = handle.session.capabilities.modes
++check(permissionModes !== undefined, `session capabilities: permission modes${permissionModes === undefined ? '' : ` (${permissionModes.list().map(mode => mode.id).join(', ')})`}`)
+ 
+ const seen = new Set<string>()
+ const unsubscribe = handle.session.subscribe((batch) => {
