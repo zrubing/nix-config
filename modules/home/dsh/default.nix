@@ -139,6 +139,7 @@ let
     web = "nix-web";
     headless = "nix-headless";
     tui = "nix-dsh-tui";
+    acp = "nix-acp";
   };
 
   # `requiresWeb` / `requiresTui` 不是装饰：上游据此决定往该 profile 的组合里**追加**
@@ -160,6 +161,31 @@ let
       dsh-tui = {
         requiresTui = true;
         bundles = dshLocal.hostBundles ++ [ tuiDisplayBundle ];
+      };
+    } // lib.optionalAttrs cfg.plugins.acp.enable {
+      # ACP 服务端 profile：编辑器（Emacs agent-shell / Zed 等）通过 stdio 驱动它。
+      #
+      # 为什么要 patch 掉 headless 的两行：上游 profiles.nix 给「既不需要 web 也
+      # 不需要 tui」的 profile **追加** dsh-headless（本意是让纯 CLI profile 不落到
+      # 交互式入口）。而本 profile 的 app 是 acp-app —— 两个 app 的命令 provider
+      # 会同时挂上，谁接这次调用不确定，所以显式关掉 headless 的 startup/runner，
+      # 这是「本 profile 由 acp-app 承载」的声明。
+      #
+      # 权限不在这里写死：base 的 sandbox-policy.mode / approval.policy /
+      # permission-presets 默认预设三处都读 DSH_PERMISSION_MODE，由启动器导出，
+      # 与 TUI 线同源。
+      acp = {
+        bundles = dshLocal.hostBundles ++ dshLocal.acpBundles;
+        patch = [
+          {
+            id = "headless-startup";
+            disabled = true;
+          }
+          {
+            id = "headless-runner";
+            disabled = true;
+          }
+        ];
       };
     };
     # CLI 默认 profile 恒为 web：dsh 的 wrapper 在 argv 里没有 --profile 时会注入
@@ -234,6 +260,68 @@ let
     export PATH=${dshHostPackage}:$PATH
     export DSH_TUI_PROFILE=${profileNames.tui}
     exec ${lib.getExe dshLocal.upstreamPkgs.nodejs-slim} --expose-internals ${tuiHostEntry} "$@"
+  '';
+
+  # 远程模式启动器：客户端只画界面、转发 RPC，内核组合 / 凭据 / MCP 全在常驻的
+  # `dsh web` 里。因此这里**不需要** source dsh.env（没有凭据要读），也不设
+  # DSH_PERMISSION_MODE（权限由 Host 侧的组合决定，客户端只渲染）。它只需要两件事实：
+  #
+  #   1. 宿主包目录 —— 客户端库（Cordis / Gateway / Remote 描述符）按设计从**被连接
+  #      的安装**解析；`/etc/profiles/.../bin/dsh` 是 seed-wrapper，反解不出包目录，
+  #      所以 PATH 上必须有 shim。
+  #   2. 已构建的 fork 树 —— 尚未打包成 derivation（见 pkgs/dsh-tui-remote/README.md），
+  #      默认指向仓库里的开发副本，运行时可用 DSH_TUI_REMOTE_TREE 覆盖。
+  # 打包好的远程客户端（packages/dsh-tui-remote）：源码 + 补丁构建进 store，
+  # 不再依赖 .m1 那种手工开发树。
+  dshTuiRemotePkg = pkgs.callPackage ../../../packages/dsh-tui-remote { };
+
+  dshTuiRemote = pkgs.writeShellScriptBin "dsh-tui-remote" ''
+    export DSH_HOST_PACKAGE=${lib.escapeShellArg (toString dshHostPackage)}
+    # findHostDsh() 只看 PATH 上第一个 `dsh`，所以 shim 必须排在最前。
+    export PATH="$DSH_HOST_PACKAGE:"$PATH
+    export DSH_TUI_REMOTE_URL="''${DSH_TUI_REMOTE_URL:-http://${cfg.web.host}:${toString cfg.web.port}}"
+    # 构建产物在 store 里；`.m1` 那种开发树不再被引用。
+    export DSH_TUI_REMOTE_TREE="''${DSH_TUI_REMOTE_TREE:-${dshTuiRemotePkg}/libexec}"
+    # 与 dshTui 同因：落地页是单行编辑器，粘贴图片会误报；默认直接进对话页。
+    export DSH_TUI_NO_LAUNCHPAD="''${DSH_TUI_NO_LAUNCHPAD:-1}"
+    if [ ! -f "$DSH_TUI_REMOTE_TREE/lib/types/dsh-adapter/remote/entry.js" ]; then
+      echo "dsh-tui-remote: $DSH_TUI_REMOTE_TREE 里没有远程入口（构建产物不完整？）" >&2
+      exit 2
+    fi
+    exec ${lib.getExe dshLocal.upstreamPkgs.nodejs-slim} --expose-internals \
+      "$DSH_TUI_REMOTE_TREE/lib/types/dsh-adapter/remote/entry.js" "$@"
+  '';
+
+  # 升级 dsh-tui 之后先跑这个：它断言客户端依赖的宿主面（描述符、方法名、事件字段）
+  # 一个都没变，比"编译通过"有意义得多。退出码非零即契约漂移。
+  dshTuiRemoteVerify = pkgs.writeShellScriptBin "dsh-tui-remote-verify" ''
+    export DSH_HOST_PACKAGE=${lib.escapeShellArg (toString dshHostPackage)}
+    export PATH="$DSH_HOST_PACKAGE:"$PATH
+    export DSH_TUI_REMOTE_TREE="''${DSH_TUI_REMOTE_TREE:-${dshTuiRemotePkg}/libexec}"
+    exec ${lib.getExe dshLocal.upstreamPkgs.nodejs-slim} --expose-internals \
+      "$DSH_TUI_REMOTE_TREE/lib/types/dsh-adapter/remote/verify.js" \
+      "''${1:-http://${cfg.web.host}:${toString cfg.web.port}}"
+  '';
+
+  # ACP 服务端启动器：Emacs agent-shell（或 Zed 等）以 `command + params` 的形式
+  # spawn 它，之后全部交互走 stdio 上的 ACP JSON-RPC。
+  #
+  # 为什么必须有这层壳（与 dsh-tui 同因）：模型密钥与 MCP token 都在 dsh.env 里，
+  # 而客户端进程的环境里没有 —— 直接 spawn `dsh --profile nix-acp`，第一次
+  # session/prompt 就会以 `no API key for provider route "deepseek-official"` 失败。
+  #
+  # 权限与 TUI 线一致：base 的 sandbox-policy.mode / approval.policy /
+  # permission-presets 默认预设三处都读 DSH_PERMISSION_MODE，所以一个 export 就够，
+  # 不需要往 profile patch 里抄第二份权限配置。保留 `:-`：客户端显式赋值仍可覆盖。
+  dshAcp = pkgs.writeShellScriptBin "dsh-acp" ''
+    declare -r env_file=${lib.escapeShellArg (if cfg.envFile != null then cfg.envFile else "/dev/null")}
+    if [ -r "$env_file" ]; then
+      set -a
+      . "$env_file"
+      set +a
+    fi
+    export DSH_PERMISSION_MODE="''${DSH_PERMISSION_MODE:-danger-full-access}"
+    exec ${lib.getExe dshPackage} --profile ${profileNames.acp} "$@"
   '';
 
   # 统一 MCP server 定义（pi / dsh 共用源，见该文件头部注释）：新增或修改
@@ -732,6 +820,18 @@ in
       '';
     };
 
+    plugins.acp.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Add the official ACP server profile (`nix-acp`) plus the `dsh-acp`
+        launcher, so editor ACP clients (Emacs agent-shell, Zed, ...) can drive
+        dsh over stdio JSON-RPC. It is a separate profile because ACP is an
+        automation-only surface: no DSH presentation cards, plans, todos,
+        terminal views, or session replay.
+      '';
+    };
+
     # systemd user service 环境极简，必须显式注入；shell 里 source 的 default.env
     # 不会带进来。注意：不能用 Environment = [ "KEY=${config.sops.placeholder...}" ]
     # —— placeholder 是求值期的占位符字符串，写入单元后不会被解密。必须走
@@ -748,7 +848,12 @@ in
     (lib.mkIf cfg.enable {
       # TUI 启动器只在启用 dsh-tui profile 时投递 —— 它引用的 profile 必须存在，
       # 否则 dsh 会以 "profile does not exist" 失败。
-      home.packages = [ dshPackage ] ++ lib.optional cfg.plugins.tui.enable dshTui;
+      home.packages =
+        [ dshPackage ]
+        ++ lib.optional cfg.plugins.tui.enable dshTui
+        ++ lib.optional cfg.plugins.tui.enable dshTuiRemote
+        ++ lib.optional cfg.plugins.tui.enable dshTuiRemoteVerify
+        ++ lib.optional cfg.plugins.acp.enable dshAcp;
 
       # 文本/源码文件默认用 emacs（用户默认 editor）打开。dsh-web 服务现带
       # WAYLAND_DISPLAY（has_display=true），xdg-open 走 mime 查找而非 BROWSER 兜底；
