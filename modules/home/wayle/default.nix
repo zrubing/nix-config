@@ -23,6 +23,7 @@ in
 
     home.packages = with pkgs; [
       cliphist
+      wl-clip-persist
       pkgs.wayle
       pkgs.${namespace}.niri-fuzzel-switcher
     ];
@@ -48,6 +49,29 @@ in
           "DISPLAY=:0"
           "RUST_BACKTRACE=1"
         ];
+      };
+    };
+
+    # 剪贴板常驻。微信等 X11 程序的 CLIPBOARD 要经 xwayland-satellite 桥接：
+    # 卫星先向源程序要 TARGETS/数据，源程序慢或卡住时，Wayland 侧读取会整体失败
+    # （dsh-tui 每个后端只等 3s，wl-paste/xclip/xsel 全超时就报
+    # "no usable wl-paste / xclip / xsel"）。persist 拿到内容后立刻换自己当 owner，
+    # 慢读只在它自己进程里做，之后所有读取都走本地 Wayland source，不再依赖源程序。
+    systemd.user.services.wl-clip-persist = {
+      Unit = {
+        Description = "Persist Wayland clipboard contents";
+        BindsTo = [ "graphical-session.target" ];
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session.target" ];
+        Requisite = [ "graphical-session.target" ];
+      };
+
+      Install.WantedBy = [ "graphical-session.target" ];
+
+      Service = {
+        ExecStart = "${lib.getExe pkgs.wl-clip-persist} --clipboard regular";
+        Restart = "on-failure";
+        RestartSec = 2;
       };
     };
 
