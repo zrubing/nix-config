@@ -2257,10 +2257,10 @@ index 0000000..6ad0178
 +}
 diff --git a/src/dsh-adapter/remote/startup.ts b/src/dsh-adapter/remote/startup.ts
 new file mode 100644
-index 0000000..bc39cd1
+index 0000000..2b63602
 --- /dev/null
 +++ b/src/dsh-adapter/remote/startup.ts
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,115 @@
 +/**
 + * Remote startup: the pieces the boot needs from a backend, built on top of the
 + * host connection instead of a child process.
@@ -2275,7 +2275,7 @@ index 0000000..bc39cd1
 +import type { BackendSessionPrefs } from '../../agent/backend.js'
 +import { bindRemoteCommands, refreshRemoteCommands } from './commands.js'
 +import { connectRemote, type RemoteConnection } from './connection.js'
-+import { createRemoteSession, listRemoteSessions, openRemoteSession } from './session.js'
++import { createRemoteSession, listRemoteSessions, openRemoteSession, type RemoteSessionSummary } from './session.js'
 +import { createRemoteSessionCatalog } from './sessions.js'
 +
 +export interface RemoteStartupOptions {
@@ -2288,6 +2288,28 @@ index 0000000..bc39cd1
 +}
 +
 +/**
++ * The Session a fresh launch in `cwd` should open: the most recently updated
++ * ordinary Session recorded in that directory, or none (the caller creates a
++ * new one there).
++ *
++ * `session/list` is host-wide, so picking its first row would drop a launch in
++ * one workspace into whatever Session another workspace used last — the same
++ * scope rule `/resume` applies, applied before the first paint.
++ */
++export function startupSessionFor(sessions: readonly RemoteSessionSummary[], cwd: string): string | undefined {
++  const normalize = (value: string | undefined): string => (value ?? '').replace(/\/+$/, '')
++  const target = normalize(cwd)
++  if (target === '') return undefined
++  let best: RemoteSessionSummary | undefined
++  for (const row of sessions) {
++    if (row.origin === 'subagent') continue
++    if (normalize(row.cwd) !== target) continue
++    if (best === undefined || (row.updatedAt ?? 0) > (best.updatedAt ?? 0)) best = row
++  }
++  return best?.sessionId
++}
++
++/**
 + * Connect to the host and open its startup session.
 + * @param ctx - the TUI plugin's context (the client plugins mount under it).
 + * @param options - host URL, cwd, and an optional session to resume.
@@ -2297,7 +2319,7 @@ index 0000000..bc39cd1
 +  const connection = await connectRemote(options.url, ctx as unknown as Parameters<typeof connectRemote>[1])
 +  const deps = { remote: connection.remote, projections: connection.projections, catalog: connection.catalog, approvals: connection.approvals }
 +  const sessions = await listRemoteSessions(connection.remote)
-+  const target = options.sessionId ?? sessions[0]?.sessionId
++  const target = options.sessionId ?? startupSessionFor(sessions, options.cwd)
 +  const sessionId = target ?? (await createRemoteSession(connection.remote, options.cwd))
 +  if (process.env.DSH_TUI_REMOTE_DEBUG === '1') {
 +    process.stderr.write(`remote: sessions=[${sessions.map((s) => s.sessionId).join(',')}] opening=${sessionId}\n`)
