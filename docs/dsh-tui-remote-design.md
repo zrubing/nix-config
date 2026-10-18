@@ -889,3 +889,125 @@ hover 详情本来就有 provider，未改。切模后 provider 也会跟着变�
 - 合成数据：`/w/b` 的两条 + 一条 subagent + `/w/a` 一条 → 选中 `/w/b` 里较新的那条；
 - 真实：在 `/tmp/ws-one`、`/tmp/ws-two` 各建一个会话，`startupSessionFor` 分别选中各自
   的 id，未知目录返回 `undefined`；契约自检仍 12/12。
+
+## 34. `--model` 启动路由与常驻宿主的 full access（2026-10-18）
+
+### 34.1 远程客户端不可见的两个事实
+
+1. **恢复会话不写路由**：TUI 文档的"恢复的会话沿用其最后一次请求的路由"是**客户端**
+   持久化（`~/.dsh-tui/model.json`）的规则；远程模式下路由由 Host 的投影/日志决定，
+   `openRemoteSession` 只读 `modelSelection` 投影，客户端写什么都不生效。
+2. **宿主的默认模型在 profile 的 `agent-default-model` 行**：网页端设置页与
+   `session/selectModel` 写的是同一处，而且是整块替换（档位一起换）。
+
+### 34.2 做法
+
+1. 启动器只搬运 `--model` 到 `DSH_TUI_MODEL` 并从 argv 剔除；解析只在远程入口一处
+   （`parseStartupModel`，`<provider>/<model>[:<effort>]`）。
+2. `openRemoteStartup` 等该会话的 `modelSelection` 投影出现（Host 只在该会话有事件后
+   发布投影），与请求的路由不符才写；写前读 `agentDefaultModel` 整份 config，写后
+   原样恢复。档位优先级：命令行 `:<effort>` > `/effort` 持久化 > 宿主默认档位。
+3. `/new` 新建的会话同样落到该路由；之后从浏览器挑别的会话不受影响。
+
+### 34.3 宿主的 full access
+
+base 的三处权限（`sandbox-policy.mode` / `approval.policy` / `permission-presets`）只在
+CLI 线读 `DSH_PERMISSION_MODE`，而 `dsh-web` 由 systemd 拉起、没有这个变量 →
+此前宿主默认 `workspace-write + ask`，远程客户端因此会收到审批请求。
+
+修法：web profile 追加一个 `dsh-web-permission` bundle（`modules/home/dsh`），把
+`sandbox-policy.mode` 写成 `danger-full-access`、`approval.policy` 写成 `never`。
+默认预设不另写 —— `dsh-permission-presets` 的 `derive()` 从沙箱模式 + 审批策略推出
+`danger-full-access`（新会话据此写 `permission/preset` 等事件，TUI 模式指示器读它）。
+权限字段都是 volatile，设置页写入 profile 后以 profile 层为准。
+
+## 35. 底栏显示思考档与权限模式（2026-10-18）
+
+两个字段本来就在 dsh-tui 的状态行里，缺的是开关：
+
+1. `statusBar.thinking`（思考档，`max` 等）默认 true —— 已开；
+2. `statusBar.mode`（权限模式）默认 false。开了也只是"有标记才画"：非基准模式（计划、
+   完全访问）本来就显示，这个开关真正开启的是基准「默认」模式的常驻显示，于是两种状态
+   都看得见。
+
+改在 `modules/home/dsh` 的 `tuiDisplayRow`（从安装树的上游 `cordis.patch.yml` 提取整份
+`dsh-tui` config 再覆盖），所以是部署层 seed：设置页改名后以 profile 层为准。
+
+远程会话也会显示：`local-dsh` 通道认领远程会话时把配置的 `modes` 初始成基准模式
+（`dsh:default`），权限由 Host 决定，客户端只渲染 —— 状态栏显示的不是客户端自己的开关。
+
+## 36. 远程会话的 `/permission`（2026-10-18）
+
+现象：`dsh-tui-remote` 里 `/permission` 不是命令，回车会把它当普通消息发给模型；
+`/` 菜单和 Tab 补全里也没有这一项。带参数直接敲 `/permission workspace-write`
+同样被当成文本。
+
+根因不是权限预设读不到，而是**命令表里根本没有 `permission`**：
+
+1. 远程会话的 `capabilities.native` 是 `{}`，`attachDshExtensions` 不会挂载
+   （它只认 `native.dsh`）。DSH 的 `permissionPresets` 服务、`/permission` 注册表行、
+   命令合并都在这层扩展里，所以远程模式一个都没有。
+2. 非 DSH 后端的 `channelCapabilities.commands` 只在 `caps.modes !== undefined` 时
+   追加 `permission`（`BACKEND_PERMISSION_COMMAND`）。远程会话当时没有 `modes`，
+   于是命令表只有本地命令，`tryRunCommand` 找不到 `permission`，按普通文本提交。
+3. 之前只补 `permissionPresets` 服务也不够：那个服务只被 DSH extensions 消费；
+   远程模式没有 extensions，服务再完整也不会进命令表。
+
+修法（`permission-presets.patch`）：把 Host 的预设表投影成远程会话本来就有的 typed
+`modes` 能力，而不是复活 DSH 扩展。
+
+1. `connection.ts` 额外挂载 `@deepseek-ai/dsh-permission-presets/lib/typert.remote-client.js`
+   （可选：老 Host 没有这个命名空间时 import 失败即跳过，连接不受影响），并把
+   `permissionPresets/catalog` 读成 `RemotePermissionCatalog`。
+2. `session.ts` 在 `permissionCatalog` 存在时声明 `capabilities.modes`：
+   `list()` 来自 catalog，`current()` 读 `session/control` 的 `permissions.currentValue`，
+   `set(id)` 执行官方 `/permission <id>` 命令并等投影确认。客户端不写
+   `permission/preset` 事件。
+3. `modes` 一出现，`channelCapabilities.commands` 自动加入 `permission`；`/permission`
+   无参走 `backendPermissionCommand` 的 `ModePicker`，带参直切，`Shift+Tab` 走
+   `core/actions.ts` 的 `cycleMode`（按 `modes.list()` 顺序）。
+4. `auto` 从 `modes` 里排除：它的 session 级风险确认只存在于 DSH 的权限预设选择器，
+   当作普通 backend mode 会绕过风险门。
+
+已验证（本沙箱，宿主 `127.0.0.1:3080`）：
+
+1. `verify.js --no-live`：8/8，`permission catalog: read-only, workspace-write,
+   danger-full-access`。
+2. 真实会话：`modes.list()` 三项，`modes.current()` = `workspace-write`。
+3. tmux 真 pty：`/permission` 打开「Permission mode」选择器（本地化标签 + 描述），
+   ↑ + Enter 切到 Read-only，状态栏与 `Mode → Read-only` 通知同时更新。
+4. 同一会话 `Shift+Tab`：Workspace read/write → Full access → Read-only，顺序与
+   `modes.list()` 一致。
+
+### 36.0 Nix 构建（2026-10-18）
+
+`nix build .#dsh-tui-remote` 通过，产物
+`/nix/store/r0dmn71jwn825wyd90l2m2r4gckj2ss5-dsh-tui-remote-0.16.1`。
+第一次跑暴露了三件 Nix 侧的事实，均已修：
+
+1. `git+file` flake 只把**已跟踪**文件拷进 store。`permission-presets.patch` 最初是
+   untracked，derivation 求值直接报 "path … does not exist"；`git add` 后才可见。
+2. 客户端 `~/.cache/nix` 在沙箱里只读，`XDG_CACHE_HOME` 指到 workspace 后 fetcher
+   缓存可写；store 由 daemon 写，不受根文件系统只读影响。
+3. 两个依赖 FOD 的 hash 已漂移：`ROOT_HASH` → `sha256-ifTk1VKj…`，
+   `VENDOR_HASH` → `sha256-L0gXffTf…`。这是 0.16.1 依赖树的真实输出，不是补丁导致的。
+
+Nix 产物上重跑 `verify.js --no-live`：8/8；在 tmux 真 pty 里用
+`DSH_TUI_REMOTE_TREE=<store>/libexec dsh-tui-remote` 打开 `/permission`，选择器与
+本地化标签正常。
+
+补丁也已用 `git apply --check` 在 `v0.16.1 + remote-mode.patch` 上验证干净套用。
+
+### 36.1 `startup-model.patch` 暂停接入
+
+构建清单里移除了 `startup-model.patch`，原因有两条，都是硬事实：
+
+1. 补丁按旧版源码行号生成（`session.ts:1556` 的 `close()`），v0.16.1 的
+   `src/dsh-adapter/remote/session.ts` 只有 693 行；`patch --dry-run` 7 个 hunk 里
+   5 个失败。
+2. 它依赖 `agentDefaultModel.readConfig/editConfig`，但 Host 的
+   `@deepseek-ai/dsh-agent-default-model` 没有 `typert.remote-client.js`，这个命名
+   空间在远程客户端根本挂不上；即使补丁套得上，`--model` 也会在运行时失败。
+
+补丁文件保留，等上游补上远端配置面、并按当时源码重生后再接回；当前 `--model`
+会被启动器搬进 `DSH_TUI_MODEL`，但远程入口不读取，等同于未设置。

@@ -973,7 +973,7 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
 
   # ── 宿主包 shim：让 dsh-tui 自己的入口能"托管"这次启动 ──────────────────────
   #
-  # dsh-tui 0.15.0 的默认启动线是它**自己的入口**（lib/types/dsh-adapter/host-entry.js）：
+  # dsh-tui 上游的默认启动线是它**自己的入口**（lib/types/dsh-adapter/host-entry.js）：
   # 先把可交互界面挂到终端，再在同一进程组合 profile —— 插件树、MCP 握手、模型目录
   # 同步全部落在首帧之后。`dsh --profile` 那条线要等整棵树装完才出画面（本机实测首帧：
   # 入口 0.9~1.6s，`dsh --profile` 5.7~6.6s）。

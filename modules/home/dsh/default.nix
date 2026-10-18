@@ -49,14 +49,26 @@ let
     mcpEntries = mcpServers.dshPatchEntries;
   };
 
-  # dsh-tui 的显示偏好覆盖行（关掉开屏鲸鱼与闲置动画，minimal 显式保持 false）。
+  # dsh-tui 的显示偏好覆盖行（关掉开屏鲸鱼与闲置动画，minimal 显式保持 false，
+  # 底栏打开权限模式与思考档两个字段）。
   #
   # 为什么从 bundle 原文提取**整个** config 再覆盖目标键：dsh 的补丁语义是整体替换
   # config 而非逐键合并（实测：只写 whale/whaleIdle 会让同行的 provider / fullscreen
   # / terminalImages / effort / modes / preset / workspace / sessionId 全部丢失并退回
   # schema 默认）。从原文提取保证上游改 config 时自动跟随，不会静默漂移。
   #
-  # 这是显示偏好（非功能开关），所以只进 dsh-tui profile。
+  # statusBar 的两个字段：
+  #   mode     —— 底栏显示当前权限模式（默认 / 计划模式 / 完全访问）。dsh-tui 的默认
+  #               是 false。开了也只是"有标记才画"：非基准模式（计划、完全访问）本来
+  #               就会显示，这个开关真正开启的是基准「默认」模式的常驻显示 —— 即两种
+  #               状态都看得见。
+  #   thinking —— 思考档（max 等）。默认 true，这里显式钉住：本行整份 config，不写就
+  #               跟上游走；上游若改默认，这里不会静默失声。
+  # 键名见 `lib/settings.json` 的 settings 条目（"Show thinking" = statusBar.thinking）；
+  # `// {}` 为的是上游把 statusBar 键挪走时仍然合并得出来，而不是往 null 上赋值。
+  #
+  # 这是显示偏好（非功能开关），所以只进 dsh-tui profile。两者也是设置页字段：改名后
+  # 写进 profile 层的 cordis.patch.yml，以那边为准。
   #
   # 产出的是一份**文件**，作为 bundle 的构建输入传下去（mkRowBundle 的 patch）。
   # 不要在这里或调用侧 `builtins.readFile` 它：那是 IFD，会把上游 dsh-tui bundle 的
@@ -70,7 +82,8 @@ let
       (load("${dshLocal.upstreamBundles.tui}/lib/node_modules/@deepseek-harness-tui/dsh-tui/cordis.patch.yml")
         | [.. | select(tag == "!!map") | select(.id? == "dsh-tui")]
         | .[0].config) as $cfg
-      | [ { "id": "dsh-tui", "config": ($cfg | .whale = false | .whaleIdle = false | .minimal = false) } ]
+      | [ { "id": "dsh-tui", "config": ($cfg | .whale = false | .whaleIdle = false | .minimal = false
+          | .statusBar = ((.statusBar // {}) | .thinking = true | .mode = true)) } ]
     ' > $out
   '';
 
@@ -142,6 +155,34 @@ let
     acp = "nix-acp";
   };
 
+  # web profile 的权限行：宿主任一进程（网页端、dsh-tui-remote、CLI）都用它。
+  #
+  # 为什么钉在 profile 层而不是导出 DSH_PERMISSION_MODE：base 的两处消费点
+  # （sandbox-policy.mode / approval.policy）用环境变量，而 dsh-web 由 systemd 拉起、
+  # 环境里没有它 —— 这一行才是"部署即完全访问"的声明处。
+  #
+  # 默认预设不写：sandbox-policy 一旦是 danger-full-access，dsh-permission-presets 的
+  # derive() 就从沙箱模式 + 审批策略推出 danger-full-access（新会话据此写入
+  # permission/preset 等三个事件，状态栏与 TUI 的模式指示器读的是它）。补一条
+  # presets: 表只会把上游的预设表整块复制一份，与内核漂移。
+  #
+  # 权限是**用户打算覆盖**的字段（两处 config 都有 volatile 字段），所以补丁行只做
+  # seed：设置页写入 profile 的 cordis.patch.yml 后以 profile 层为准，本行不与之争。
+  # 两个 bundle 不碰同一行（dsh-tap 只写 llm-pi-ai），顺序因此不影响结果。
+  webPermissionBundle = mkRowBundle {
+    name = "dsh-web-permission";
+    patch = dshLocal.patchText "dsh-web-permission" ''
+      - id: sandbox-policy
+        config:
+          mode: danger-full-access
+          workspaceRoot: !!js process.cwd()
+      - id: approval
+        config:
+          policy: never
+    '';
+    description = "dsh web profile: start in full access (no sandbox, no approvals)";
+  };
+
   # `requiresWeb` / `requiresTui` 不是装饰：上游据此决定往该 profile 的组合里**追加**
   # 官方 web-app / tui bundle，并且若两者都为假就追加 headless。
   # 不声明 requiresWeb 的后果是 web profile 变成 headless 组合（没有前端）；
@@ -154,7 +195,7 @@ let
     profiles = {
       web = {
         requiresWeb = true;
-        bundles = dshLocal.hostBundles ++ dshLocal.webBundles;
+        bundles = dshLocal.hostBundles ++ dshLocal.webBundles ++ [ webPermissionBundle ];
       };
       headless.bundles = dshLocal.hostBundles ++ [ headlessBundle ];
     } // lib.optionalAttrs cfg.plugins.tui.enable {
@@ -172,8 +213,9 @@ let
       # 这是「本 profile 由 acp-app 承载」的声明。
       #
       # 权限不在这里写死：base 的 sandbox-policy.mode / approval.policy /
-      # permission-presets 默认预设三处都读 DSH_PERMISSION_MODE，由启动器导出，
-      # 与 TUI 线同源。
+      # permission-presets 默认预设三处都读 DSH_PERMISSION_MODE，由 dsh-acp 的启动器
+      # 导出。远程客户端不在此列 —— 它的权限由常驻的 web profile 决定
+      # （见 webPermissionBundle）。
       acp = {
         bundles = dshLocal.hostBundles ++ dshLocal.acpBundles;
         patch = [
@@ -194,7 +236,7 @@ let
     defaultProfile = profileNames.web;
   };
 
-  # 宿主包 shim（见 pkgs/dsh-local 的 mkDshHostPackage）：dsh-tui 0.15.0 的默认启动线
+  # 宿主包 shim（见 pkgs/dsh-local 的 mkDshHostPackage）：dsh-tui 上游的默认启动线
   # 是它**自己的入口**（先画界面、后台组 profile）。入口只肯托管"顺着 PATH 上第一个
   # dsh 的 realpath 能找到 @deepseek-ai/dsh 包目录"的宿主；nix 的 dsh 没有那个目录，
   # 会回退 `dsh --profile`（本机实测首帧：入口 0.9~1.6s，回退线 5.7~6.6s）。
@@ -284,12 +326,44 @@ let
     export DSH_TUI_REMOTE_TREE="''${DSH_TUI_REMOTE_TREE:-${dshTuiRemotePkg}/libexec}"
     # 与 dshTui 同因：落地页是单行编辑器，粘贴图片会误报；默认直接进对话页。
     export DSH_TUI_NO_LAUNCHPAD="''${DSH_TUI_NO_LAUNCHPAD:-1}"
+    # 这里只做 `--model` 的**搬运**：把值放进 DSH_TUI_MODEL 再交出去，不解析它的
+    # 形状。解析（provider/model[:effort]）在远程入口一处完成 —— 两处各解析一遍就是
+    # 两份规则；而 argv 必须剔除它，否则 TUI 的启动提示词解析会把 "deepseek-relay/
+    # deepseek-flash" 当成要发的消息，且 `/rewind` 打印的 resume 命令也不该带上它。
+    # `--model p/m` 与 `--model=p/m` 都认（`--` 之后的 argv 原样透传，不拦截）。
+    # 裸 `--model` 取下一个 argv，正好是空值时/后面没有 argv 时报错，不做猜测。
+    # 优先级：命令行 > DSH_TUI_MODEL（dshTui 同款约定）。
+    args=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --)
+          args+=("$@")
+          break
+          ;;
+        --model)
+          if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+            echo "dsh-tui-remote: --model 需要 <provider>/<model>[:<effort>] 参数" >&2
+            exit 2
+          fi
+          export DSH_TUI_MODEL="$2"
+          shift 2
+          ;;
+        --model=?*)
+          export DSH_TUI_MODEL="''${1#--model=}"
+          shift
+          ;;
+        *)
+          args+=("$1")
+          shift
+          ;;
+      esac
+    done
     if [ ! -f "$DSH_TUI_REMOTE_TREE/lib/types/dsh-adapter/remote/entry.js" ]; then
       echo "dsh-tui-remote: $DSH_TUI_REMOTE_TREE 里没有远程入口（构建产物不完整？）" >&2
       exit 2
     fi
     exec ${lib.getExe dshLocal.upstreamPkgs.nodejs-slim} --expose-internals \
-      "$DSH_TUI_REMOTE_TREE/lib/types/dsh-adapter/remote/entry.js" "$@"
+      "$DSH_TUI_REMOTE_TREE/lib/types/dsh-adapter/remote/entry.js" ''${args[@]+"''${args[@]}"}
   '';
 
   # 升级 dsh-tui 之后先跑这个：它断言客户端依赖的宿主面（描述符、方法名、事件字段）
