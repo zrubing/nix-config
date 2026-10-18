@@ -155,6 +155,12 @@ in
         # TUI 前端（ccch1mneyyy/dsh-TUI）：独立 profile `dsh-tui`，与 web 的客户端半区
         # 互斥，所以单列一个 profile。开了它 dsh 的默认 profile 也随之变成 dsh-tui。
         plugins.tui.enable = true;
+        # ACP 服务端（Emacs agent-shell / Zed 等）：代码在 modules/home/dsh 与
+        # pkgs/dsh-local 里备着，但**默认不开** —— 开启会给 dsh 组合加两个 bundle，
+        # 进而要求重新装配 dsh 安装树（rebound 后的 base/headless/web-app 本地无
+        # 缓存，要么重新拉、要么从源码构一次，约 40 分钟）。Emacs 侧改用
+        # dsh-emacs：dsh web 的 HTTP 客户端，连已在跑的服务，零 nix 改动。
+        plugins.acp.enable = false;
       };
       pi = {
         enable = true;
