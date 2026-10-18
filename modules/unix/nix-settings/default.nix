@@ -7,8 +7,8 @@ in
     extraOptions = ''
       trusted-users = root jojo
 
-      extra-substituters = https://devenv.cachix.org https://attic.xuyh0120.win/lantian https://noctalia.cachix.org
-      extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw= lantian:EeAUQ+W+6r7EtwnmYjeVwx5kOGEBpjlBfPlzGlTNvHc= noctalia.cachix.org-1:pCOR47nnMEo5thcxNDtzWpOxNFQsBRglJzxWPp3dkU4=
+      extra-substituters = https://devenv.cachix.org https://noctalia.cachix.org
+      extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw= noctalia.cachix.org-1:pCOR47nnMEo5thcxNDtzWpOxNFQsBRglJzxWPp3dkU4=
     '';
     # TODO try this?
     # enable = config.host.role != "cloud-server";
@@ -48,7 +48,9 @@ in
 
         "https://numtide.cachix.org"
         "https://cache.numtide.com"
-        "https://attic.xuyh0120.win/lantian"
+        # lantian（nix-cachyos-kernel）：2026-10-15 起作者遭入侵关停全部服务器
+        # （xddxdd/nix-cachyos-kernel#110），恢复后如需再启用这两行。
+        # "https://attic.xuyh0120.win/lantian"
         "https://noctalia.cachix.org"
 
         # dsh 打包仓（Moraxyc/deepseek-harness.nix）自己推的缓存。kernel 从源码构建
@@ -64,7 +66,7 @@ in
         "niri.cachix.org-1:Wv0OmO7PsuocRKzfDoJ3mulSl7Z6oezYhGhR+3W2964="
         "numtide.cachix.org-1:2ps1kLBUWjxIneOy1Ik6cQjb41X0iXVXeHigGmycPPE="
         "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
-        "lantian:EeAUQ+W+6r7EtwnmYjeVwx5kOGEBpjlBfPlzGlTNvHc="
+        # "lantian:EeAUQ+W+6r7EtwnmYjeVwx5kOGEBpjlBfPlzGlTNvHc="
         "noctalia.cachix.org-1:pCOR47nnMEo5thcxNDtzWpOxNFQsBRglJzxWPp3dkU4="
         "deepseek-harness-nix.cachix.org-1:5NrkwLN9veNMhiINtU5ZeV4isXFhFsOwn6Ms7J1M+TA="
       ];
