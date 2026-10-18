@@ -492,7 +492,31 @@ in
     #    · node-ip 从 10.144.200.2（老 Build ET）改为 10.144.150.3（新集群 ET）
     #    · 标签/tolerations 保持不变（新集群的 buildNodeLabelKey 同为
     #      node-role.kubernetes.io/build，故 buildkitd 能直接调度到本节点）
-    extraArgs = ''--kubelet-extra-args="--node-ip=10.144.150.3 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=zen14:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
+    #
+    # ⚠️ `--cluster-dns`（2026-10-12 加）：本节点在**北京家里**，不在腾讯云
+    #    SG VPC 内，而集群 CoreDNS 会把 COS 域名解析成 VPC 链路本地地址
+    #    `169.254.0.47`（VPC 外不可达）：
+    #        集群 kube-dns 10.112.0.10 → 169.254.0.47          ✗
+    #        build-local DNS           → 公网地址               ✓
+    #    故把本节点**所有** pod 的 DNS 指向本机的 build-local CoreDNS
+    #    （`kube-dns-build-local` = 10.119.194.33，internalTrafficPolicy: Local
+    #      ⇒ 命中本机实例）。它同时能解集群内名字（Corefile 里带
+    #    `kubernetes cluster.local` 插件），是 kube-dns 的完整替代。
+    #
+    #    第二值 10.112.0.10 是兜底：本机实例没有 endpoint 时是「连接被拒」，
+    #    解析器会改用下一个 nameserver（降级期间 COS 域名会拿回 169.254.x）。
+    #
+    #    ⚠️ k0s **不支持**用 worker profile 覆盖 clusterDNS（官方文档明确列出
+    #       clusterDNS / clusterDomain 等不可覆盖），只能走这个 flag；
+    #       而 kubelet 的 `--help` 写明「Command-line flags override
+    #       configuration from this file」⇒ flag 能压过 k0s 生成的
+    #       `clusterDNS: ["10.112.0.10"]`。
+    #
+    #    对应声明在另一仓库：system-manager-hinihao-net 的
+    #    kubenix/helm/build-local-dns.nix（文件头「三、谁用它」）与
+    #    systems/x86_64-linux/hinihao-sg-prod-net/manifests.nix。
+    #    ⚠️ 10.119.194.33 与那边的 `buildLocalDnsServiceIP` **必须一致**。
+    extraArgs = ''--kubelet-extra-args="--cluster-dns=10.119.194.33,10.112.0.10 --node-ip=10.144.150.3 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=zen14:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
     spec.api.address = "0.0.0.0";
     spec.workerProfiles = [
       {
