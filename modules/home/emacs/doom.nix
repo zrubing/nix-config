@@ -9,7 +9,21 @@
 }:
 with lib;
 let
-  doomemacs = inputs.doomemacs;
+  # Doom 仍走 Emacs 已废弃的 autoload-generate-file-autoloads（见它自己的 FIXME），
+  # 而 Emacs 32 把 loaddefs-generate--make-autoload 改成 3 个必填参数，obsolete
+  # shim 没跟着改：每个 ;;;###autoload 都展开失败 → 输出为空 → autoload.el 自己的
+  # cl-assert 失败，于是任何 `doom` 命令都死于
+  #   bin/doom-env:0:0: error: cl-assertion-failed: ((> (point) output-start))
+  # 该补丁改用 loaddefs-generate--parse-file，并让 autodef 路径按 arity 调用新版
+  # make-autoload。上游修掉 loaddefs.el 里的 FIXME 后，本段与 patch 文件即可删除。
+  doomemacs = pkgs.runCommand "doomemacs-patched" {
+    nativeBuildInputs = [ pkgs.patch ];
+    dontFixup = true;                 # keep bin/* shebangs (#!/usr/bin/env doomscript)
+  } ''
+    cp -r ${inputs.doomemacs} $out
+    chmod -R u+w $out
+    patch -p1 --directory=$out < ${./doom-emacs32-loaddefs.patch}
+  '';
   doom-modules = inputs.doom-modules;
   hm = config.lib;
 
