@@ -1,0 +1,110 @@
+--- a/lisp/cli/loaddefs.el
++++ b/lisp/cli/loaddefs.el
+@@ -78,7 +78,7 @@
+               ((memq definer '(defun defmacro cl-defun cl-defmacro))
+                (print
+                 (if module-enabled-p
+-                    (make-autoload form (abbreviate-file-name file))
++                    (doom-loaddefs--make-autoload form file)
+                   (seq-let (_ _ arglist &rest body) form
+                     (if altform
+                         (read altform)
+@@ -112,42 +112,78 @@
+                  (print `(defalias ',symbol #',(doom-unquote target) ,docstring))))
+               (module-enabled-p (print form)))))))
+ 
++(defun doom-loaddefs--make-autoload (form file)
++  "Return FORM as an autoload form, pointing at FILE.
++`loaddefs-generate--make-autoload' gained a LOAD-NAME argument in Emacs 32, which
++the deprecated `make-autoload' alias wasn't updated for; dispatch on its arity so
++that either signature gets the arguments it expects."
++  (pcase (car (func-arity #'loaddefs-generate--make-autoload))
++    (3 (loaddefs-generate--make-autoload form (abbreviate-file-name file) file))
++    (_ (loaddefs-generate--make-autoload form (abbreviate-file-name file)))))
++
+ (defun doom-loaddefs--scan-file (file)
+-  ;; FIXME: Conditionally use `loaddefs' in Emacs 30+
+-  (quiet! (require 'autoload))  ; silence deprecation notice
+-  (dlet (;; Prevent `autoload-find-file' from firing file hooks, e.g. adding
+-         ;; to recentf.
+-         find-file-hook
+-         write-file-functions
+-         ;; Prevent a possible source of crashes when there's a syntax error in
++  (quiet! (require 'loaddefs-gen))
++  (dlet (;; Prevent a possible source of crashes when there's a syntax error in
+          ;; the autoloads file.
+          debug-on-error
+-         ;; Non-nil interferes with autoload generation in Emacs < 29. See
+-         ;; radian-software/straight.el#904.
+-         (left-margin 0)
+-         ;; The following bindings are in `package-generate-autoloads'.
+-         ;; Presumably for a good reason, so I just copied them.
+-         (backup-inhibited t)
+-         (version-control 'never)
+          case-fold-search    ; reduce magic
+-         autoload-timestamps ; reduce noise in generated files
+-         autoload-compute-prefixes
+-         (generated-autoload-load-name
+-          (abbreviate-file-name (file-name-sans-extension file))))
++         ;; `register-definition-prefixes' forms are dropped from Doom's
++         ;; loaddefs by `doom-loaddefs--clean' anyway.
++         autoload-compute-prefixes)
+     (let* ((module? (and (doom-config-locate 'modules file) t))
+            (module (and module? (doom-module-from-path file)))
+            (enabled? (and module? (doom-module-active-p (car module) (cdr module))))
+            (skip? (or (and module?
+                            (not enabled?))
+                       (not (doom-file-cookie-p file "if" t))))
+-           ;; So `autoload-generate-file-autoloads' knows where to write it
+            (target-buffer (current-buffer)))
+       (save-excursion
+         (unless skip?
+-          (quiet! (autoload-generate-file-autoloads file target-buffer)))
++          (doom-loaddefs--insert-autoloads file))
+         (when module?
+           (doom-loaddefs--scan-autodefs file target-buffer module (not skip?)))))))
+ 
++(defun doom-loaddefs--insert-autoloads (file)
++  "Insert the ;;;###autoload forms in FILE into the current buffer.
++
++The deprecated `autoload-generate-file-autoloads' cannot be used for this on
++Emacs 32: `lisp/obsolete/autoload.el' still calls
++`loaddefs-generate--make-autoload' with the old two-argument signature (it takes
++three now), so every cookie fails to expand, which leaves no output for it to
++write and trips its own `(cl-assert (> (point) output-start))'. Scan with
++`loaddefs-generate--parse-file' instead -- it is what `loaddefs-generate' uses,
++and its signature hasn't changed since Emacs 29."
++  ;; `loaddefs-generate--parse-file' returns the forms in reverse order; its
++  ;; caller, `loaddefs-generate', reverses them back when it writes them out.
++  (dolist (def (reverse (loaddefs-generate--parse-file
++                         file (expand-file-name "loaddefs.el"
++                                                (file-name-directory file)))))
++    (let ((form (doom-loaddefs--fix-load-names
++                 (nth 2 def)
++                 (abbreviate-file-name (file-name-sans-extension file)))))
++      (if (stringp form)        ;cookie followed by text on the same line
++          (insert form)
++        ;; Emacs' own printer for the forms it scrapes.
++        (loaddefs-generate--print-form form))
++      (insert "\n"))))
++
++(defun doom-loaddefs--fix-load-names (form path)
++  "Replace FORM's file references with PATH.
++`loaddefs-generate--parse-file' bakes the load name Emacs computed for the
++scanned file into them (usually a name relative to the loaddefs file, e.g.
++\"lib/files\"), which Doom's profiles can't resolve, so restore the abbreviated,
++extension-less path Doom's loaddefs have always recorded there."
++  (cond ((not (consp form)) form)
++        ((memq (car form) '(autoload custom-autoload))
++         (when (stringp (nth 2 form))
++           (setf (nth 2 form) path))
++         form)
++        ((memq (car form) '(progn prog1 eval-and-compile let))
++         (dolist (sub (cdr form))
++           (doom-loaddefs--fix-load-names sub path))
++         form)
++        (form)))
++
+ (defun doom-loaddefs--read (files thunk &optional literal? relative-to)
+   (let (seen forms)
+     (dolist (file (thread-last files
