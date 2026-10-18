@@ -59,6 +59,12 @@ let
   #      本地 = 过了 fence 就免 cookie。fence 本身已挡住 DNS rebinding 与跨站
   #             （实测非信任 Host → 401），cookie 这层在内网反代部署里只是登录摩擦。
   #
+  #      适配记录（0.2.1-alpha.4）：requestRejection 退化成 admit() 的薄包装，判决整体
+  #      搬进 admit —— fence（isTrusted）→ 浏览器 cookie → API operator cookie → 401。
+  #      本地只删判决尾部，fence 与 disposed 两支照旧（/api 路由与 socket 升级都直接调
+  #      admit，删尾部是唯一能同时覆盖两者的位置）。新增的 /connect 换 operator 凭证
+  #      那条路由不动：内网部署不用它，改它等于给 authorizeConnect 也开一个口子。
+  #
   #      适配记录（0.2.1-alpha.2）：上游给 isAuthenticated / authorizeIndex 各加了
   #      `secure` 参数（由监听器自身协议决定 cookie 是否带 Secure），isTrustedApiRequest
   #      也从 2 参变 4 参 —— 新增 bindHost / protocol 决定监听器绑定地址的接受与默认
@@ -120,6 +126,19 @@ let
       rel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js";
       configEditorRel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-config-editor/lib/index.js";
       piAiRel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js";
+
+      # admit() 尾部的鉴权判决（alpha.4 起 requestRejection 只是它的薄包装，/api 路由
+      # 与 socket 升级都直接调 admit）。整段删掉，只留前面的 fence 与 disposed。
+      # 行首两个制表符是 JS 产物自己的缩进：用 "\t" 显式写出，不写字面制表符 ——
+      # `''` 字符串的公共缩进只按空格计算，字面制表符会把整段裁剪算错。
+      admitAuthTail = lib.concatMapStrings (line: "\t\t${line}\n") [
+        ''const secure = this.owner.get("webServer")?.protocol === "https:";''
+        ''if (this.browserAuth.isAuthenticated(request, secure)) return { peer: this.browserPeer };''
+        ''const id = this.browserAuth.authenticateApi(request, secure);''
+        ''const record = id === void 0 ? void 0 : this.peers.get(id);''
+        ''return record === void 0 ? { rejection: 401 } : { peer: record.peer };''
+      ];
+      admitAllowed = "\t\treturn { peer: this.browserPeer };\n";
     in
     upstreamPkgs.runCommand "dsh-kernel-patched"
       {
@@ -142,8 +161,8 @@ let
 
         substituteInPlace "$f" \
           --replace-fail \
-          'return this.browserAuth.isAuthenticated(request, carrier?.protocol === "https:") ? void 0 : 401;' \
-          'return void 0;'
+          ${lib.escapeShellArg admitAuthTail} \
+          ${lib.escapeShellArg admitAllowed}
 
         substituteInPlace "$f" \
           --replace-fail \
@@ -206,6 +225,20 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
   # 否则软链指回未打补丁的那份。
   rebind = pkg: pkg.override { dsh-kernel = kernelPatched; };
 
+  # dsh-tui 的 verify 套件默认按 CPU 数开并行（本机 16 路），而它的 TUI 断言用
+  # settled() 轮询、非 CI 上限 4s（scripts/lib/term-test.mjs）。16 路并行下
+  # verify:rewind-edit 的 40 列变体会超时：同一份产物两次构建分别挂在
+  # slash 与 slash+escape，其余 89 个 gate 全过（2026-10-17 实测），是 runner
+  # 并发而非功能回归。用上游自己的开关（scripts/run-verify-build.mjs 的
+  # DSH_TUI_VERIFY_JOBS）压到 4 路，构建产物本身不受影响。
+  capTuiVerifyJobs =
+    pkg:
+    pkg.overrideAttrs (old: {
+      env = (old.env or { }) // {
+        DSH_TUI_VERIFY_JOBS = "4";
+      };
+    });
+
   # 上游 bundle 的重绑定版本。作为 `bundles` 传给 dsh：dsh 的
   # `defaultBundles ? with bundles; [headless web-app]` 与内部的 profiles.nix
   # （webBundle/tuiBundle/headlessBundle）都从这个参数取值，所以一次覆盖全链生效。
@@ -213,7 +246,7 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
     base = rebind upstreamPkgs.dsh.bundles.base;
     headless = rebind upstreamPkgs.dsh.bundles.headless;
     web-app = rebind upstreamPkgs.dsh.bundles.web-app;
-    tui = rebind upstreamPkgs.dsh.bundles.tui;
+    tui = capTuiVerifyJobs (rebind upstreamPkgs.dsh.bundles.tui);
   };
 
   mkBundle = import ./mk-bundle.nix {
@@ -279,6 +312,198 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
       '';
       meta.description = description;
     };
+
+  # ── 官方 ACP bundle（上游 nix 包集里没有，npm 上与 core 同步发布）──────────────
+  #
+  # 上游 flake 的 `dsh.bundles` 只覆盖它自己打包的那批（2026-10-15 实测 55 个里
+  # 没有 acp）。官方把 ACP 作为「随 core 版本一起发布的独立 bundle」分发：
+  # `@deepseek-ai/dsh-acp`（服务端插件）与 `@deepseek-ai/dsh-acp-app`（profile
+  # bundle，插入 acp 行）。这里按 **kernel 版本**抓 npm tarball —— core 升级时对应
+  # 版本要么同时存在（正常），要么抓取直接失败（上游漏发），不会出现「core 升了、
+  # acp 还是旧版」的静默错配。
+  dshVersion = upstreamPkgs.dsh.dsh-kernel.version;
+
+  # npm tarball → 裸包目录（含 package.json），与 mkBundle 的 src 约定一致。
+  npmSrc =
+    { name, version, hash }:
+    upstreamPkgs.runCommand "npm-${baseNameOf name}-${version}"
+      {
+        nativeBuildInputs = [
+          upstreamPkgs.gnutar
+          upstreamPkgs.gzip
+        ];
+        src = upstreamPkgs.fetchurl {
+          url = "https://registry.npmjs.org/${name}/-/${baseNameOf name}-${version}.tgz";
+          inherit hash;
+        };
+      }
+      ''
+        mkdir -p $out
+        tar xzf "$src" -C $out --strip-components=1
+      '';
+
+  # dsh-acp 声明的是**精确** SDK 版本（"1.4.0"），所以这里在构建期断言：上游换
+  # SDK 而我们仍钉旧版时必须立刻失败，而不是装一个它没要求的 SDK。
+  acpSdkVersion = "1.4.0";
+  acpSdkSrc = npmSrc {
+    name = "@agentclientprotocol/sdk";
+    version = acpSdkVersion;
+    hash = "sha256-V76w93BbCUBuW8yYTR9qFBlAaAtMQnVb4Cb3f2Q2Wjc=";
+  };
+  dshAcpSrc = upstreamPkgs.runCommand "npm-dsh-acp-${dshVersion}" {
+    nativeBuildInputs = [
+      upstreamPkgs.gnutar
+      upstreamPkgs.gzip
+      upstreamPkgs.jq
+    ];
+    src = upstreamPkgs.fetchurl {
+      url = "https://registry.npmjs.org/@deepseek-ai/dsh-acp/-/dsh-acp-${dshVersion}.tgz";
+      hash = "sha256-+CC7VFRo7pPKrSj83eJSwFCyRay4NDSg4KLSYCZP9tY=";
+    };
+  } ''
+    mkdir -p $out
+    tar xzf "$src" -C $out --strip-components=1
+    declared=$(jq -r '.dependencies["@agentclientprotocol/sdk"] // ""' "$out/package.json")
+    [ "$declared" = "${acpSdkVersion}" ] || {
+      printf 'dsh-local: dsh-acp ${dshVersion} requires @agentclientprotocol/sdk %s but nix pins ${acpSdkVersion}\n' "$declared" >&2
+      exit 1
+    }
+
+    # ── 补丁：session/list 的摘要补上 updatedAt ────────────────────────────────
+    #
+    # 上游 `listSessions` 只投影 {sessionId, cwd}（TS 源码同形），连它手上已经有的
+    # header.createdAt 都不发。客户端的选择器因此退化成「Untitled / unknown-time」：
+    # agent-shell 的候选列是 directory/title/date/session-id，date 取
+    # `(or updatedAt createdAt "unknown-time")`，于是同目录下的会话彼此无法区分，
+    # 看起来像"只能手输 session id"。
+    #
+    # 为什么发的是 updatedAt 而不是 createdAt：ACP 的 SessionInfo **没有 createdAt
+    # 字段**，只有 updatedAt（RFC 3339）—— 发 createdAt 会被 SDK 的 schema 丢掉。
+    # header 里也只有 createdAt（epoch ms，见其排序与 cursor 编码都用数值相减），
+    # 所以这里把它当"最后活动时间"发出：对 `session/list` 列出的非活跃会话，
+    # 二者在语义上一致（活跃会话本来就被过滤掉）。
+    #
+    # title 补不了：JSONL header 里没有 title（实测该文件 0 次出现），标题只活在
+    # 投影缓存，ACP 插件没有消费它 —— 那是上游的功能缺口，不是这一行能修的。
+    #
+    # 替换串按**语义**取最短前缀，不碰缩进：插入的字段写在对象字面量开头，原文件的
+    # 多行字段原样留在后面。上游改写这一行时 --replace-fail 会立刻让构建失败。
+    substituteInPlace "$out/lib/index.js" \
+      --replace-fail \
+      'sessions: page.map(({ sessionId, cwd }) => ({' \
+      'sessions: page.map(({ sessionId, cwd, createdAt }) => ({ updatedAt: new Date(createdAt).toISOString(),'
+  '';
+  acpAppSrc = npmSrc {
+    name = "@deepseek-ai/dsh-acp-app";
+    version = dshVersion;
+    hash = "sha256-jIA/Ru2+qFMzjFtPJ88GQ4/W8mjE2ZGvArWNLTwqPYY=";
+  };
+
+  # 给一个 bundle 的 node_modules 补上它自己 import 的**非 peer** 依赖。
+  #
+  # 为什么不直接改 mk-bundle.nix：mkBundle 的 installPhase 进 derivation 哈希 ——
+  # 动一个字节（连注释的缩进都算：Nix 按最小缩进裁剪 `''` 字符串，一个第 0 列的行
+  # 就会让整份脚本多出四个空格）就让**每个**本地 bundle 换哈希，级联重建
+  # dsh-node-modules → dsh 包；而官方 bundle（base/headless/web-app）只是构建期
+  # 输入、构完即被 GC，于是每次都要重拉（经代理常挂）或从源码编（约 40 分钟）。
+  # 所以扩展做在包外：复制 mkBundle 的产物，只替换目标包的 node_modules。
+  linkExtraNodeModules =
+    {
+      bundle,
+      name,
+      extras,
+    }:
+    let
+      kernelNodeModules = "${kernelPatched}/lib/deepseek-harness/node_modules";
+    in
+    upstreamPkgs.runCommand (lib.strings.sanitizeDerivationName "${name}-with-deps") {
+      nativeBuildInputs = [ upstreamPkgs.nodejs-slim ];
+      # 组合校验读的是 passthru 与 nix-support 清单；两者都照 mkBundle 的约定带上。
+      passthru = {
+        dshBundle = true;
+        dshBundleHelper = "buildDshBundle";
+        runtimeDeps = bundle.passthru.runtimeDeps or [ ];
+      };
+      meta.description = "dsh bundle ${name} carrying its own non-peer dependencies";
+    } ''
+      mkdir -p "$out/lib/node_modules"
+      cp -a ${bundle}/lib/node_modules/. "$out/lib/node_modules/"
+      cp -a ${bundle}/nix-support "$out/nix-support"
+      # store 里的目录是 555、文件是 444：`cp -a` 会把这些只读位带过来，接下来
+      # 替换目标包的 node_modules 就会 "Permission denied"。mk-bundle.nix 在同一
+      # 位置做同样的 chmod，这里照抄。
+      chmod -R u+w "$out"
+
+      dest="$out/lib/node_modules/${name}"
+      [ -f "$dest/package.json" ] || {
+        printf 'dsh-local: bundle output has no %s package.json\n' ${lib.escapeShellArg name} >&2
+        exit 1
+      }
+
+      # 真目录而不是软链：Node 的查找顺序里 bundle 自己的 node_modules 是第一站。
+      # 内核顶层条目逐个软链进来（scope 目录要展开合并，才能再往里加同一 scope 的包），
+      # 额外包落在自己的 scope 下并覆盖同名内核副本（bundle 拥有它自己声明的那份）。
+      rm -f "$dest/node_modules"
+      mkdir -p "$dest/node_modules"
+      for entry in ${kernelNodeModules}/*; do
+        entryName=$(basename "$entry")
+        case "$entryName" in
+          @*)
+            mkdir -p "$dest/node_modules/$entryName"
+            for scoped in "$entry"/*; do
+              ln -s "$scoped" "$dest/node_modules/$entryName/$(basename "$scoped")"
+            done
+            ;;
+          *)
+            ln -s "$entry" "$dest/node_modules/$entryName"
+            ;;
+        esac
+      done
+      ${lib.concatMapStringsSep "\n" (pkg: ''
+        extraName=$(${lib.getExe upstreamPkgs.nodejs-slim} -p \
+          "JSON.parse(require('node:fs').readFileSync('${pkg}/package.json','utf8')).name")
+        case "$extraName" in
+          @*/*)
+            extraScope=''${extraName%%/*}
+            mkdir -p "$dest/node_modules/$extraScope"
+            ln -sfn ${pkg} "$dest/node_modules/$extraName"
+            ;;
+          *)
+            ln -sfn ${pkg} "$dest/node_modules/$extraName"
+            ;;
+        esac
+      '') extras}
+    '';
+
+  # acp bundle 对，分工照上游的包边界：
+  #
+  #   dsh-acp     —— 服务端插件本体。patch = []（顶层 acp 行由 acp-app 的 patch
+  #                  插入，两边都插会撞成重复 id）。运行期只 import 一个外部包
+  #                  （SDK），其余全是 kernel 里的 peer，所以走 linkExtraNodeModules。
+  #                  acp-app 并不 import 它，只在 patch 里按名字引用它 —— 于是它
+  #                  必须作为 bundle 出现在某个 profile 的清单里才会被装进安装树：
+  #                  Loader 解析顶层行名时找的正是安装锚点。
+  #   dsh-acp-app —— profile bundle：persona、禁 hmr、插入 acp-app-startup + acp 行。
+  #                  自带 patch 逐字节落地（mkBundle 的约定）。
+  acpBundles = [
+    (linkExtraNodeModules {
+      bundle = mkBundle {
+        name = "@deepseek-ai/dsh-acp";
+        version = dshVersion;
+        src = dshAcpSrc;
+        meta.description = "Automation-only ACP server plugin for dsh";
+      };
+      name = "@deepseek-ai/dsh-acp";
+      extras = [ acpSdkSrc ];
+    })
+    (mkBundle {
+      name = "@deepseek-ai/dsh-acp-app";
+      version = dshVersion;
+      src = acpAppSrc;
+      patch = "${acpAppSrc}/cordis.patch.yml";
+      meta.description = "Automation-only ACP stdio application profile bundle for dsh";
+    })
+  ];
 
   # pi-blackhole 适配器要 esbuild 打上游纯 TS 核心，单独走自己的 build.nix。
   blackholeAdapter = import (pluginsDir + "/dsh-blackhole/build.nix") {
@@ -582,9 +807,8 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
   # profile artifact seeder used by split integrations"）—— 它同时被用作 wrapper 的
   # runtimeInput，所以脚本名必须叫 dsh-sync-profiles、接受一个可选的 profile 名参数。
   mkProfileSeeder =
-    { profiles }:
+    { profiles, artifacts }:
     let
-      artifacts = upstreamPkgs.dsh.dsh.passthru.mkProfileArtifacts { inherit profiles; };
       # 物化名 = 上游的 nix- 前缀；模板目录名就是它。
       targets = map (name: "nix-${name}") (builtins.attrNames profiles);
       # sync_profile 的实参：<profile 名> <模板目录> <目标目录>。
@@ -723,16 +947,29 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
       defaultProfile ? null,
       homePatch ? null,
     }:
-    upstreamPkgs.dsh.dsh.override {
-      bundles = upstreamBundles;
-      dsh-kernel = kernelPatched;
-      inherit profiles defaultProfile homePatch;
-      profileSeeder = mkProfileSeeder { inherit profiles; };
-      # 传了 profileSeeder 后 wrapper 就改看 profileDefaultProfile（见上游
-      # package.nix 的 launcherDefaultProfile 三元式）；不传它，argv 里没有
-      # --profile 时就不再注入默认 profile，CLI 会落到上游内置的 web。
-      profileDefaultProfile = defaultProfile;
-    };
+    let
+      args = {
+        bundles = upstreamBundles;
+        dsh-kernel = kernelPatched;
+        inherit profiles defaultProfile homePatch;
+        # 传了 profileSeeder 后 wrapper 就改看 profileDefaultProfile（见上游
+        # package.nix 的 launcherDefaultProfile 三元式）；不传它，argv 里没有
+        # --profile 时就不再注入默认 profile，CLI 会落到上游内置的 web。
+        profileDefaultProfile = defaultProfile;
+      };
+
+      # profile 模板里 `requiresWeb/Tui` 追加的官方 bundle 取自**装配包自己的**
+      # `bundles`（profiles.nix 的 webBundle/tuiBundle）。过去这里从
+      # `upstreamPkgs.dsh.dsh` 取，拿到的是未重绑定的那份：模板清单指向未打补丁
+      # 的官方 tui bundle，与安装树不同源，还额外触发一次 dsh-tui 源码构建。
+      # seeder 本身是装配包的入参，回指装配包会递归，所以先装一份不带 seeder 的，
+      # 只取它的 mkProfileArtifacts（纯模板计算，不构建整包）。
+      artifactSource = upstreamPkgs.dsh.dsh.override args;
+      artifacts = artifactSource.passthru.mkProfileArtifacts { inherit profiles; };
+    in
+    upstreamPkgs.dsh.dsh.override (
+      args // { profileSeeder = mkProfileSeeder { inherit profiles artifacts; }; }
+    );
 
   # ── 宿主包 shim：让 dsh-tui 自己的入口能"托管"这次启动 ──────────────────────
   #
@@ -796,6 +1033,7 @@ in
     patchText
     mkDsh
     mkDshHostPackage
+    acpBundles
     ;
 
   # 三条 profile 共用的 host 插件（与前端形态无关）。
