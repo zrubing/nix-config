@@ -865,3 +865,27 @@ TUI 的投影器与渲染器完全没动——本地能流式，说明下游链�
 
 底部状态行模型段从 `model` 改成 `provider/model`（provider 为空时仍只显示 model）；
 hover 详情本来就有 provider，未改。切模后 provider 也会跟着变，因为 32.1 写的是同一份 state。
+
+## 33. 启动会话按工作区选（2026-10-18）
+
+**现象**：在 workspace B 里启动 `dsh-tui-remote`，打开的是 workspace A 上次用的会话。
+
+**根因**：`openRemoteStartup` 取 `sessions[0]`。宿主的 `session/list` 是**全机**列表，
+第一行就是「全机最近用过的会话」——与启动目录无关。`/resume` 的 catalog 反而按
+`scope.cwd` 过滤（`sessions.ts`），只有启动这一步漏了。
+
+**修法**：新增纯函数 `startupSessionFor(sessions, cwd)`：
+
+- 跳过 `origin: 'subagent'` 的子代理会话；
+- 只保留 `cwd` 相同（去掉尾部 `/` 后比较）的会话；
+- 取 `updatedAt` 最大的一条；
+- 没有匹配就返回 `undefined`，由调用方在**当前目录**新建（原来的行为是只有全机
+  一条会话都没有时才新建）。
+
+`--resume <id>` 仍然优先，不受目录限制。
+
+**验证**（构建产物直接对 3080）：
+
+- 合成数据：`/w/b` 的两条 + 一条 subagent + `/w/a` 一条 → 选中 `/w/b` 里较新的那条；
+- 真实：在 `/tmp/ws-one`、`/tmp/ws-two` 各建一个会话，`startupSessionFor` 分别选中各自
+  的 id，未知目录返回 `undefined`；契约自检仍 12/12。
