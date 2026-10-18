@@ -451,7 +451,15 @@ in
     #    · 标签/tolerations 保持不变（新集群的 build 节点标签同为
     #      wants-role/build → promoter 派生成 node-role.kubernetes.io/build，
     #      故 buildkitd 能直接调度到本节点）。
-    extraArgs = ''--kubelet-extra-args="--node-ip=10.144.150.4 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=nova13:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
+    #
+    # ⚠️ `--cluster-dns`（2026-10-12 加）：与 zen14 完全同因同值 ——
+    #    本节点不在集群 VPC 内，集群 CoreDNS 会把 COS 域名解析成
+    #    VPC 链路本地地址 `169.254.0.47`（不可达），必须让本节点所有 pod
+    #    用本机的 build-local CoreDNS（10.119.194.33，internalTrafficPolicy:
+    #    Local ⇒ 命中本机实例）；第二值 10.112.0.10 是兜底。
+    #    完整理由、k0s 不支持 worker profile 覆盖 clusterDNS 的依据、
+    #    以及另一仓库的对应声明，见 zen14/default.nix 同一处的注释。
+    extraArgs = ''--kubelet-extra-args="--cluster-dns=10.119.194.33,10.112.0.10 --node-ip=10.144.150.4 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=nova13:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
     spec.api.address = "0.0.0.0";
     spec.workerProfiles = [
       {
