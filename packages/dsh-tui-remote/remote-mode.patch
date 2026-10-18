@@ -1,0 +1,2698 @@
+diff --git a/src/adapter/ports/channel-session.ts b/src/adapter/ports/channel-session.ts
+index 845f9ce..ff8a72c 100644
+--- a/src/adapter/ports/channel-session.ts
++++ b/src/adapter/ports/channel-session.ts
+@@ -128,7 +128,13 @@ export interface SessionSummary {
+   readonly title: SessionTitle
+   /** Working directory recorded in the header; '' when it recorded none. */
+   readonly cwd: string
+-  readonly createdAt: number
++  /**
++   * Creation time, when the backend can tell it. A backend reading a store
++   * that publishes only activity (the remote DSH API lists sessions without
++   * their header) leaves it undefined: the picker omits the fact instead of
++   * showing an invented one.
++   */
++  readonly createdAt?: number
+   /**
+    * Last activity: the later of the log's own mtime and this install's
+    * last-used note. Both are lower bounds on "when this session was last
+diff --git a/src/adapter/ports/channel-view.ts b/src/adapter/ports/channel-view.ts
+index cda3dbd..714021b 100644
+--- a/src/adapter/ports/channel-view.ts
++++ b/src/adapter/ports/channel-view.ts
+@@ -1103,8 +1103,9 @@ export interface AgentViewRow {
+   readonly live: boolean
+   /** True when this is the session the TUI terminal is attached to. */
+   readonly current: boolean
+-  /** Unix epoch milliseconds when the session was created. */
+-  readonly createdAt: number
++  /** Unix epoch milliseconds when the session was created, when the store
++   *  reports it (ordering only; the row shows activity time). */
++  readonly createdAt?: number
+   /** Unix epoch milliseconds of the session's latest activity. */
+   readonly updatedAt: number
+ }
+diff --git a/src/components/ModelPicker.tsx b/src/components/ModelPicker.tsx
+index bd36b02..95cbf4b 100644
+--- a/src/components/ModelPicker.tsx
++++ b/src/components/ModelPicker.tsx
+@@ -26,7 +26,7 @@ import { useOverlayListRows } from './OverlayAbove.js'
+ export function ModelPicker({
+   groups, provider, models, focusIndex, currentModel, loading,
+   efforts, effortId, effortsLoading, effortError, levelsFallback,
+-  cursorZone = 'model',
++  cursorZone = 'model', query = '',
+   onProvider, onFocus, onEffort, onMove, onConfirm, onCancel,
+ }: {
+   groups: readonly ModelGroupRow[]
+@@ -42,6 +42,8 @@ export function ModelPicker({
+   levelsFallback: boolean
+   /** Region that owns the native caret; falls back to the model list when absent. */
+   cursorZone?: ModelCursorZone
++  /** Type-to-filter text; empty renders the plain title row. */
++  query?: string
+   onProvider(provider: string): void
+   onFocus(index: number): void
+   onEffort(index: number): void
+@@ -125,7 +127,12 @@ export function ModelPicker({
+   return (
+     <Box flexDirection="column">
+       <Pane color="permission">
+-        <Text color="remember" bold wrap="truncate">{t('picker-title-model')}</Text>
++        {/* The filter rides the title row: an empty query renders exactly the
++            old title, so no extra layout row and no scrollback churn. */}
++        <Box height={1} flexShrink={0} overflow="hidden">
++          <Text color="remember" bold wrap="truncate">{t('picker-title-model')}</Text>
++          {query === '' ? null : <Text dimColor wrap="truncate">{'  '}{t('picker-search-active', { query })}</Text>}
++        </Box>
+         {showHeaderHints ? shortcutBar : null}
+         {showProviders ? <Box marginTop={compact ? 0 : 1} marginBottom={compact ? 0 : 1}>
+           <PickerTabs
+@@ -141,7 +148,7 @@ export function ModelPicker({
+           if (event.deltaY !== 0) onMove(event.deltaY < 0 ? -1 : 1)
+         }}>
+           {models.length === 0 ? (
+-            <Text dimColor wrap="truncate">{t(loading ? 'model-loading' : provider === RECENTS_GROUP_PROVIDER ? 'picker-recents-empty' : 'picker-models-empty')}</Text>
++            <Text dimColor wrap="truncate">{t(loading ? 'model-loading' : query !== '' ? 'picker-search-empty' : provider === RECENTS_GROUP_PROVIDER ? 'picker-recents-empty' : 'picker-models-empty', query === '' ? undefined : { query })}</Text>
+           ) : models.slice(start, end).map((model, index) => {
+             const absoluteIndex = start + index
+             return (
+@@ -156,7 +163,7 @@ export function ModelPicker({
+                 nativeCursor
+                 onClick={event => { event.stopImmediatePropagation(); onFocus(absoluteIndex) }}
+               >
+-                {provider === RECENTS_GROUP_PROVIDER ? `${model.provider} / ${model.name}` : model.name}
++                {provider === RECENTS_GROUP_PROVIDER || query !== '' ? `${model.provider} / ${model.name}` : model.name}
+               </ListItem>
+             )
+           })}
+diff --git a/src/components/sidePanel/InfoPanel.tsx b/src/components/sidePanel/InfoPanel.tsx
+index a917a43..e9470c7 100644
+--- a/src/components/sidePanel/InfoPanel.tsx
++++ b/src/components/sidePanel/InfoPanel.tsx
+@@ -128,7 +128,16 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
+       Math.max(6, Math.floor(contentWidth / 2)),
+     )
+ 
+-  function Row({ label, value, valueColor }: {
++  /** The discriminating part of an id: `session-4842bf2f-…` printed whole would
++ *  be `#session-`, the shape prefix repeated for every row. Strip one leading
++ *  `word-` segment first, then clip; ids without a prefix are unaffected. */
++function shortId(id: string, none: string): string {
++  if (id === '') return none
++  const tail = id.replace(/^[a-z]+-/, '')
++  return '#' + tail.slice(0, 8)
++}
++
++function Row({ label, value, valueColor }: {
+     label: string
+     value: React.ReactNode
+     valueColor?: keyof Theme
+@@ -162,8 +171,8 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
+       <ScrollBox ref={scrollRef} flexDirection="column" maxHeight={Math.max(3, height)} flexGrow={1}>
+         <Section title={t('info-section-session')}>
+           <Row label={t('info-row-title')} value={channel.sessionTitle !== '' ? channel.sessionTitle : none} />
+-          <Row label={t('info-row-session-id')} value={channel.sessionId !== '' ? '#' + channel.sessionId.slice(0, 8) : none} />
+-          <Row label={t('info-row-agent-id')} value={channel.agentId !== '' ? '#' + channel.agentId.slice(0, 8) : none} />
++          <Row label={t('info-row-session-id')} value={shortId(channel.sessionId, none)} />
++          <Row label={t('info-row-agent-id')} value={shortId(channel.agentId, none)} />
+           <Row label={t('info-row-cwd')} value={displayCwd !== '' ? displayCwd : none} />
+           <Row label={t('info-row-branch')} value={channel.gitBranch !== undefined && channel.gitBranch !== '' ? channel.gitBranch : none} />
+         </Section>
+diff --git a/src/dsh-adapter/channel/agent-view-projection.ts b/src/dsh-adapter/channel/agent-view-projection.ts
+index 46220a4..35ef253 100644
+--- a/src/dsh-adapter/channel/agent-view-projection.ts
++++ b/src/dsh-adapter/channel/agent-view-projection.ts
+@@ -162,7 +162,7 @@ export function createAgentViewProjection(
+       const index = AGENT_VIEW_STATUS_ORDER.indexOf(row.status)
+       return index < 0 ? AGENT_VIEW_STATUS_ORDER.length : index
+     }
+-    rowsCache = [...live, ...stopped].sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt || b.createdAt - a.createdAt || a.id.localeCompare(b.id))
++    rowsCache = [...live, ...stopped].sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt || (b.createdAt ?? 0) - (a.createdAt ?? 0) || a.id.localeCompare(b.id))
+     return rowsCache
+   }
+ 
+diff --git a/src/dsh-adapter/channel/core/session-controls.ts b/src/dsh-adapter/channel/core/session-controls.ts
+index 30934f0..5386cc9 100644
+--- a/src/dsh-adapter/channel/core/session-controls.ts
++++ b/src/dsh-adapter/channel/core/session-controls.ts
+@@ -186,9 +186,16 @@ export function createSessionControls(deps: {
+           break
+         case 'model.changed':
+         case 'session.ready': {
+-          // Effort levels follow the model.
+-          if (event.type === 'model.changed' && session.capabilities.effort !== undefined) {
+-            applyEffort(session, session.capabilities.effort.current())
++          // The backend's own report is the footer's source of truth: a switch
++          // (or a provider-side fallback) repaints immediately instead of
++          // waiting for the next durable request header.
++          if (event.type === 'model.changed') {
++            deps.state().model = event.model
++            if (event.provider !== undefined) deps.state().provider = event.provider
++            // Effort levels follow the model.
++            if (session.capabilities.effort !== undefined) {
++              applyEffort(session, session.capabilities.effort.current())
++            }
+           }
+           refreshModelDisplay(session)
+           changed = true
+diff --git a/src/dsh-adapter/contract.ts b/src/dsh-adapter/contract.ts
+index 1d3505e..8c3d495 100644
+--- a/src/dsh-adapter/contract.ts
++++ b/src/dsh-adapter/contract.ts
+@@ -14,7 +14,9 @@
+  * single natural-language boot notice the logo header shows (see LogoV2).
+  */
+ import { readFileSync } from 'node:fs'
++import { join } from 'node:path'
+ import { fileURLToPath } from 'node:url'
++import { findHostDsh } from './host-dsh.js'
+ import { ADAPTER_TYPE_PACKAGES, HOST_TYPE_PACKAGES } from './host-contract.js'
+ 
+ /** Primary validated upstream line (newest). */
+@@ -232,9 +234,15 @@ export function installedUpstreamVersion(packageName: string): UpstreamVersionTu
+  *    `installedUpstreamVersions` 的既有清单成员）的已装版本——它就是
+  *    upstreamDriftSummary 用来判定「内核在不在验证线」的同一份数据。
+  *
+- * 两级都读不到 → undefined（调用方只画 TUI 版本，不编造）。
++ * 远程模式下多一级且排在最前：客户端库与协议版本都取自**被连接的那套安装**
++ * （`findHostDsh()` 从 PATH 解析出的宿主包），所以它的 package.json 就是服务这一
++ * 会话的内核版本；本仓 node_modules 里的那份只是构建依赖，画出来会是假话。
++ *
++ * 全部读不到 → undefined（调用方只画 TUI 版本，不编造）。
+  */
+ export function installedKernelVersion(): string | undefined {
++  const connected = connectedHostVersion()
++  if (connected !== undefined) return connected
+   try {
+     const hostManifest = JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('@deepseek-ai/dsh/package.json')), 'utf8')) as { version?: unknown }
+     if (typeof hostManifest.version === 'string' && hostManifest.version !== '') return hostManifest.version
+@@ -244,6 +252,24 @@ export function installedKernelVersion(): string | undefined {
+   return installedUpstreamVersions()['@deepseek-ai/dsh-agent']
+ }
+ 
++/**
++ * The version of the installation this client is connected to, when running as
++ * a remote client; undefined when not remote or when PATH has no usable host.
++ */
++function connectedHostVersion(): string | undefined {
++  if (process.env.DSH_TUI_REMOTE_URL === undefined) return undefined
++  const location = findHostDsh()
++  if (!('packageDir' in location)) return undefined
++  try {
++    const manifest = JSON.parse(readFileSync(join(location.packageDir, 'package.json'), 'utf8')) as { version?: unknown }
++    return typeof manifest.version === 'string' && manifest.version !== '' ? manifest.version : undefined
++  } catch {
++    // An unreadable shim manifest stays undefined: the caller draws no version
++    // rather than this build's own.
++    return undefined
++  }
++}
++
+ /**
+  * Whether the installed version of `packageName` is at or beyond `minimum`
+  * (a literal like `'0.1.0-rc.8'`). Unparseable or older installs return
+diff --git a/src/dsh-adapter/index.ts b/src/dsh-adapter/index.ts
+index fddb010..56c647a 100644
+--- a/src/dsh-adapter/index.ts
++++ b/src/dsh-adapter/index.ts
+@@ -30,7 +30,7 @@ export const name = 'dsh-tui'
+ // for service: tuiWorkspaces)"). The bundle patch keeps tuiWorkspaces in the
+ // row-level inject purely as an ordering guarantee when the row exists; when
+ // it does not, plugin.ts/channel.ts fall back to a local workspace runtime.
+-export const inject = ['agents']
++export const inject = { required: [], optional: ['agents'] }
+ 
+ /**
+  * dsh-tui plugin configuration: session attachment, model route, working
+diff --git a/src/dsh-adapter/plugin.ts b/src/dsh-adapter/plugin.ts
+index aae0356..5f0150f 100644
+--- a/src/dsh-adapter/plugin.ts
++++ b/src/dsh-adapter/plugin.ts
+@@ -48,6 +48,7 @@ import { migratePresetPref, presetOverrideFromEnv, readPresetPref } from '../pre
+ import { readEffortPref } from '../effortPrefs.js'
+ import { composePreset, filterMinimalPresetTools, resolvePersistedPreset, resolvePersistedRoute, runningPresetOf } from './presets.js'
+ import { createFreshAgent, isUnstoredFreshSession } from './fresh-agent.js'
++import { openRemoteStartup } from './remote/startup.js'
+ import { ensurePackagedPresets } from './packaged-presets.js'
+ import { registerBundledPresets } from './bundled-presets.js'
+ import { ensureLegacySessionEventTypes, snapshotLiveSessionEvents } from './compat/index.js'
+@@ -620,7 +621,11 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+   const configuredBackend = parseBackendChoice(config.backend)
+   const rememberedBackend = readKernelPrefs().backend
+   const entryKernel = runtimeOptions.entryKernel
+-  const backendChoice: KernelBackendId = entryKernel ?? (dshInEntry ? DSH_BACKEND_ID : resolveRememberedBackend({
++  /** `--remote`/DSH_TUI_REMOTE_URL: a relay over a running host, not a kernel. */
++  const remoteUrl = process.env.DSH_TUI_REMOTE_URL?.trim()
++  const backendChoice: KernelBackendId = remoteUrl !== undefined && remoteUrl !== ''
++    ? DSH_BACKEND_ID
++    : entryKernel ?? (dshInEntry ? DSH_BACKEND_ID : resolveRememberedBackend({
+     ...(handoffBackend === undefined ? {} : { handoff: handoffBackend }),
+     configured: configuredBackend,
+     envRaw: rawBackend,
+@@ -722,16 +727,28 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+   // in /kernel is then one Enter away from installing what is missing.
+   // Explicit choices (flag/Config/handoff) and explicit resume targets keep
+   // the hard failure: silently swapping what the user named would be worse.
+-  let backendStart: Awaited<ReturnType<typeof openBackendStartup>> | undefined
++  let backendStart: (Awaited<ReturnType<typeof openBackendStartup>> & {
++    /** A remote startup knows its route before the first turn; the in-process
++     *  backend reports one with `system/init` instead. */
++    readonly route?: { readonly provider: string; readonly model: string }
++    readonly agentPreset?: string
++  }) | undefined
+   /** The startup session still opening (`deferBackendOpen`); the channel adopts it. */
+   let backendStartup: Promise<{ readonly session: AgentSession; readonly history: readonly AgentEvent[] }> | undefined
+   /** Once set, the channel's binding owns the session. */
+   let backendStartupAdopted = false
+   let backendFallbackNotice: string | undefined
+   const deferBackendOpen = runtimeOptions.deferBackendOpen === true
+-  if (deferBackendOpen && backendChoice === 'dsh' && !dshInEntry) {
++  if (deferBackendOpen && backendChoice === 'dsh' && !dshInEntry && (remoteUrl === undefined || remoteUrl === '')) {
+     throw new Error('dsh-tui: the standalone entry cannot host the DSH kernel; start it through the profile launcher')
+   }
++  if (remoteUrl !== undefined && remoteUrl !== '') {
++    backendStart = await openRemoteStartup(ctx, {
++      url: remoteUrl,
++      cwd: sessionCwd,
++      ...(effectiveSessionId === undefined ? {} : { sessionId: effectiveSessionId }),
++    })
++  }
+   /** The in-process DSH kernel's startup session: settled by `attachDsh`
+    *  (the profile's dsh-tui row) or by a failed composition. */
+   let settleDshStartup: { resolve(startup: ChannelStartup): void; reject(error: unknown): void } | undefined
+@@ -747,7 +764,7 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+   // A boot that fails before the channel holds the startup must not leak an
+   // unhandled rejection.
+   dshStartup?.catch(() => undefined)
+-  if (backendChoice !== 'dsh') {
++  if (backendChoice !== 'dsh' && (remoteUrl === undefined || remoteUrl === '')) {
+     try {
+       const startupInput = {
+         cwd: sessionCwd,
+@@ -922,7 +939,9 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+     settingsService: tuiSettings,
+     // The backend reports its model with its first turn (`system/init`);
+     // until then the status line names the backend.
+-    get model() { return rowFacts.route?.model ?? (backendStart !== undefined ? backendStart.label : displayRoute.model) },
++    get model() {
++      return rowFacts.route?.model ?? backendStart?.route?.model ?? (backendStart !== undefined ? backendStart.label : displayRoute.model)
++    },
+     ...(backendStart === undefined || backendPermissions === undefined ? {} : {
+       backendLabel: backendStart.label,
+       openSession: backendStart.open,
+@@ -965,7 +984,7 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+     // sessions record sessionCwd at creation, so both agree there.
+     // A resumed backend session runs where it was recorded.
+     cwd: backendStart?.session.cwd ?? agent?.session.header.cwd ?? sessionCwd,
+-    get provider() { return rowFacts.route?.provider ?? (backendStart !== undefined ? backendStart.backendId : displayRoute.provider) },
++    get provider() { return rowFacts.route?.provider ?? backendStart?.route?.provider ?? (backendStart !== undefined ? backendStart.backendId : displayRoute.provider) },
+     // Raw cordis.yml route (undefined when unset): the channel's
+     // new-session path re-resolves prefs against these, and resume passes
+     // only explicit values so the target session's own record wins.
+diff --git a/src/dsh-adapter/remote/approval-check.ts b/src/dsh-adapter/remote/approval-check.ts
+new file mode 100644
+index 0000000..ce6b84e
+--- /dev/null
++++ b/src/dsh-adapter/remote/approval-check.ts
+@@ -0,0 +1,150 @@
++/**
++ * Deterministic check of the remote approval half (no Host involved).
++ *
++ * The Host supplies `approval/request` through the Remote Event channel; this
++ * script stands in for that channel and drives the session adapter's own
++ * answerer: the view it emits, the channel's `respond`, and the settle event.
++ * It proves the half this repository owns; the Gateway's scoped dispatch is
++ * the Host-facing half and needs a live ask to observe.
++ *
++ * Usage: node --import tsx/esm src/dsh-adapter/remote/approval-check.ts
++ */
++import { openApprovals, type RemoteApprovalAsk } from './approvals.js'
++import { createRemoteCatalog } from './catalog.js'
++import { openRemoteSession, type SessionRemote } from './session.js'
++
++const catalog = {
++  default: { provider: 'p', model: 'm' },
++  routableProviders: ['p'],
++  groups: [{ id: 'p', name: 'P', models: [{ id: 'm', name: 'M' }] }],
++  failures: [],
++}
++
++const session: SessionRemote = {
++  follow() {
++    return {
++      [Symbol.asyncIterator]: async function* () {
++        yield {
++          type: 'snapshot' as const,
++          header: { id: 's1', cwd: '/tmp' },
++          cursor: 0,
++          records: [],
++          hasMore: false,
++        }
++        // The stream ends right after the snapshot: approvals do not ride it,
++        // and a parked generator would stall `dispose()` on this fake.
++      },
++    }
++  },
++  async list() { return { ok: true, value: { items: [] } } },
++  async rename() { return { ok: true } },
++  async attachment() { return { ok: false, error: { code: 'unused', message: 'not used by this check' } } },
++  async fork() { return { ok: true, value: { sessionId: 's2' } } },
++  async create() { return { ok: true, value: { sessionId: 's1' } } },
++  async cancel() { return { ok: true, value: { accepted: true } } },
++  async modelCatalog() { return { ok: true, value: catalog } },
++  async selectModel() { return { ok: true, value: { selected: { provider: 'p', model: 'm' } } } },
++  async prompt() { return { ok: true, value: { accepted: true } } },
++}
++
++const remote = { session }
++const projections = {
++  ready: Promise.resolve(),
++  values: () => undefined,
++  get: () => undefined,
++  subscribe: () => () => {},
++  close: async () => {},
++}
++
++type Dispatched = (this: unknown, request: unknown, next: () => Promise<unknown>) => Promise<unknown>
++let dispatched: Dispatched | undefined
++let dispatchedQuestion: Dispatched | undefined
++const scopes = new Map<string, unknown>()
++const ctx = {
++  plugin: () => {},
++  get: (name: string) =>
++    name === 'typert'
++      ? {
++          contexts: {
++            registerClient: (_key: string, adapter: { resolve(id: string): unknown }) => {
++              scopes.set('resolve', adapter.resolve)
++              return () => {}
++            },
++          },
++        }
++      : undefined,
++  extend: (properties: Record<string, unknown>) => ({ dshRemoteSessionId: properties.dshRemoteSessionId }),
++}
++const eventRemote = {
++  $on: (event: string, listener: Dispatched) => {
++    if (event === 'approval/request') dispatched = listener
++    else dispatchedQuestion = listener
++    return () => {}
++  },
++}
++
++const approvals = openApprovals(ctx as never, eventRemote)
++const handle = await openRemoteSession(
++  { remote, projections, catalog: createRemoteCatalog(remote), approvals },
++  's1',
++)
++const resolve = scopes.get('resolve') as (id: string) => { dshRemoteSessionId?: string } | undefined
++const scope = resolve('s1')
++if (scope?.dshRemoteSessionId !== 's1') throw new Error('check: the client agent scope does not resolve s1')
++if (resolve('other') !== undefined) throw new Error('check: an unfollowed Agent must resolve to nothing')
++if (dispatched === undefined) throw new Error('check: no approval/request listener was registered')
++
++const seen: string[] = []
++handle.session.subscribe((batch) => {
++  for (const event of batch) {
++    seen.push(event.type)
++    if (event.type === 'question.request') {
++      process.stderr.write(`[check] ask ${JSON.stringify(event.request)}\n`)
++      handle.session.capabilities.questions?.respond(event.request.requestId, {
++        answers: [{ selected: ['y'] }, { selected: [], custom: 'note' }],
++      })
++    }
++    if (event.type === 'permission.request') {
++      process.stderr.write(`[check] view ${JSON.stringify(event.request)}\n`)
++      // The channel's own Enter key decision, applied through the capability.
++      handle.session.capabilities.permissions?.respond(event.request.requestId, { kind: 'allow-once' })
++    }
++  }
++})
++
++const outcome = await dispatched!.call(scope, {
++  toolName: 'bash',
++  callId: 'call-1',
++  reason: 'needs to write outside the workspace',
++}, async () => 'unavailable')
++
++process.stderr.write(`[check] outcome=${String(outcome)} events=${seen.join(',')}\n`)
++if (outcome !== 'allowed-once') throw new Error(`check: expected allowed-once, got ${String(outcome)}`)
++if (!seen.includes('permission.request') || !seen.includes('permission.settled')) throw new Error('check: the park/settle pair did not reach the channel')
++
++const rejected = await dispatched!.call(scope, { toolName: 'bash' }, async () => 'unavailable')
++process.stderr.write(`[check] second outcome=${String(rejected)}\n`)
++if (rejected !== 'allowed-once') throw new Error(`check: the router must keep answering later asks (${String(rejected)})`)
++
++// Ask-user: the same transport, answered by position through the panel's
++// contract while the Host is handed its own question ids back.
++if (dispatchedQuestion === undefined) throw new Error('check: no user-questions listener was registered')
++const asked = await dispatchedQuestion.call(scope, {
++  questions: [
++    { id: 'q-a', question: 'Pick one', options: [{ label: 'x' }, { label: 'y' }] },
++    { id: 'q-b', question: 'Anything else?', multiSelect: true },
++  ],
++  wait: { callId: 'call-q' },
++}, async () => ({ answers: [] }))
++process.stderr.write(`[check] answered=${JSON.stringify(asked)}\n`)
++if (JSON.stringify(asked) !== JSON.stringify({ answers: [{ id: 'q-a', selected: ['y'] }, { id: 'q-b', selected: [], custom: 'note' }] })) {
++  throw new Error(`check: the ask-user answer was not re-keyed to the Host's question ids (${JSON.stringify(asked)})`)
++}
++
++await handle.close()
++// A closed session stops answering: the router must hand the ask back to the
++// Host's chain instead of claiming it (`next()`), which is what fails closed.
++const afterClose = await dispatched!.call(scope, { toolName: 'bash' }, async () => 'unavailable')
++if (afterClose !== 'unavailable') throw new Error(`check: a closed session must not claim asks (${String(afterClose)})`)
++approvals.dispose()
++process.stderr.write('[check] ok\n')
+diff --git a/src/dsh-adapter/remote/approvals.ts b/src/dsh-adapter/remote/approvals.ts
+new file mode 100644
+index 0000000..1bc5098
+--- /dev/null
++++ b/src/dsh-adapter/remote/approvals.ts
+@@ -0,0 +1,169 @@
++/**
++ * The Host's interactive waterfalls (approval, ask-user) over the Remote Event
++ * channel.
++ *
++ * The Host answers approvals through a scoped Cordis waterfall
++ * (`approval/request`); the application forwards it to owner clients, and the
++ * client-side Gateway dispatches it to `$on` listeners **through a client
++ * `agent` context**: `typert.contexts.getClient('agent').resolve(agentId)`
++ * must return a context for the asking Agent or the request never reaches a
++ * listener and the Host falls through to its fail-closed `'unavailable'`.
++ *
++ * So this module owns two halves: the per-session scopes that make dispatch
++ * possible, and the router that hands one ask to the session adapter that
++ * owns it. Requests for Agents this client does not follow are declined with
++ * `next()`, which is the protocol's "no opinion", not a verdict.
++ */
++import type { ClientContext } from './connection.js'
++
++/** The protocol's closed outcome set; `'unavailable'` is the Host's
++ *  fail-closed answer when no answerer claims a request. */
++export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
++
++/** One forwarded approval ask, as the Host serialized it. */
++export interface RemoteApprovalAsk {
++  readonly toolName: string
++  readonly callId?: string
++  readonly reason?: string
++  /** Localized presentation copy keyed by locale. */
++  readonly displayReason?: Readonly<Record<string, string>>
++  /** The asking turn's lifetime: aborted means the ask is withdrawn. */
++  readonly signal?: AbortSignal
++}
++
++/** One session's answerer; must resolve — a throw is the Host's `'unavailable'`. */
++export type RemoteApprovalAnswer = (ask: RemoteApprovalAsk) => Promise<ApprovalOutcome>
++
++export interface RemoteApprovals {
++  /** Route the approval asks of one followed Session here; the disposer stops it. */
++  register(sessionId: string, answer: RemoteApprovalAnswer): () => void
++  /** Route the ask-user requests of one followed Session here. */
++  registerQuestions(sessionId: string, respond: RemoteQuestionResponder): () => void
++  /** Resolve every outstanding ask as withdrawn and drop the client scope. */
++  dispose(): void
++}
++
++/** One forwarded ask-user question, as the Host serialized it. */
++export interface RemoteQuestionAsk {
++  readonly questions: readonly RemoteQuestionItem[]
++  /** The tool call the answer belongs to. */
++  readonly wait?: { readonly callId: string; readonly timed?: boolean }
++  readonly signal?: AbortSignal
++}
++
++/** One question of a forwarded ask. */
++export interface RemoteQuestionItem {
++  readonly id: string
++  readonly question: string
++  readonly detail?: string
++  readonly header?: string
++  readonly options?: readonly { readonly label: string; readonly description?: string }[]
++  readonly multiSelect?: boolean
++}
++
++/** The Host's answer vocabulary: one entry per asked question, by id. */
++export interface RemoteQuestionAnswer {
++  readonly answers: readonly { readonly id: string; readonly selected: readonly string[]; readonly custom?: string }[]
++}
++
++/** One session's answerer for an ask-user request. */
++export type RemoteQuestionResponder = (ask: RemoteQuestionAsk) => Promise<RemoteQuestionAnswer>
++
++/** The client Remote Event surface this module uses. */
++interface RemoteEvents {
++  $on(
++    event: 'approval/request',
++    listener: (this: unknown, request: RemoteApprovalAsk, next: () => Promise<ApprovalOutcome>) => Promise<ApprovalOutcome | unknown>,
++  ): () => void
++  $on(
++    event: 'user-questions/request',
++    listener: (this: unknown, request: RemoteQuestionAsk, next: () => Promise<RemoteQuestionAnswer>) => Promise<RemoteQuestionAnswer | unknown>,
++  ): () => void
++}
++
++/** The session id riding on a client scope created here. */
++interface SessionScope extends ClientContext {
++  readonly dshRemoteSessionId?: string
++}
++
++/** The Typert client context registry this module writes to. */
++interface TypertContexts {
++  registerClient(
++    key: 'agent',
++    adapter: {
++      identity(candidate: unknown): string | undefined
++      resolve(sessionId: string): unknown
++    },
++  ): () => void
++}
++
++/**
++ * Install the client `agent` context and the approval router.
++ * @param ctx - the client root the connection mounted under.
++ * @param remote - mounted client Remote service.
++ * @returns the router; `register` claims one Session's asks.
++ */
++export function openApprovals(ctx: ClientContext, remote: unknown): RemoteApprovals {
++  const events = remote as unknown as RemoteEvents
++  const typert = ctx.get('typert') as { readonly contexts?: TypertContexts } | undefined
++  const contexts = typert?.contexts
++  if (contexts === undefined) throw new Error('remote: the client context registry is unavailable; approvals cannot be answered')
++
++  const scopes = new Map<string, SessionScope>()
++  const answers = new Map<string, RemoteApprovalAnswer>()
++  const questionResponders = new Map<string, RemoteQuestionResponder>()
++  let disposed = false
++
++  const disposeScope = contexts.registerClient('agent', {
++    identity: (candidate) => (candidate as SessionScope | undefined)?.dshRemoteSessionId,
++    // An Agent this client does not follow resolves to nothing: the Gateway
++    // then skips dispatch and the Host keeps its own chain (fail closed).
++    resolve: (sessionId) => scopes.get(sessionId),
++  })
++
++  const unsubscribeApprovals = events.$on('approval/request', function (request, next) {
++    const sessionId = (this as SessionScope | undefined)?.dshRemoteSessionId
++    const answer = sessionId === undefined ? undefined : answers.get(sessionId)
++    if (answer === undefined) return next()
++    return answer(request)
++  })
++  const unsubscribeQuestions = events.$on('user-questions/request', function (request, next) {
++    const sessionId = (this as SessionScope | undefined)?.dshRemoteSessionId
++    const respond = sessionId === undefined ? undefined : questionResponders.get(sessionId)
++    if (respond === undefined) return next()
++    return respond(request)
++  })
++
++  return {
++    register(sessionId, answer) {
++      if (disposed) throw new Error('remote: the approval router is closed')
++      if (scopes.has(sessionId)) throw new Error(`remote: session ${sessionId} already has an approval answerer`)
++      scopes.set(sessionId, ctx.extend({ dshRemoteSessionId: sessionId }) as SessionScope)
++      answers.set(sessionId, answer)
++      return () => {
++        answers.delete(sessionId)
++        if (!questionResponders.has(sessionId)) scopes.delete(sessionId)
++      }
++    },
++    registerQuestions(sessionId, respond) {
++      if (disposed) throw new Error('remote: the interaction router is closed')
++      if (questionResponders.has(sessionId)) throw new Error(`remote: session ${sessionId} already has a question responder`)
++      if (!scopes.has(sessionId)) scopes.set(sessionId, ctx.extend({ dshRemoteSessionId: sessionId }) as SessionScope)
++      questionResponders.set(sessionId, respond)
++      return () => {
++        questionResponders.delete(sessionId)
++        if (!answers.has(sessionId)) scopes.delete(sessionId)
++      }
++    },
++    dispose() {
++      if (disposed) return
++      disposed = true
++      answers.clear()
++      questionResponders.clear()
++      scopes.clear()
++      unsubscribeApprovals()
++      unsubscribeQuestions()
++      disposeScope()
++    },
++  }
++}
+diff --git a/src/dsh-adapter/remote/catalog.ts b/src/dsh-adapter/remote/catalog.ts
+new file mode 100644
+index 0000000..ff124d8
+--- /dev/null
++++ b/src/dsh-adapter/remote/catalog.ts
+@@ -0,0 +1,90 @@
++/**
++ * The host's model catalog, read once per connection.
++ *
++ * `session/modelCatalog` is process-level: it describes every routable route
++ * the Host can serve, not one Session's choice. Reading it once and reusing the
++ * answer keeps `/model` and `/effort` synchronous where the channel expects it
++ * (`levels()` has no async seam) while staying honest about a catalog that can
++ * change underneath: `refresh()` re-reads on demand.
++ */
++import type { RemoteResult } from './connection.js'
++
++/** One reasoning tier a route offers. */
++export interface CatalogEffort {
++  readonly id: string
++  readonly name: string
++  readonly description?: string
++}
++
++/** One model row of the host catalog. */
++export interface CatalogModel {
++  readonly id: string
++  readonly name: string
++  readonly description?: string
++  readonly reasoning?: { readonly efforts: readonly CatalogEffort[]; readonly defaultEffort?: string }
++}
++
++/** One provider group of the host catalog. */
++export interface CatalogGroup {
++  readonly id: string
++  readonly name: string
++  readonly models: readonly CatalogModel[]
++}
++
++/** `session/modelCatalog`'s value: every routable model plus provider failures. */
++export interface ModelCatalog {
++  readonly default: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string }
++  readonly routableProviders: readonly string[]
++  readonly groups: readonly CatalogGroup[]
++  readonly failures: readonly { readonly id: string; readonly name: string; readonly message: string }[]
++}
++
++/** The `session/modelCatalog` method this layer calls. */
++export interface CatalogRemote {
++  modelCatalog(): Promise<RemoteResult<ModelCatalog>>
++}
++
++export interface RemoteCatalog {
++  /** The catalog, read on first use. */
++  read(): Promise<ModelCatalog>
++  /** Re-read on the next `read()`. */
++  refresh(): void
++  /** The reasoning tiers a route declares, or undefined when the catalog does
++   *  not know the route yet. */
++  reasoning(provider: string, model: string): { readonly efforts: readonly CatalogEffort[]; readonly defaultEffort?: string } | undefined
++}
++
++/**
++ * Build a catalog reader over one connection.
++ * @param remote - mounted client Remote service.
++ * @returns the reader; `read()` rejects when the host refuses the call.
++ */
++export function createRemoteCatalog(remote: unknown): RemoteCatalog {
++  const session = (remote as unknown as { readonly session: CatalogRemote }).session
++  let cached: ModelCatalog | undefined
++  let inflight: Promise<ModelCatalog> | undefined
++
++  const read = async (): Promise<ModelCatalog> => {
++    if (cached !== undefined) return cached
++    inflight ??= session.modelCatalog().then((result) => {
++      if (!result.ok || result.value === undefined) {
++        throw new Error(`remote: session/modelCatalog failed: ${result.error?.message ?? 'unknown error'}`)
++      }
++      cached = result.value
++      return result.value
++    }).finally(() => {
++      inflight = undefined
++    })
++    return inflight
++  }
++
++  return {
++    read,
++    refresh() {
++      cached = undefined
++    },
++    reasoning(provider, model) {
++      return cached?.groups.find(group => group.id === provider)?.models.find(row => row.id === model)?.reasoning
++    },
++  }
++}
+diff --git a/src/dsh-adapter/remote/commands.ts b/src/dsh-adapter/remote/commands.ts
+new file mode 100644
+index 0000000..1f2cbd6
+--- /dev/null
++++ b/src/dsh-adapter/remote/commands.ts
+@@ -0,0 +1,99 @@
++/**
++ * The Host's command registry as a client-side `commands` service.
++ *
++ * The TUI gates `/compact`, `/plan` and every other registry command on
++ * `ctx.get('commands')` exposing `find`/`list` (see `channel/capabilities.ts`).
++ * The Host serves the same registry over the wire as `commands/list` and
++ * `commands/execute`; this module mounts that namespace and answers the
++ * synchronous TUI reads from a per-session cache, because the wire calls are
++ * asynchronous and `list()` is called on the render path.
++ */
++import type { Context } from '@deepseek-ai/cordis'
++import type { RemoteApi } from './connection.js'
++
++/** One descriptor as the Host reports it (`commands/list` result item). */
++interface RemoteDescriptor {
++  readonly name: string
++  readonly description: string
++  readonly input?: { readonly hint?: string; readonly attachments?: boolean }
++}
++
++/** Composer images in the shape `commands/execute` admits. */
++type RemoteImages = readonly {
++  readonly type: 'image'
++  readonly mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
++  readonly data: string
++  readonly name?: string
++}[]
++
++/** The slice of the mounted `commands` namespace this module calls. */
++interface RemoteCommandsApi {
++  list(sessionId: string): Promise<{ ok: boolean; value?: readonly RemoteDescriptor[]; error?: { message?: string } }>
++  execute(
++    sessionId: string,
++    line: string,
++    images: RemoteImages,
++  ): Promise<{ ok: boolean; value?: unknown; error?: { message?: string } }>
++}
++
++/**
++ * The registry is provided **before** `apply()` mounts the channel: the channel
++ * reads `ctx.get('commands')` once, when it binds, so a service registered
++ * later would leave every host command hidden for the whole session.
++ *
++ * State is module-scope because the remote entry is one client per process, and
++ * the binding (host namespace + open session) only becomes known after connect.
++ */
++const descriptors: RemoteDescriptor[] = []
++let bound: RemoteCommandsApi | undefined
++let current: string | undefined
++
++const service = {
++  list: (): readonly RemoteDescriptor[] => descriptors,
++  find: (_agent: unknown, name: string): RemoteDescriptor | undefined =>
++    descriptors.find((descriptor) => descriptor.name === name),
++  execute: async (_agent: unknown, line: string, images: RemoteImages): Promise<unknown> => {
++    if (bound === undefined || current === undefined) return undefined
++    const result = await bound.execute(current, line, images)
++    if (!result.ok) throw new Error(`remote: commands/execute failed: ${result.error?.message ?? 'unknown error'}`)
++    return result.value
++  },
++}
++
++/**
++ * Register the `commands` service on the client root.
++ * @param ctx - the client root the TUI plugin mounts on.
++ */
++export function installRemoteCommands(ctx: Context): void {
++  ctx.provide('commands', service as never)
++}
++
++/**
++ * Point the service at the connected host and prefetch one session's registry.
++ * @param remote - the connected Remote service (must have `dsh-commands` mounted).
++ * @param sessionId - the session whose agent scope the descriptors belong to.
++ */
++export async function bindRemoteCommands(remote: RemoteApi, sessionId: string | undefined): Promise<void> {
++  bound = (remote as unknown as { commands?: RemoteCommandsApi }).commands
++  await refreshRemoteCommands(sessionId)
++}
++
++/**
++ * Reload the descriptor cache for a session.
++ * @param sessionId - the session being opened; `undefined` clears the cache.
++ */
++export async function refreshRemoteCommands(sessionId: string | undefined): Promise<void> {
++  current = sessionId
++  descriptors.length = 0
++  if (bound === undefined || sessionId === undefined) return
++  try {
++    const result = await bound.list(sessionId)
++    // A session switch while the read was in flight must not repopulate the
++    // cache with the previous session's descriptors.
++    if (current !== sessionId) return
++    if (result.ok && result.value !== undefined) descriptors.push(...result.value)
++  } catch {
++    // Leave the cache empty: registry commands then read as unavailable
++    // instead of failing on the render path.
++  }
++}
+diff --git a/src/dsh-adapter/remote/connection.ts b/src/dsh-adapter/remote/connection.ts
+new file mode 100644
+index 0000000..31e70a1
+--- /dev/null
++++ b/src/dsh-adapter/remote/connection.ts
+@@ -0,0 +1,209 @@
++/**
++ * Remote connection to a running dsh host.
++ *
++ * The TUI normally boots a kernel in-process (`host-entry`). In remote mode it
++ * is a client of an already-running host (the `dsh web` service): the same
++ * Connection transport and generated Remote descriptors the browser uses,
++ * loaded from **the connected installation** so the client half always matches
++ * the server half. Nothing from the host is imported statically; the client
++ * packages are resolved at runtime from the `dsh` on PATH.
++ */
++import { join } from 'node:path'
++import { pathToFileURL } from 'node:url'
++import { findHostDsh } from '../host-dsh.js'
++import { openApprovals, type RemoteApprovals } from './approvals.js'
++import { createRemoteCatalog, type RemoteCatalog } from './catalog.js'
++import { openProjections, type RemoteProjections } from './projections.js'
++
++/** Generated client descriptors mounted on connect. Surfaces land here as
++ *  they are consumed; one entry per `*\/lib/typert.remote-client.js`. */
++const DESCRIPTORS = [
++  'dsh-api-session-controller/lib/typert.remote-client.js',
++  // The Host's command registry: `/compact`, `/plan` and any other host command
++  // resolve through it (the browser mounts the same namespace).
++  'dsh-commands/lib/typert.remote-client.js',
++] as const
++
++/** The subset of the Cordis client root this layer touches. */
++export interface ClientContext {
++  plugin(plugin: unknown): unknown
++  get(name: string): unknown
++  /** Create a scoped child carrying the given context properties. */
++  extend(properties: Record<string, unknown>): ClientContext
++  stop?(): Promise<void> | void
++  connection?: {
++    readonly generation: {
++      getSnapshot(): { readonly host?: { readonly home?: string } } | undefined
++    }
++  }
++}
++
++/** The typed Remote service installed by `@deepseek-ai/dsh-api-gateway/client`. */
++export interface RemoteApi {
++  /**
++   * Register one generated contribution and install its namespace methods.
++   * @param contribution - the default export of a `typert.remote-client` module.
++   * @returns disposer unmounting the namespaces.
++   */
++  $mount(contribution: unknown): Promise<() => Promise<void>>
++}
++
++/** Result envelope every generated Remote method returns. */
++export interface RemoteResult<T> {
++  readonly ok: boolean
++  readonly value?: T
++  readonly error?: { readonly code: string; readonly message: string }
++}
++
++/** A decoded Gateway stream handle (the client's `ClientStreamHandle`). */
++export interface RemoteStream<T> extends AsyncIterable<T> {
++  dispose?(): void
++}
++
++export interface RemoteConnection {
++  readonly ctx: ClientContext
++  readonly remote: RemoteApi
++  /** Host package directory the client half was loaded from. */
++  readonly hostPackageDir: string
++  /** The connection's live-control projection fold (`session/control`). */
++  readonly projections: RemoteProjections
++  /** The connection's model catalog reader (`session/modelCatalog`). */
++  readonly catalog: RemoteCatalog
++  /** The connection's approval router (`approval/request` waterfall). */
++  readonly approvals: RemoteApprovals
++  close(): Promise<void>
++}
++
++interface ConnectionModule {
++  installConnection(
++    ctx: unknown,
++    options: {
++      readonly interactions: 'answer' | 'none'
++      readonly location?: { readonly hostname: string }
++      readonly transport: {
++        readonly streamBaseUrl: string
++        readonly fetch: (input: string | URL, init?: RequestInit) => Promise<Response>
++      }
++    },
++  ): void
++}
++
++interface ContextModule {
++  readonly Context: new () => ClientContext
++}
++
++const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
++
++/**
++ * Create the client root the TUI runs on, using the **connected installation's**
++ * Cordis.
++ *
++ * The bare-root entry must not import `@deepseek-ai/*` statically: a packaged
++ * client has no framework packages of its own (they are the Host's), and the
++ * protocol half has to match the Host that answers. Resolving the same module
++ * the connection resolves keeps one copy on the module graph.
++ * @returns a fresh Cordis root.
++ */
++export async function createClientRoot(): Promise<ClientContext> {
++  const location = findHostDsh()
++  if (!('packageDir' in location)) throw new Error(`remote: ${location.reason}`)
++  const module = await import(pathToFileURL(join(location.packageDir, 'node_modules', '@deepseek-ai/cordis/lib/index.js')).href)
++  const contextModule = module as ContextModule
++  return new contextModule.Context()
++}
++
++async function waitFor<T>(read: () => T | undefined, label: string, timeoutMilliseconds = 10_000): Promise<T> {
++  const deadline = Date.now() + timeoutMilliseconds
++  for (;;) {
++    const value = read()
++    if (value !== undefined) return value
++    if (Date.now() > deadline) throw new Error(`remote: ${label} did not become ready`)
++    await sleep(50)
++  }
++}
++
++/**
++ * Connect to a running host and mount the client Remote namespaces.
++ * @param baseUrl - host base URL, e.g. `http://127.0.0.1:3080`.
++ * @returns the live connection; `close` disposes the owning Cordis root.
++ */
++export async function connectRemote(baseUrl: string, root?: ClientContext): Promise<RemoteConnection> {
++  const location = findHostDsh()
++  if (!('packageDir' in location)) throw new Error(`remote: ${location.reason}`)
++  const nodeModules = join(location.packageDir, 'node_modules')
++  const load = (specifier: string): Promise<unknown> => import(pathToFileURL(join(nodeModules, specifier)).href)
++
++  const modules = await Promise.all([
++    load('@deepseek-ai/cordis/lib/index.js'),
++    load('@deepseek-ai/dsh-client-connection/lib/client.node.js'),
++    load('@deepseek-ai/dsh-api-gateway/lib/client.node.js'),
++    load('@deepseek-ai/dsh-typert-registry/lib/client.node.js'),
++    ...DESCRIPTORS.map((descriptor) => load(`@deepseek-ai/${descriptor}`)),
++  ])
++  const contextModule = modules[0] as ContextModule
++  const connectionModule = modules[1] as ConnectionModule
++  const gatewayModule = modules[2] as { readonly apply: unknown }
++  const typertModule = modules[3] as { readonly apply: unknown }
++  const descriptorModules = modules.slice(4) as Array<{ readonly default?: unknown }>
++
++  const ownsRoot = root === undefined
++  const ctx = root ?? new contextModule.Context()
++  ctx.plugin({
++    name: 'dsh-tui-remote',
++    apply: (scope: unknown) => {
++      connectionModule.installConnection(scope, {
++        interactions: 'answer',
++        location: { hostname: new URL(baseUrl).hostname },
++        transport: {
++          streamBaseUrl: baseUrl,
++          // The Node caller has no document base: every unary RPC needs an
++          // absolute URL or `fetch` rejects the relative path.
++          fetch: (input: string | URL, init?: RequestInit) => fetch(new URL(input, baseUrl), init),
++        },
++      })
++    },
++  })
++  ctx.plugin(typertModule)
++  ctx.plugin(gatewayModule)
++
++  const debug = process.env.DSH_TUI_REMOTE_DEBUG === '1'
++  const note = (line: string): void => {
++    if (debug) process.stderr.write(`remote: ${line}\n`)
++  }
++  note(`loaded client libraries from ${location.packageDir}`)
++
++  const remote = await waitFor(() => ctx.get('remote') as RemoteApi | undefined, 'client Remote service')
++  note('Remote service installed')
++  const mounted: Array<() => Promise<void>> = []
++  for (const module of descriptorModules) {
++    if (module.default === undefined) continue
++    mounted.push(await remote.$mount(module.default))
++  }
++  note(`mounted ${mounted.length} descriptor(s)`)
++  await waitFor(
++    () => (ctx.connection?.generation.getSnapshot() === undefined ? undefined : true),
++    'connection generation',
++  )
++  note('connection generation ready')
++
++  const projections = openProjections(remote)
++  await projections.ready
++  note('projections baseline ready')
++  const catalog = createRemoteCatalog(remote)
++  const approvals = openApprovals(ctx, remote)
++
++  return {
++    ctx,
++    remote,
++    hostPackageDir: location.packageDir,
++    projections,
++    catalog,
++    approvals,
++    async close() {
++      approvals.dispose()
++      for (const dispose of mounted.reverse()) await dispose().catch(() => {})
++      await projections.close()
++      if (ownsRoot) await ctx.stop?.()
++    },
++  }
++}
+diff --git a/src/dsh-adapter/remote/entry.ts b/src/dsh-adapter/remote/entry.ts
+new file mode 100644
+index 0000000..9797121
+--- /dev/null
++++ b/src/dsh-adapter/remote/entry.ts
+@@ -0,0 +1,24 @@
++/**
++ * Bare-root entry: the TUI as a client of a running host, with no profile
++ * composition at all. The launcher sets DSH_TUI_REMOTE_URL; nothing from the
++ * DSH kernel is imported or booted here.
++ */
++import { installRemoteCommands } from './commands.js'
++import { createClientRoot } from './connection.js'
++import { Config } from '../index.js'
++import { apply } from '../plugin.js'
++import { DSH_BACKEND_ID } from '../../kernelPrefs.js'
++
++const url = process.env.DSH_TUI_REMOTE_URL?.trim()
++if (url === undefined || url === '') {
++  process.stderr.write('dsh-tui: remote entry needs DSH_TUI_REMOTE_URL\n')
++  process.exit(2)
++}
++
++// The root comes from the connected installation, not from this package: a
++// packaged client ships no framework packages of its own.
++const ctx = await createClientRoot() as unknown as Parameters<typeof apply>[0]
++// Before `apply`: the channel captures `ctx.get('commands')` when it binds.
++installRemoteCommands(ctx as never)
++const config = Config({})
++await apply(ctx, config, ctx, { deferBackendOpen: true, entryKernel: DSH_BACKEND_ID, profile: 'remote' })
+diff --git a/src/dsh-adapter/remote/probe.ts b/src/dsh-adapter/remote/probe.ts
+new file mode 100644
+index 0000000..edfcf16
+--- /dev/null
++++ b/src/dsh-adapter/remote/probe.ts
+@@ -0,0 +1,205 @@
++/**
++ * M1 probe: prove the remote client and the session adapter inside this
++ * package (not from a standalone script), against a running host.
++ *
++ * Usage:
++ *   node --import tsx/esm src/dsh-adapter/remote/probe.ts <baseUrl> list
++ *   node --import tsx/esm src/dsh-adapter/remote/probe.ts <baseUrl> create [cwd]
++ *   node --import tsx/esm src/dsh-adapter/remote/probe.ts <baseUrl> follow <sessionId> [seconds]
++ */
++import { connectRemote } from './connection.js'
++import { cancelRemoteSession, createRemoteSession, listRemoteSessions, openRemoteSession, promptRemoteSession } from './session.js'
++
++const [baseUrl, command, sessionId, seconds] = process.argv.slice(2)
++if (baseUrl === undefined || command === undefined) {
++  process.stderr.write('usage: probe.ts <baseUrl> list|create|follow [arg]\n')
++  process.exit(2)
++}
++
++const connection = await connectRemote(baseUrl)
++process.stderr.write(`[probe] connected host=${connection.hostPackageDir}\n`)
++const deps = { remote: connection.remote, projections: connection.projections, catalog: connection.catalog, approvals: connection.approvals }
++
++if (command === 'list') {
++  const sessions = await listRemoteSessions(connection.remote)
++  process.stderr.write(`[probe] ${sessions.length} session(s)\n`)
++  for (const session of sessions.slice(0, 10)) {
++    process.stderr.write(`  ${session.sessionId} cwd=${session.cwd ?? '?'} title=${JSON.stringify(session.projections?.values.title ?? null)}\n`)
++  }
++} else if (command === 'create') {
++  const created = await createRemoteSession(connection.remote, sessionId ?? process.cwd())
++  process.stderr.write(`[probe] created ${created}\n`)
++} else if (command === 'prompt' && sessionId !== undefined) {
++  await promptRemoteSession(connection.remote, sessionId, seconds ?? 'say hi')
++  process.stderr.write('[probe] prompt accepted\n')
++} else if (command === 'cancel' && sessionId !== undefined) {
++  const ok = await cancelRemoteSession(connection.remote, sessionId)
++  process.stderr.write(`[probe] cancel ok=${ok}\n`)
++} else if (command === 'models') {
++  const catalog = await connection.catalog.read()
++  process.stderr.write(`[probe] default=${catalog.default.provider}/${catalog.default.model} routable=[${catalog.routableProviders.join(',')}] groups=[${catalog.groups.map((g) => `${g.id}:${g.models.length}`).join(',')}] failures=${catalog.failures.length}\n`)
++  for (const group of catalog.groups) {
++    for (const row of group.models) {
++      process.stderr.write(`  ${group.id}/${row.id} "${row.name}" efforts=${row.reasoning?.efforts.map((e) => e.id).join('|') ?? '-'} default=${row.reasoning?.defaultEffort ?? '-'}\n`)
++    }
++  }
++} else if (command === 'capabilities' && sessionId !== undefined) {
++  const handle = await openRemoteSession(deps, sessionId)
++  const capabilities = handle.session.capabilities
++  const models = capabilities.models
++  const effort = capabilities.effort
++  const options = await models?.list() ?? []
++  process.stderr.write(`[probe] models=${options.length} current=${JSON.stringify(models?.current())}\n`)
++  process.stderr.write(`[probe] efforts levels=${JSON.stringify(effort?.levels())} current=${String(effort?.current())}\n`)
++  const live = models?.current()
++  if (live?.provider !== undefined) {
++    process.stderr.write(`[probe] forModel(current)=${JSON.stringify(effort?.forModel?.({ provider: live.provider, model: live.model }))}\n`)
++  }
++  const target = (seconds ?? '').split('/')
++  if (target.length === 2 && target[1] !== '') {
++    const outcome = await models?.set({ provider: target[0], model: target[1] ?? '' })
++    process.stderr.write(`[probe] set ${target[0]}/${target[1]} -> ${JSON.stringify(outcome)}\n`)
++    await new Promise((resolve) => setTimeout(resolve, 600))
++    process.stderr.write(`[probe] after set current=${JSON.stringify(models?.current())} efforts=${JSON.stringify(effort?.levels())} effort=${String(effort?.current())}\n`)
++  }
++  await handle.close()
++} else if (command === 'effort' && sessionId !== undefined) {
++  const handle = await openRemoteSession(deps, sessionId)
++  const effort = handle.session.capabilities.effort
++  process.stderr.write(`[probe] before levels=${JSON.stringify(effort?.levels())} current=${String(effort?.current())}\n`)
++  await effort?.set(seconds ?? null)
++  await new Promise((resolve) => setTimeout(resolve, 600))
++  process.stderr.write(`[probe] after set(${String(seconds)}) current=${String(effort?.current())}\n`)
++  await handle.close()
++} else if (command === 'ask' && sessionId !== undefined) {
++  // `ask <sessionId> <provider/model> <text>`: switch, prompt, and report the
++  // turn's own outcome — the cheapest way to tell a broken route from a bug.
++  const [model = '', ...words] = (seconds ?? '').split(' ')
++  const handle = await openRemoteSession(deps, sessionId)
++  const models = handle.session.capabilities.models
++  const outcome = await models?.set({ ...(model.includes('/') ? { provider: model.split('/')[0] } : {}), model: model.includes('/') ? model.split('/')[1] ?? '' : model })
++  process.stderr.write(`[probe] model ${model} -> ${JSON.stringify(outcome)}\n`)
++  handle.session.subscribe((batch) => {
++    for (const event of batch) {
++      if (event.type === 'turn.end') process.stderr.write(`[probe] turn.end ${JSON.stringify(event)}\n`)
++      if (event.type === 'assistant.message') {
++        const text = event.blocks.map((block) => (block.type === 'text' ? block.text : `[${block.type}]`)).join('')
++        process.stderr.write(`[probe] assistant: ${text.slice(0, 200)}\n`)
++      }
++      if (event.type === 'notice') process.stderr.write(`[probe] notice: ${JSON.stringify(event)}\n`)
++      if (event.type === 'tool.call') process.stderr.write(`[probe] tool.call ${event.name} ${event.argsJson.slice(0, 160)}\n`)
++      if (event.type === 'permission.request') {
++        process.stderr.write(`[probe] PERMISSION ${JSON.stringify(event.request)}\n`)
++        // Answer like the panel's Enter: one grant, through the capability
++        // the channel would call.
++        setTimeout(() => {
++          handle.session.capabilities.permissions?.respond(event.request.requestId, { kind: 'allow-once' })
++          process.stderr.write('[probe] answered allow-once\n')
++        }, 800)
++      }
++      if (event.type === 'permission.settled') process.stderr.write(`[probe] permission.settled ${event.requestId} ${event.outcome}\n`)
++    }
++  })
++  const submitted = await handle.session.submit({ clientMessageId: crypto.randomUUID(), text: words.join(' ') || 'Reply with OK only.' }, 'turn')
++  process.stderr.write(`[probe] submit ${JSON.stringify(submitted)}\n`)
++  await new Promise((resolve) => setTimeout(resolve, 30000))
++  await handle.close()
++} else if (command === 'fork' && sessionId !== undefined) {
++  const handle = await openRemoteSession(deps, sessionId)
++  const capability = handle.session.capabilities.fork
++  if (capability === undefined) throw new Error('probe: no fork capability')
++  const ref = await capability.fork(undefined, 'remote fork probe')
++  process.stderr.write(`[probe] forked -> ${ref.sessionId}\n`)
++  const forked = await openRemoteSession(deps, ref.sessionId)
++  const history = await forked.session.history()
++  process.stderr.write(`[probe] forked history events=${history.length} cwd=${forked.session.cwd}\n`)
++  await forked.close()
++  await handle.close()
++} else if (command === 'tail' && sessionId !== undefined) {
++  const sessions = (deps.remote as unknown as { session: { follow(request: unknown): AsyncIterable<unknown> } }).session
++  for await (const frame of sessions.follow({ address: { kind: 'session', sessionId }, maxMessages: 400 })) {
++    const typed = frame as { type?: string, records?: readonly { event?: { type?: string, seq?: number, data?: unknown } }[] }
++    if (typed.type !== 'snapshot') break
++    const events = (typed.records ?? []).map(record => record.event).filter((event): event is { type: string, seq?: number, data?: unknown } => event !== undefined)
++    for (const event of events.slice(-14)) {
++      const detail = event.type.startsWith('approval/') || event.type === 'tool/result' ? ` ${JSON.stringify(event.data).slice(0, 220)}` : ''
++      process.stderr.write(`[probe] ${String(event.seq)} ${event.type}${detail}\n`)
++    }
++    break
++  }
++} else if (command === 'proj' && sessionId !== undefined) {
++  const values = connection.projections.values(sessionId)
++  process.stderr.write(`[probe] projection keys=${JSON.stringify(Object.keys(values ?? {}))}\n`)
++  for (const key of ['contextPressure', 'contextBreakdown', 'modelSelection', 'permissions', 'title']) {
++    if (values?.[key] !== undefined) process.stderr.write(`  ${key}=${JSON.stringify(values[key])}\n`)
++  }
++} else if (command === 'rawuser' && sessionId !== undefined) {
++  const sessions = (deps.remote as unknown as { session: { follow(request: unknown): AsyncIterable<unknown> } }).session
++  const stream = sessions.follow({ address: { kind: 'session', sessionId }, maxMessages: 50 })
++  for await (const frame of stream) {
++    const typed = frame as { type?: string, records?: readonly { event?: { type?: string, data?: unknown } }[] }
++    if (typed.type !== 'snapshot') break
++    for (const record of typed.records ?? []) {
++      if (record.event?.type !== 'user/message') continue
++      const data = record.event.data as { content?: unknown }
++      process.stderr.write(`[probe] user/message ${JSON.stringify(data.content)}\n`)
++    }
++    break
++  }
++} else if (command === 'imagecheck' && sessionId !== undefined) {
++  // A 1x1 PNG: enough to prove the Host accepts the inline image block shape
++  // (the turn itself may still fail on the model route).
++  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
++  const bytes = new Uint8Array(Buffer.from(png, 'base64'))
++  const handle = await openRemoteSession(deps, sessionId)
++  const limits = handle.session.capabilities.images?.limits
++  process.stderr.write(`[probe] images capability=${limits === undefined ? 'absent' : JSON.stringify(limits)}\n`)
++  const submitted = await handle.session.submit({
++    clientMessageId: crypto.randomUUID(),
++    text: 'Image intake check: one 1x1 PNG attached.',
++    images: [{
++      id: 'probe-1',
++      width: 1,
++      height: 1,
++      name: 'probe.png',
++      mediaType: 'image/png',
++      bytes: bytes.byteLength,
++      read: () => Promise.resolve(bytes),
++    }],
++  }, 'turn')
++  process.stderr.write(`[probe] submit-with-image ${JSON.stringify(submitted)}\n`)
++  await new Promise((resolve) => setTimeout(resolve, 4000))
++  const history = await handle.session.history()
++  const withImage = history
++    .filter((event): event is Extract<typeof event, { type: 'user.message' }> => event.type === 'user.message')
++    .reverse()
++    .find(event => event.images !== undefined && event.images.length > 0)
++  if (withImage === undefined) {
++    process.stderr.write('[probe] no projected user message carries an image\n')
++  } else {
++    const image = withImage.images![0]!
++    process.stderr.write(`[probe] projected image ${JSON.stringify({ id: image.id, mediaType: image.mediaType, width: image.width, height: image.height, bytes: image.bytes, name: image.name })}\n`)
++    const bytes = await image.read()
++    process.stderr.write(`[probe] attachment read ok, ${String(bytes.byteLength)} bytes, png=${String(bytes[0] === 0x89 && bytes[1] === 0x50)}\n`)
++  }
++  await handle.close()
++} else if (command === 'follow' && sessionId !== undefined) {
++  const handle = await openRemoteSession(deps, sessionId)
++  const history = await handle.session.history()
++  process.stderr.write(`[probe] history events=${history.length} cwd=${handle.session.cwd}\n`)
++  const seen: string[] = []
++  handle.session.subscribe((batch, meta) => {
++    for (const event of batch) {
++      seen.push(`${meta.wake ?? 'sync'}:${event.type}`)
++      if (event.type === 'turn.end') process.stderr.write(`[probe] turn.end ${JSON.stringify(event)}\n`)
++    }
++  })
++  await new Promise((resolve) => setTimeout(resolve, Number(seconds ?? '5') * 1000))
++  process.stderr.write(`[probe] live events=${seen.length}: ${seen.slice(0, 12).join(', ')}\n`)
++  await handle.close()
++} else {
++  process.stderr.write('usage: probe.ts <baseUrl> list|create|follow [arg]\n')
++  process.exitCode = 2
++}
++
++await connection.close()
+diff --git a/src/dsh-adapter/remote/projections.ts b/src/dsh-adapter/remote/projections.ts
+new file mode 100644
+index 0000000..e6c7b7e
+--- /dev/null
++++ b/src/dsh-adapter/remote/projections.ts
+@@ -0,0 +1,125 @@
++/**
++ * Host-wide live-control projections.
++ *
++ * `session/follow` carries the durable log; it does not carry projections. The
++ * Host publishes them on one process-level stream (`session/control`): a
++ * complete baseline for every live Session, then one replacement frame per
++ * `(sessionId, key)`. Model selection, permissions, titles, todos and the
++ * question queue all live here, so the remote adapter folds this stream once
++ * and every capability reads from the fold.
++ */
++import type { RemoteStream } from './connection.js'
++
++/** One Session's projection values at a cut. */
++export type ProjectionValues = Readonly<Record<string, unknown>>
++
++/** The `session/control` methods this layer calls. */
++export interface ControlRemote {
++  control(): RemoteStream<ControlFrame>
++}
++
++/** Frames of `session/control`. */
++type ControlFrame =
++  | {
++      readonly type: 'baseline'
++      readonly value: {
++        readonly projections: Readonly<Record<string, { readonly asOfSeq: number; readonly values: ProjectionValues }>>
++      }
++    }
++  | { readonly type: 'projection'; readonly sessionId: string; readonly key: string; readonly value: unknown; readonly seq: number }
++
++/** One Session's durable model selection projection. */
++export interface ModelSelectionProjection {
++  readonly lastUsed: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } | null
++  readonly next: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } | null
++}
++
++export interface RemoteProjections {
++  /** Wait for the baseline (or the stream's end, whichever comes first). */
++  readonly ready: Promise<void>
++  /** One Session's whole projection block, or undefined before it is known. */
++  values(sessionId: string): ProjectionValues | undefined
++  /** One projection value of one Session. */
++  get<T>(sessionId: string, key: string): T | undefined
++  /** Listen for any change to one Session; the disposer stops listening. */
++  subscribe(sessionId: string, listener: () => void): () => void
++  close(): Promise<void>
++}
++
++/**
++ * Open the host's live-control stream and fold it into a per-Session store.
++ * @param remote - mounted client Remote service.
++ * @returns the projection store; `ready` resolves once the baseline landed.
++ */
++export function openProjections(remote: unknown): RemoteProjections {
++  const control = (remote as unknown as { readonly session: ControlRemote }).session
++  const stream = control.control()
++  const iterator = stream[Symbol.asyncIterator]()
++  const baseline = new Map<string, Map<string, unknown>>()
++  const listeners = new Map<string, Set<() => void>>()
++  let closed = false
++  let settleReady: () => void = () => {}
++  const ready = new Promise<void>((resolve) => { settleReady = resolve })
++
++  const notify = (sessionId: string): void => {
++    for (const listener of listeners.get(sessionId) ?? []) listener()
++  }
++
++  const pump = (async () => {
++    try {
++      for (;;) {
++        const next = await iterator.next()
++        if (next.done === true) break
++        const frame = next.value
++        if (frame.type === 'baseline') {
++          for (const [sessionId, block] of Object.entries(frame.value.projections)) {
++            const values = baseline.get(sessionId) ?? new Map<string, unknown>()
++            for (const [key, value] of Object.entries(block.values)) values.set(key, value)
++            baseline.set(sessionId, values)
++            notify(sessionId)
++          }
++          settleReady()
++        } else {
++          const values = baseline.get(frame.sessionId) ?? new Map<string, unknown>()
++          values.set(frame.key, frame.value)
++          baseline.set(frame.sessionId, values)
++          notify(frame.sessionId)
++        }
++      }
++    } catch {
++      // A dropped stream leaves the last fold in place: the Session's own
++      // follow stream stays authoritative for the log, and a reconnect
++      // reopens both.
++    } finally {
++      settleReady()
++    }
++  })()
++
++  return {
++    ready,
++    values(sessionId) {
++      const values = baseline.get(sessionId)
++      if (values === undefined) return undefined
++      return Object.fromEntries(values)
++    },
++    get<T>(sessionId: string, key: string): T | undefined {
++      return baseline.get(sessionId)?.get(key) as T | undefined
++    },
++    subscribe(sessionId, listener) {
++      const set = listeners.get(sessionId) ?? new Set<() => void>()
++      set.add(listener)
++      listeners.set(sessionId, set)
++      return () => {
++        set.delete(listener)
++        if (set.size === 0) listeners.delete(sessionId)
++      }
++    },
++    async close() {
++      if (closed) return
++      closed = true
++      listeners.clear()
++      await iterator.return?.()
++      await pump
++    },
++  }
++}
+diff --git a/src/dsh-adapter/remote/session.ts b/src/dsh-adapter/remote/session.ts
+new file mode 100644
+index 0000000..8e4a83a
+--- /dev/null
++++ b/src/dsh-adapter/remote/session.ts
+@@ -0,0 +1,693 @@
++/**
++ * Remote DSH session: the host's durable log and live frames presented as an
++ * `AgentSession`, so the channel and the UI render a session owned by another
++ * process exactly like one booted in-process.
++ *
++ * M1 is read-only: `submit` and `cancel` refuse. The durable log stays the
++ * source of truth — the translator maps the host's `SessionEvent`s and
++ * assistant-stream frames into the shared Agent Domain.
++ */
++import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
++import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import type { AgentSession, AgentSessionStatus, CancelCause, CancelReceipt, AgentInput, SubmitPlacement } from '../../agent/session.js'
++import type { AgentEvent, AgentEventMeta } from '../../agent/events.js'
++import type { EffortOption, ImageLimitsView, ModelRef, ModelSwitchOutcome, PermissionDecision, SessionCapabilities } from '../../agent/capabilities.js'
++import type { ImageRef, PermissionOptionView, PermissionOutcome, PermissionRequestView, QuestionRequestView } from '../../agent/events.js'
++import type { AgentSessionRef } from '../../agent/refs.js'
++import { createDshTranslator } from '../backend/translate.js'
++import type { RemoteResult, RemoteStream } from './connection.js'
++import type { RemoteApprovals, ApprovalOutcome, RemoteQuestionAnswer } from './approvals.js'
++import type { RemoteCatalog, ModelCatalog } from './catalog.js'
++import type { ModelSelectionProjection, RemoteProjections } from './projections.js'
++
++/** The `session/*` methods this adapter calls. */
++export interface SessionRemote {
++  follow(request: {
++    readonly address: { readonly kind: 'session'; readonly sessionId: string }
++    readonly maxMessages?: number
++    /** Opt in to the transient per-token frames. Without it the Host sends
++     *  only durable events, so a turn appears whole when it settles. */
++    readonly assistantStream?: boolean
++  }): RemoteStream<FollowFrame>
++  list(request: { readonly cursor?: string }): Promise<RemoteResult<{ readonly items: readonly RemoteSessionSummary[] }>>
++  rename(request: { readonly sessionId: string; readonly title: string }): Promise<RemoteResult<unknown>>
++  create(request: { readonly cwd?: string }): Promise<RemoteResult<{ readonly sessionId: string }>>
++  cancel(request: { readonly sessionId: string }): Promise<RemoteResult<{ readonly accepted: boolean }>>
++  /** Copy one exact event prefix into a new Session. */
++  fork(request: {
++    readonly sessionId: string
++    readonly atSeq?: number
++  }): Promise<RemoteResult<{ readonly sessionId: string }>>
++  /** One image's verified reference and base64 bytes. */
++  attachment(request: { readonly sessionId: string; readonly attachmentId: string }): Promise<RemoteResult<{
++    readonly attachment: {
++      readonly attachmentId: string
++      readonly mediaType: string
++      readonly bytes: number
++      readonly width: number
++      readonly height: number
++      readonly name?: string
++    }
++    readonly data: string
++  }>>
++  /** Rename one Session (used to name a fork). */
++  rename(request: { readonly sessionId: string; readonly title: string }): Promise<RemoteResult<unknown>>
++  /** Host-wide: one catalog for every Session selector, no parameters. */
++  modelCatalog(): Promise<RemoteResult<ModelCatalog>>
++  selectModel(request: {
++    readonly sessionId: string
++    readonly provider: string
++    readonly model: string
++    readonly reasoningEffort?: string
++  }): Promise<RemoteResult<{ readonly selected: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } }>>
++  prompt(request: {
++    readonly requestId: string
++    readonly sessionId: string
++    readonly mode: 'queue' | 'steer'
++    readonly content: readonly PromptContent[]
++  }): Promise<RemoteResult<{ readonly accepted: boolean }>>
++}
++
++/** One row of `session/list`. */
++export interface RemoteSessionSummary {
++  readonly sessionId: string
++  readonly cwd?: string
++  readonly updatedAt?: number
++  readonly blank?: boolean
++  readonly agentAvailable?: boolean
++  readonly running?: boolean
++  readonly parentSessionId?: string
++  readonly origin?: 'subagent'
++  readonly projections?: {
++    readonly kind: 'cached' | 'sequenced'
++    readonly asOfSeq: number
++    readonly values: {
++      readonly title?: string | null
++      readonly agentPreset?: string | null
++      readonly modelSelection?: ModelSelectionProjection
++      readonly sessionListMetadata?: { readonly blank: boolean; readonly lastPromptAt: number | null }
++    }
++  }
++}
++
++/** Frames of `session/follow`. */
++type FollowFrame =
++  | {
++      readonly type: 'snapshot'
++      readonly header: { readonly id: string; readonly cwd?: string; readonly agentPreset?: string }
++      readonly cursor: number
++      readonly records: ReadonlyArray<{ readonly type: 'event'; readonly event: unknown }>
++      readonly hasMore: boolean
++    }
++  | { readonly type: 'event'; readonly event: unknown }
++  | { readonly type: 'assistant-stream'; readonly frame: unknown }
++
++export interface RemoteSessionHandle {
++  readonly session: AgentSession & { readonly status: AgentSessionStatus }
++  /** The route the session runs on (its recorded choice, else the Host's
++   *  deployment default) — the channel's model display and `/model` marker. */
++  readonly route: { readonly provider: string; readonly model: string }
++  /** The preset the Host composed this session from, when it records one. */
++  readonly agentPreset?: string
++  close(): Promise<void>
++}
++
++const EMPTY_CAPABILITIES: SessionCapabilities = { native: {} }
++
++/** One block of a prompt, as `session/prompt` accepts it. Inline base64 is the
++ *  image path the Host documents: no upload round trip for a pasted bitmap. */
++export type PromptContent =
++  | { readonly type: 'text'; readonly text: string }
++  | { readonly type: 'image'; readonly mediaType: string; readonly data: string; readonly name?: string }
++  | { readonly type: 'file'; readonly receiptId: string }
++
++/** What the Host accepts for one message's images (its own prompt intake). */
++const REMOTE_IMAGE_LIMITS: ImageLimitsView = Object.freeze({
++  mediaTypes: Object.freeze(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
++  maxImageBytes: 10 * 1024 * 1024,
++  maxImagesPerMessage: 20,
++  maxMessageImageBytes: 30 * 1024 * 1024,
++  maxImageDimension: 8000,
++  maxImagePixels: 40_000_000,
++})
++
++/** What one open session needs from the connection beyond the transport. */
++export interface RemoteSessionDeps {
++  /** The mounted client Remote service. */
++  readonly remote: unknown
++  /** The connection's live-control projection fold. */
++  readonly projections: RemoteProjections
++  /** The connection's model catalog reader. */
++  readonly catalog: RemoteCatalog
++  /** The connection's approval router. */
++  readonly approvals: RemoteApprovals
++}
++
++/**
++ * Open one host session and wait for its opening snapshot.
++ * @param deps - the connection pieces every session shares.
++ * @param sessionId - host session id.
++ * @returns the session handle; the snapshot is already translated into
++ *   `history()`.
++ */
++export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: string): Promise<RemoteSessionHandle> {
++  const { projections, catalog } = deps
++  const sessions = (deps.remote as unknown as { readonly session: SessionRemote }).session
++  // `assistantStream` is the Host's opt-in for the per-token frames: the
++  // durable log alone carries only settlements, which is why a remote turn
++  // used to appear in one piece.
++  const stream = sessions.follow({ address: { kind: 'session', sessionId }, maxMessages: 200, assistantStream: true })
++  const iterator = stream[Symbol.asyncIterator]()
++
++  // Replayed image blocks carry a durable reference, never inline bytes: the
++  // reader resolves it through `session/attachment`, the Host's own
++  // authorization-scoped reader for images proven reachable from this log.
++  const translator = createDshTranslator({
++    tools: () => undefined,
++    scope: () => undefined,
++    attachments: () => ({
++      readImage: async (attachment: { readonly attachmentId: string }, signal?: AbortSignal) => {
++        const result = await sessions.attachment({ sessionId, attachmentId: String(attachment.attachmentId) })
++        if (!result.ok || result.value === undefined) {
++          throw new Error(`remote: session/attachment failed: ${result.error?.message ?? 'unknown error'}`)
++        }
++        if (signal?.aborted === true) throw new Error('remote: image read aborted')
++        return { data: new Uint8Array(Buffer.from(result.value.data, 'base64')) }
++      },
++    }),
++  })
++  const listeners = new Set<(batch: readonly AgentEvent[], meta: AgentEventMeta) => void>()
++  let history: readonly AgentEvent[] = []
++  let cursor = 0
++  let status: AgentSessionStatus = 'starting'
++  /** Ids handed to `session/prompt` that the Host has not echoed yet. The
++   *  channel retires a pending preview only on `pending.changed`, and the Host
++   *  reports the claim as the `user/message` carrying our own requestId. */
++  const awaiting = new Set<string>()
++  let cwd = ''
++  let closed = false
++
++  const emit = (batch: readonly AgentEvent[], meta: AgentEventMeta): void => {
++    if (batch.length === 0 && meta.wake === undefined) return
++    for (const listener of listeners) listener(batch, meta)
++  }
++
++  const opening = await iterator.next()
++  if (opening.done === true || opening.value.type !== 'snapshot') {
++    await iterator.return?.()
++    throw new Error(`remote: session ${sessionId} did not open with a snapshot`)
++  }
++  const snapshot = opening.value
++  cwd = snapshot.header.cwd ?? ''
++  cursor = snapshot.cursor
++  history = translator.translateReplay(snapshot.records.map((record) => record.event as SessionEvent))
++  status = 'idle'
++
++  // The durable selection and every other live projection come from the
++  // connection's control fold: `session/follow`'s snapshot carries the log
++  // only, never projections. A Session that never ran a turn records no
++  // selection, and the Host then serves it the deployment default — which is
++  // what the catalog reports, so this is the same fact, not a stand-in.
++  const { default: deploymentDefault } = await catalog.read()
++  const projected = (): { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } | undefined => {
++    const projection = projections.get<ModelSelectionProjection>(sessionId, 'modelSelection')
++    return projection?.next ?? projection?.lastUsed ?? undefined
++  }
++  // `session/selectModel` returns before the control fold publishes the new
++  // selection, so the readouts would lag by a round trip. Keep the route this
++  // client just wrote until the fold reports it (or another client moves it).
++  let routeOverride: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } | undefined
++  let routeBeforeWrite: { readonly provider: string; readonly model: string } | undefined
++  const selection = (): { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } =>
++    routeOverride ?? projected() ?? deploymentDefault
++  const noteWrite = (route: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string }): void => {
++    routeBeforeWrite = projected()
++    routeOverride = route
++  }
++  const unregisterRoute = projections.subscribe(sessionId, () => {
++    if (routeOverride === undefined) return
++    const now = projected()
++    const adopted = now !== undefined && now.provider === routeOverride.provider && now.model === routeOverride.model
++    const untouched = (now?.provider ?? '') === (routeBeforeWrite?.provider ?? '')
++      && (now?.model ?? '') === (routeBeforeWrite?.model ?? '')
++    // The fold caught up with our write, or somebody else moved the route:
++    // either way the Host's own record becomes authoritative again.
++    if (adopted || (now !== undefined && !untouched)) routeOverride = undefined
++  })
++
++  // Approvals: the Host asks through the forwarded `approval/request`
++  // waterfall; this session parks one ask at a time in the channel's shared
++  // permission panel and answers the Host with the user's verdict. The
++  // protocol's only grant is "once", so the panel is told exactly that.
++  const approvalOptions: readonly PermissionOptionView[] = [
++    { id: 'allow-once', kind: 'allow-once' },
++    { id: 'reject', kind: 'reject' },
++  ]
++  const parkedApprovals = new Map<string, { readonly view: PermissionRequestView; settle(outcome: ApprovalOutcome): void }>()
++  let approvalSeq = 0
++  const settleApproval = (requestId: string, outcome: ApprovalOutcome): void => {
++    const parked = parkedApprovals.get(requestId)
++    if (parked === undefined) return
++    parkedApprovals.delete(requestId)
++    parked.settle(outcome)
++  }
++  const unregisterApprovals = deps.approvals.register(sessionId, (ask) => {
++    approvalSeq += 1
++    const requestId = `approval:${sessionId}:${approvalSeq}`
++    const view: PermissionRequestView = {
++      requestId,
++      toolName: ask.toolName,
++      ...(ask.callId === undefined ? {} : { callId: ask.callId }),
++      ...(ask.reason === undefined ? {} : { reason: ask.reason }),
++      options: approvalOptions,
++    }
++    return new Promise<ApprovalOutcome>((resolve) => {
++      const settle = (outcome: ApprovalOutcome): void => {
++        ask.signal?.removeEventListener('abort', onAbort)
++        resolve(outcome)
++      }
++      const onAbort = (): void => {
++        parkedApprovals.delete(requestId)
++        emit([{ type: 'permission.settled', requestId, outcome: 'cancelled' }], { replay: false })
++        resolve('cancelled')
++      }
++      parkedApprovals.set(requestId, { view, settle })
++      if (ask.signal !== undefined) {
++        if (ask.signal.aborted) {
++          onAbort()
++          return
++        }
++        ask.signal.addEventListener('abort', onAbort, { once: true })
++      }
++      emit([{ type: 'permission.request', request: view }], { replay: false })
++    })
++  })
++
++  // Ask-user: same waterfall transport as approvals, answered through the
++  // channel's shared question panel. The panel identifies a question by its
++  // position in the batch (`QuestionAnswers` is ordered), so each answer is
++  // re-keyed from the Host's question ids here.
++  const parkedQuestions = new Map<string, {
++    readonly view: QuestionRequestView
++    readonly ask: { readonly questions: readonly { readonly id: string; readonly question: string; readonly detail?: string; readonly header?: string; readonly options?: readonly { readonly label: string; readonly description?: string }[]; readonly multiSelect?: boolean }[] }
++    readonly settle: (answer: RemoteQuestionAnswer) => void
++    readonly withdraw: () => void
++  }>()
++  let questionSeq = 0
++  const unregisterQuestions = deps.approvals.registerQuestions(sessionId, (ask) => {
++    questionSeq += 1
++    const requestId = `question:${sessionId}:${questionSeq}`
++    const view: QuestionRequestView = {
++      requestId,
++      ...(ask.wait === undefined ? {} : { callId: String(ask.wait.callId) }),
++      questions: ask.questions.map((item) => ({
++        question: item.question,
++        ...(item.header === undefined ? {} : { header: item.header }),
++        ...(item.detail === undefined ? {} : { detail: item.detail }),
++        options: (item.options ?? []).map((option) => ({
++          label: option.label,
++          ...(option.description === undefined ? {} : { description: option.description }),
++        })),
++        ...(item.multiSelect === undefined ? {} : { multiSelect: item.multiSelect }),
++      })),
++    }
++    return new Promise<RemoteQuestionAnswer>((resolve) => {
++      const settle = (answer: RemoteQuestionAnswer): void => {
++        ask.signal?.removeEventListener('abort', onAbort)
++        resolve(answer)
++      }
++      const onAbort = (): void => {
++        parkedQuestions.delete(requestId)
++        emit([{ type: 'question.settled', requestId }], { replay: false })
++        resolve({ answers: [] })
++      }
++      parkedQuestions.set(requestId, { view, ask, settle, withdraw: onAbort })
++      if (ask.signal !== undefined) {
++        if (ask.signal.aborted) {
++          onAbort()
++          return
++        }
++        ask.signal.addEventListener('abort', onAbort, { once: true })
++      }
++      emit([{ type: 'question.request', request: view }], { replay: false })
++    })
++  })
++
++  const debug = process.env.DSH_TUI_REMOTE_DEBUG === '1'
++  if (debug) process.stderr.write(`remote: follow ${sessionId} opened cursor=${cursor} records=${snapshot.records.length}\n`)
++  const pump = (async () => {
++    try {
++      for (;;) {
++        const next = await iterator.next()
++        if (next.done === true) break
++        const frame = next.value
++        if (debug) process.stderr.write(`remote: frame ${frame.type}\n`)
++        if (frame.type === 'event') {
++          const event = frame.event as SessionEvent
++          cursor = Math.max(cursor, event.seq)
++          if (event.type === 'turn/start') status = 'running'
++          if (event.type === 'turn/end') status = 'idle'
++          const translated: AgentEvent[] = [...translator.translateEvent(event)]
++          // The Host keeps its own message id and files our requestId under
++          // `source.rpcId` — that is the id the channel tracks the preview by.
++          const echoed = event.type === 'user/message'
++            ? (event.data as { source?: { rpcId?: string } }).source?.rpcId
++            : undefined
++          if (echoed !== undefined && awaiting.delete(echoed)) {
++            if (debug) process.stderr.write(`remote: claim ${echoed}\n`)
++            translated.push({ type: 'pending.changed', items: [], claimed: [echoed] })
++          } else if (echoed !== undefined && debug) {
++            process.stderr.write(`remote: unmatched echo rpcId=${echoed} awaiting=[${[...awaiting].join(',')}]\n`)
++          }
++          emit(translated, { replay: false })
++        } else if (frame.type === 'assistant-stream') {
++          emit(translator.translateFrame(frame.frame as AssistantStreamFrame), { replay: false, wake: 'frame' })
++        }
++      }
++    } catch (error) {
++      if (!closed && process.env.DSH_TUI_DEBUG === '1') {
++        process.stderr.write(`dsh-tui remote: follow ${sessionId} failed: ${String(error)}\n`)
++      }
++    } finally {
++      if (!closed) status = 'disposed'
++    }
++  })()
++
++  /**
++   * The inline image blocks of one message, checked against the same limits
++   * the composer staged them under. A refusal throws a sentence the user sees;
++   * a message never goes out silently missing an image.
++   */
++  const imageBlocks = async (images: readonly ImageRef[]): Promise<PromptContent[]> => {
++    if (images.length === 0) return []
++    if (images.length > REMOTE_IMAGE_LIMITS.maxImagesPerMessage) {
++      throw new Error(`remote: at most ${String(REMOTE_IMAGE_LIMITS.maxImagesPerMessage)} images per message`)
++    }
++    const blocks: PromptContent[] = []
++    let total = 0
++    for (const image of images) {
++      const label = image.name ?? image.id
++      if (image.mediaType === undefined || !REMOTE_IMAGE_LIMITS.mediaTypes.includes(image.mediaType)) {
++        throw new Error(`remote: image "${label}" has an unsupported type (${image.mediaType ?? 'unknown'})`)
++      }
++      const data = await image.read()
++      if (data.byteLength > REMOTE_IMAGE_LIMITS.maxImageBytes) {
++        throw new Error(`remote: image "${label}" is larger than ${String(REMOTE_IMAGE_LIMITS.maxImageBytes / (1024 * 1024))} MB`)
++      }
++      total += data.byteLength
++      if (total > REMOTE_IMAGE_LIMITS.maxMessageImageBytes) {
++        throw new Error(`remote: the message's images exceed ${String(REMOTE_IMAGE_LIMITS.maxMessageImageBytes / (1024 * 1024))} MB`)
++      }
++      blocks.push({
++        type: 'image',
++        mediaType: image.mediaType,
++        data: Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('base64'),
++        ...(image.name === undefined ? {} : { name: image.name }),
++      })
++    }
++    return blocks
++  }
++
++  const ref: AgentSessionRef = { backendId: 'dsh', sessionId }
++  const session: AgentSession = {
++    ref,
++    get cwd() {
++      return cwd
++    },
++    get status() {
++      return status
++    },
++    // `/model` and `/effort` read the host's catalog and write through the
++    // host: the choice is Session-local, the roster is process-level.
++    capabilities: {
++      native: {},
++      // Compaction runs on the Host, through its own `/compact` command. The
++      // channel routes `/compact` by this capability's presence, so declaring it
++      // is what makes the command available at all in a remote session.
++      compact: {
++        async run() {
++          const api = (deps.remote as unknown as {
++            commands?: { execute(sessionId: string, line: string, images: readonly never[]): Promise<{ ok: boolean; error?: { message?: string } }> }
++          }).commands
++          if (api === undefined) throw new Error('remote: the host did not mount its command registry')
++          const result = await api.execute(sessionId, '/compact', [])
++          if (!result.ok) throw new Error(`remote: /compact failed: ${result.error?.message ?? 'unknown error'}`)
++        },
++      },
++      questions: {
++        respond(requestId, answers) {
++          const parked = parkedQuestions.get(requestId)
++          if (parked === undefined) return
++          parkedQuestions.delete(requestId)
++          // The panel answers by position; the Host wants its own question ids.
++          parked.settle({
++            answers: parked.ask.questions.map((item, index) => ({
++              id: item.id,
++              selected: answers.answers[index]?.selected ?? [],
++              ...(answers.answers[index]?.custom === undefined ? {} : { custom: answers.answers[index]?.custom }),
++            })),
++          })
++          emit([{ type: 'question.settled', requestId }], { replay: false })
++        },
++        cancel(requestId) {
++          const parked = parkedQuestions.get(requestId)
++          if (parked === undefined) return
++          parkedQuestions.delete(requestId)
++          parked.withdraw()
++        },
++      },
++      permissions: {
++        pending: () => [...parkedApprovals.values()].map((parked) => parked.view),
++        respond(requestId, decision) {
++          // `allow-always` cannot widen a protocol whose only grant is once;
++          // narrowing it to a single grant keeps the answer honest, while
++          // refusing it outright would leave the Host waiting.
++          const outcome: ApprovalOutcome = decision.kind === 'reject' ? 'rejected' : 'allowed-once'
++          const parked = parkedApprovals.get(requestId)
++          if (parked === undefined) return
++          parked.settle(outcome)
++          parkedApprovals.delete(requestId)
++          const settled: PermissionOutcome = outcome === 'rejected' ? 'rejected' : 'allow-once'
++          emit([{ type: 'permission.settled', requestId, outcome: settled }], { replay: false })
++        },
++      },
++      models: {
++        list: async () => {
++          const value = await catalog.read()
++          return value.groups.flatMap((group) =>
++            group.models.map((row) => ({
++              provider: group.id,
++              id: row.id,
++              label: row.name,
++              ...(row.description === undefined ? {} : { description: row.description }),
++            })),
++          )
++        },
++        current: (): ModelRef => {
++          const live = selection()
++          return { provider: live.provider, model: live.model }
++        },
++        set: async (target): Promise<ModelSwitchOutcome> => {
++          // Without a provider the channel means "the one this session is on".
++          const provider = target.provider ?? selection().provider ?? deploymentDefault.provider
++          const result = await sessions.selectModel({ sessionId, provider, model: target.model })
++          if (!result.ok) return { kind: 'refused', reason: result.error?.message ?? 'host refused the model' }
++          // The Host resolves the route (it may normalise the provider) and
++          // records it for the next request. Announce it like any other backend
++          // so the footer repaints now rather than after the next request
++          // header lands in the durable log.
++          const selected = result.value?.selected
++          const route = { provider: selected?.provider ?? provider, model: selected?.model ?? target.model }
++          noteWrite(route)
++          emit([{ type: 'model.changed', model: route.model, provider: route.provider, source: 'user' }], { replay: false })
++          return { kind: 'switched' }
++        },
++      },
++      // `/fork`: the Host copies the exact prefix; the anchor the channel passes
++      // is the durable seq of the picked user message (the translator's
++      // `user.message.anchor`), which is exactly what `atSeq` wants.
++      fork: {
++        async fork(anchor, title): Promise<AgentSessionRef> {
++          const atSeq = anchor === undefined ? undefined : Number(anchor)
++          if (atSeq !== undefined && !Number.isSafeInteger(atSeq)) {
++            throw new Error(`remote: cannot fork at anchor "${String(anchor)}" — the Host needs a durable seq`)
++          }
++          const result = await sessions.fork({ sessionId, ...(atSeq === undefined ? {} : { atSeq }) })
++          if (!result.ok || result.value === undefined) {
++            throw new Error(`remote: session/fork failed: ${result.error?.message ?? 'unknown error'}`)
++          }
++          const forked = result.value.sessionId
++          // The RPC carries no title; a named fork gets it from the rename the
++          // Host already exposes instead of being silently left unnamed.
++          if (title !== undefined && title !== '') {
++            const renamed = await sessions.rename({ sessionId: forked, title })
++            if (!renamed.ok) {
++              throw new Error(`remote: forked ${forked} but naming it failed: ${renamed.error?.message ?? 'unknown error'}`)
++            }
++          }
++          return { backendId: 'dsh', sessionId: forked }
++        },
++      },
++      // `/context`: the Host's own token accounting, read from the control
++      // fold. It is the same pair the status line shows (pressure + window),
++      // plus the system/tools/messages split when one is recorded.
++      context: {
++        usage: async () => {
++          const pressure = projections.get<{ pressureTokens?: number; projectedTokens?: number; contextWindow?: number }>(sessionId, 'contextPressure')
++          const used = pressure?.projectedTokens ?? pressure?.pressureTokens
++          if (used === undefined) throw new Error('remote: the host has recorded no request for this session yet')
++          const breakdown = projections.get<{ systemTokens: number; toolsTokens: number; messageTokens: number }>(sessionId, 'contextBreakdown')
++          return {
++            used,
++            ...(pressure?.contextWindow === undefined ? {} : { max: pressure.contextWindow }),
++            categories: breakdown === undefined
++              ? []
++              : [
++                  { name: 'System', tokens: breakdown.systemTokens, kind: 'used' },
++                  { name: 'Tools', tokens: breakdown.toolsTokens, kind: 'used' },
++                  { name: 'Messages', tokens: breakdown.messageTokens, kind: 'used' },
++                ],
++          }
++        },
++      },
++      // The Host takes images inline in the prompt; the channel stages pasted
++      // and dropped bitmaps under these limits instead of a kernel attachments
++      // service (which only exists in-process).
++      images: { limits: REMOTE_IMAGE_LIMITS },
++      effort: {
++        levels: (): readonly EffortOption[] => {
++          const live = selection()
++          const reasoning = catalog.reasoning(live.provider ?? deploymentDefault.provider, live.model)
++          return (reasoning?.efforts ?? []).map((level) => ({ id: level.id, label: level.name }))
++        },
++        forModel: (target) => {
++          const reasoning = catalog.reasoning(target.provider ?? selection().provider ?? deploymentDefault.provider, target.model)
++          return {
++            levels: (reasoning?.efforts ?? []).map((level) => ({ id: level.id, label: level.name })),
++            ...(reasoning?.defaultEffort === undefined ? {} : { defaultEffort: reasoning.defaultEffort }),
++          }
++        },
++        current: () => selection().reasoningEffort,
++        set: async (id) => {
++          const live = selection()
++          const result = await sessions.selectModel({
++            sessionId,
++            provider: live.provider,
++            model: live.model,
++            ...(id === null ? {} : { reasoningEffort: id }),
++          })
++          if (!result.ok) throw new Error(`remote: session/selectModel failed: ${result.error?.message ?? 'unknown error'}`)
++          const selected = result.value?.selected
++          noteWrite({
++            provider: selected?.provider ?? live.provider,
++            model: selected?.model ?? live.model,
++            ...(selected?.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }),
++          })
++          // Same reason as `model.changed` above: the footer's effort readout
++          // is channel state, and the Host records the tier without an event.
++          emit([{ type: 'effort.changed', effort: selected?.reasoningEffort ?? id }], { replay: false })
++        },
++      },
++    },
++    async history() {
++      return history
++    },
++    subscribe(listener) {
++      listeners.add(listener)
++      return () => listeners.delete(listener)
++    },
++    async submit(input: AgentInput, placement: SubmitPlacement) {
++      if (debug) process.stderr.write(`remote: submit ${placement} text=${JSON.stringify(input.text)} id=${input.clientMessageId}\n`)
++      const result = await sessions.prompt({
++        requestId: input.clientMessageId,
++        sessionId,
++        // The host owns turn/queue semantics: `steer` joins the running turn,
++        // everything else queues (the channel maps its four placements onto
++        // these two).
++        mode: placement === 'steer' ? 'steer' : 'queue',
++        content: [
++          { type: 'text', text: input.text },
++          ...await imageBlocks(input.images ?? []),
++        ],
++      })
++      if (debug) process.stderr.write(`remote: submit result ok=${result.ok} err=${result.error?.message ?? ''}\n`)
++      if (!result.ok) return { accepted: false, reason: result.error?.message ?? 'host rejected the prompt' }
++      // The Host accepted the prompt: it owns the message from here on (it is
++      // durably queued and will be projected back). Retire the local preview now
++      // instead of waiting for an echo — the wire carries our requestId under
++      // `source.rpcId`, and a mismatch there leaves the preview stuck forever.
++      awaiting.delete(input.clientMessageId)
++      emit([{ type: 'pending.changed', items: [], claimed: [input.clientMessageId] }], { replay: false })
++      return { accepted: true }
++    },
++    async cancel(_cause: CancelCause): Promise<CancelReceipt> {
++      const result = await sessions.cancel({ sessionId })
++      return { stillQueued: [], outcome: result.ok ? 'confirmed' : 'failed' }
++    },
++    async dispose() {
++      if (closed) return
++      closed = true
++      status = 'disposed'
++      for (const requestId of [...parkedApprovals.keys()]) settleApproval(requestId, 'cancelled')
++      for (const parked of [...parkedQuestions.values()]) parked.withdraw()
++      parkedQuestions.clear()
++      unregisterApprovals()
++      unregisterQuestions()
++      unregisterRoute()
++      listeners.clear()
++      await iterator.return?.()
++      await pump
++    },
++  }
++
++  const live = selection()
++  return {
++    session,
++    route: { provider: live.provider, model: live.model },
++    ...(snapshot.header.agentPreset === undefined ? {} : { agentPreset: snapshot.header.agentPreset }),
++    async close() {
++      await session.dispose()
++    },
++  }
++}
++
++/** Create (or reuse a blank) host session. */
++export async function createRemoteSession(remote: unknown, cwd: string): Promise<string> {
++  const result = await (remote as unknown as { readonly session: SessionRemote }).session.create({ cwd })
++  if (!result.ok || result.value === undefined) {
++    throw new Error(`remote: session/create failed: ${result.error?.message ?? 'unknown error'}`)
++  }
++  return result.value.sessionId
++}
++
++/** Send one text prompt to a host session (probe path; the TUI uses submit). */
++export async function promptRemoteSession(remote: unknown, sessionId: string, text: string): Promise<void> {
++  const result = await (remote as unknown as { readonly session: SessionRemote }).session.prompt({
++    requestId: crypto.randomUUID(),
++    sessionId,
++    mode: 'queue',
++    content: [{ type: 'text', text }],
++  })
++  if (!result.ok) throw new Error(`remote: session/prompt failed: ${result.error?.message ?? 'unknown error'}`)
++}
++
++/** Cancel a host session's running turn (probe path; the TUI uses cancel). */
++export async function cancelRemoteSession(remote: unknown, sessionId: string): Promise<boolean> {
++  const result = await (remote as unknown as { readonly session: SessionRemote }).session.cancel({ sessionId })
++  return result.ok
++}
++
++/** Rename one host session. */
++export async function renameRemoteSession(remote: unknown, sessionId: string, title: string): Promise<void> {
++  const result = await (remote as unknown as { readonly session: SessionRemote }).session.rename({ sessionId, title })
++  if (!result.ok) throw new Error(`remote: session/rename failed: ${result.error?.message ?? 'unknown error'}`)
++}
++
++/** List the host's sessions. */
++export async function listRemoteSessions(remote: unknown): Promise<readonly RemoteSessionSummary[]> {
++  const result = await (remote as unknown as { readonly session: SessionRemote }).session.list({})
++  if (!result.ok || result.value === undefined) {
++    throw new Error(`remote: session/list failed: ${result.error?.message ?? 'unknown error'}`)
++  }
++  return result.value.items
++}
+diff --git a/src/dsh-adapter/remote/sessions.ts b/src/dsh-adapter/remote/sessions.ts
+new file mode 100644
+index 0000000..6ad0178
+--- /dev/null
++++ b/src/dsh-adapter/remote/sessions.ts
+@@ -0,0 +1,120 @@
++/**
++ * The Host's session store as a backend catalog.
++ *
++ * `session/list` answers host-wide in one call: identity, activity, parentage
++ * and the folded projections each row carries. What it does not publish is the
++ * session header — no creation time, no log size, no git note — so those stay
++ * undefined here rather than being approximated: the picker renders what it
++ * knows and omits the rest. Subagent depth is the one derived fact, walked from
++ * the parent links in the same listing.
++ */
++import type { SessionCatalog } from '../../agent/backend.js'
++import type { SessionKind, SessionSummary, SessionTitle } from '../../adapter/ports/channel-session.js'
++import type { SessionListScope } from '../../agent/backend.js'
++import type { RemoteResult } from './connection.js'
++import { listRemoteSessions, type RemoteSessionSummary } from './session.js'
++
++/** The `session/list` surface this catalog calls. */
++export interface CatalogRemote {
++  list(request: { readonly cursor?: string }): Promise<RemoteResult<{ readonly items: readonly RemoteSessionSummary[] }>>
++  rename(request: { readonly sessionId: string; readonly title: string }): Promise<RemoteResult<unknown>>
++}
++
++/** A path's last segment, for a session that never recorded a title. */
++function leafOf(path: string): string {
++  const trimmed = path.replace(/\/+$/, '')
++  const index = trimmed.lastIndexOf('/')
++  return index === -1 ? trimmed : trimmed.slice(index + 1)
++}
++
++/**
++ * How deep a subagent run sits: the number of `origin: 'subagent'` links
++ * between it and its first non-subagent ancestor.
++ */
++function subagentDepth(row: RemoteSessionSummary, byId: ReadonlyMap<string, RemoteSessionSummary>): number {
++  let depth = 1
++  let parent = row.parentSessionId
++  const seen = new Set<string>([row.sessionId])
++  while (parent !== undefined && !seen.has(parent)) {
++    seen.add(parent)
++    const next = byId.get(parent)
++    if (next === undefined || next.origin !== 'subagent') break
++    depth += 1
++    parent = next.parentSessionId
++  }
++  return depth
++}
++
++/**
++ * One listing row as the picker's summary.
++ * @param row - the Host's row.
++ * @param byId - every row of the same listing (subagent depth, child counts).
++ * @returns the summary; fields the Host does not publish stay undefined.
++ */
++function toSummary(row: RemoteSessionSummary, byId: ReadonlyMap<string, RemoteSessionSummary>): SessionSummary {
++  const values = row.projections?.values
++  const title = values?.title ?? null
++  const fallback = leafOf(row.cwd ?? '') || row.sessionId
++  const titleView: SessionTitle = title === null
++    ? { text: fallback, source: 'fallback' }
++    // The API carries the folded title only: a rename and the automatic first
++    // title are the same fact here. Both render undimmed, so nothing is lost.
++    : { text: title, source: 'auto' }
++  const kind: SessionKind = row.origin === 'subagent'
++    ? { kind: 'subagent', parent: row.parentSessionId, depth: subagentDepth(row, byId) }
++    : row.parentSessionId === undefined
++      ? { kind: 'root' }
++      : { kind: 'fork', parent: row.parentSessionId }
++  let childCount = 0
++  for (const candidate of byId.values()) {
++    if (candidate.parentSessionId === row.sessionId) childCount += 1
++  }
++  return {
++    id: row.sessionId,
++    kind,
++    title: titleView,
++    cwd: row.cwd ?? '',
++    updatedAt: row.updatedAt ?? 0,
++    bytes: undefined,
++    hasPrompt: row.blank !== true,
++    agentPreset: values?.agentPreset ?? undefined,
++    model: values?.modelSelection?.lastUsed?.model,
++    label: undefined,
++    branch: undefined,
++    childCount,
++  }
++}
++
++/**
++ * Build the catalog over one connection.
++ * @param remote - mounted client Remote service.
++ * @returns the backend catalog the channel's `/resume` and session browser read.
++ */
++export function createRemoteSessionCatalog(remote: unknown): SessionCatalog {
++  const sessions = (remote as unknown as { readonly session: CatalogRemote }).session
++
++  const readAll = async (): Promise<readonly SessionSummary[]> => {
++    const rows = await listRemoteSessions(remote)
++    const byId = new Map(rows.map((row) => [row.sessionId, row]))
++    return rows
++      .map((row) => toSummary(row, byId))
++      .sort((left, right) => right.updatedAt - left.updatedAt)
++  }
++
++  return {
++    // `session/list` publishes no scope filter and no page cursor: the Host
++    // answers host-wide, so the workspace scope is applied here.
++    async list(scope?: SessionListScope) {
++      const all = await readAll()
++      if (scope?.allProjects === true || scope?.cwd === undefined) return all
++      return all.filter((row) => row.cwd === scope.cwd)
++    },
++    async info(sessionId) {
++      return (await readAll()).find((row) => row.id === sessionId)
++    },
++    async rename(sessionId, title) {
++      const result = await sessions.rename({ sessionId, title })
++      if (!result.ok) throw new Error(`remote: session/rename failed: ${result.error?.message ?? 'unknown error'}`)
++    },
++  }
++}
+diff --git a/src/dsh-adapter/remote/startup.ts b/src/dsh-adapter/remote/startup.ts
+new file mode 100644
+index 0000000..bc39cd1
+--- /dev/null
++++ b/src/dsh-adapter/remote/startup.ts
+@@ -0,0 +1,93 @@
++/**
++ * Remote startup: the pieces the boot needs from a backend, built on top of the
++ * host connection instead of a child process.
++ *
++ * Mirrors `prepareBackendStartup`'s return shape so the boot can use it
++ * unchanged (`backendStart`): the channel, `/resume`, `/new` and the persisted
++ * markers all keep working, while the transcript lives in another process.
++ */
++import type { Context } from '@deepseek-ai/cordis'
++import type { AgentSession } from '../../agent/session.js'
++import type { AgentEvent } from '../../agent/events.js'
++import type { BackendSessionPrefs } from '../../agent/backend.js'
++import { bindRemoteCommands, refreshRemoteCommands } from './commands.js'
++import { connectRemote, type RemoteConnection } from './connection.js'
++import { createRemoteSession, listRemoteSessions, openRemoteSession } from './session.js'
++import { createRemoteSessionCatalog } from './sessions.js'
++
++export interface RemoteStartupOptions {
++  /** Host base URL, e.g. `http://127.0.0.1:3080`. */
++  readonly url: string
++  /** Directory a newly created session would own. */
++  readonly cwd: string
++  /** Session to resume; the most recent host session otherwise. */
++  readonly sessionId?: string
++}
++
++/**
++ * Connect to the host and open its startup session.
++ * @param ctx - the TUI plugin's context (the client plugins mount under it).
++ * @param options - host URL, cwd, and an optional session to resume.
++ * @returns the boot's backend-startup record plus the connection it owns.
++ */
++export async function openRemoteStartup(ctx: Context, options: RemoteStartupOptions) {
++  const connection = await connectRemote(options.url, ctx as unknown as Parameters<typeof connectRemote>[1])
++  const deps = { remote: connection.remote, projections: connection.projections, catalog: connection.catalog, approvals: connection.approvals }
++  const sessions = await listRemoteSessions(connection.remote)
++  const target = options.sessionId ?? sessions[0]?.sessionId
++  const sessionId = target ?? (await createRemoteSession(connection.remote, options.cwd))
++  if (process.env.DSH_TUI_REMOTE_DEBUG === '1') {
++    process.stderr.write(`remote: sessions=[${sessions.map((s) => s.sessionId).join(',')}] opening=${sessionId}\n`)
++  }
++  const handle = await openRemoteSession(deps, sessionId)
++  const initialHistory = await handle.session.history()
++  // The TUI reads the registry synchronously (`/compact` gating, Help); the
++  // service caches one session's descriptors and is refreshed on every switch.
++  await bindRemoteCommands(connection.remote, sessionId)
++
++  let last = sessionId
++  const sessionPrefs: BackendSessionPrefs = {
++    lastSession: () => last,
++    setLastSession: (id) => { last = id },
++    touch: () => {},
++    forget: () => {},
++  }
++
++  return {
++    resumedSessionId: options.sessionId,
++    label: 'DSH · remote',
++    backendId: 'dsh',
++    // The session's route is known before its first turn (the Host records it
++    // or serves the deployment default), so the status line never has to name
++    // the backend as a stand-in.
++    route: handle.route,
++    ...(handle.agentPreset === undefined ? {} : { agentPreset: handle.agentPreset }),
++    catalog: createRemoteSessionCatalog(connection.remote),
++    sessionPrefs,
++    start: async (): Promise<{
++      session: AgentSession
++      initialHistory: readonly AgentEvent[]
++      route: { readonly provider: string; readonly model: string }
++      agentPreset?: string
++    }> => ({
++      session: handle.session,
++      initialHistory,
++      route: handle.route,
++      ...(handle.agentPreset === undefined ? {} : { agentPreset: handle.agentPreset }),
++    }),
++    persisted: (_sessionId: string, rows: readonly { readonly kind: string }[]) => rows.some((row) => row.kind === 'user'),
++    resumeCommand: (id: string) => `dsh-tui --remote ${options.url} --resume ${id}`,
++    open: async (target: { readonly kind: 'create'; readonly cwd: string } | { readonly kind: 'resume'; readonly sessionId: string }): Promise<AgentSession> => {
++      if (target.kind === 'create') {
++        const created = await createRemoteSession(connection.remote, target.cwd)
++        await refreshRemoteCommands(created)
++        return (await openRemoteSession(deps, created)).session
++      }
++      await refreshRemoteCommands(target.sessionId)
++      return (await openRemoteSession(deps, target.sessionId)).session
++    },
++    session: handle.session,
++    initialHistory,
++    connection: connection as RemoteConnection,
++  }
++}
+diff --git a/src/dsh-adapter/remote/verify.ts b/src/dsh-adapter/remote/verify.ts
+new file mode 100644
+index 0000000..af5ef78
+--- /dev/null
++++ b/src/dsh-adapter/remote/verify.ts
+@@ -0,0 +1,164 @@
++/**
++ * Contract check for the remote client: every place where this fork reads a
++ * host surface goes through here, so an upstream upgrade that moves a method or
++ * an event field fails loudly instead of failing silently in the TUI.
++ *
++ *   node lib/types/dsh-adapter/remote/verify.js [baseUrl] [--no-live]
++ *
++ * `--no-live` stops after the static surface (descriptors + mounted methods);
++ * the live half creates one throwaway session and asserts the event fields the
++ * adapter reads.
++ */
++import { findHostDsh } from '../host-dsh.js'
++import { connectRemote, type RemoteApi } from './connection.js'
++import { createRemoteSession, openRemoteSession } from './session.js'
++
++/** Methods `remote/session.ts` and `remote/sessions.ts` call. */
++const SESSION_METHODS = [
++  'attachment',
++  'cancel',
++  'control',
++  'create',
++  'follow',
++  'fork',
++  'list',
++  'modelCatalog',
++  'page',
++  'projections',
++  'prompt',
++  'rename',
++  'selectModel',
++] as const
++
++/** Methods `remote/commands.ts` and the compact capability call. */
++const COMMANDS_METHODS = ['execute', 'list'] as const
++
++/** Translated event kinds the channel consumes; the translator renames the wire
++ *  vocabulary (`turn/start` → `turn.start`), so both halves are checked. */
++const LIVE_EVENTS = ['turn.start', 'user.message', 'assistant.message', 'turn.end'] as const
++
++interface Report {
++  ok: boolean
++  line: string
++}
++
++const reports: Report[] = []
++
++function check(ok: boolean, line: string): void {
++  reports.push({ ok, line })
++  process.stdout.write(`${ok ? '[ok]  ' : '[FAIL]'} ${line}\n`)
++}
++
++function fail(line: string): never {
++  reports.push({ ok: false, line })
++  process.stdout.write(`[FAIL] ${line}\n`)
++  finish()
++}
++
++function finish(): never {
++  const failed = reports.filter((report) => !report.ok)
++  process.stdout.write(`\n${reports.length - failed.length}/${reports.length} checks passed\n`)
++  process.exit(failed.length === 0 ? 0 : 1)
++}
++
++const argv = process.argv.slice(2)
++const live = !argv.includes('--no-live')
++// An empty argument (a shell that always passes "$1") must not shadow the
++// default: `connectRemote('')` would hang on the client root instead of failing.
++const baseUrl = argv.find((argument) => argument !== '' && !argument.startsWith('--'))
++  ?? process.env.DSH_TUI_REMOTE_URL
++  ?? 'http://127.0.0.1:3080'
++
++const location = findHostDsh()
++if (!('packageDir' in location)) fail(`host install not resolvable: ${location.reason}`)
++check(true, `host install: ${location.packageDir}`)
++
++const connection = await connectRemote(baseUrl)
++check(true, `connected: ${baseUrl}`)
++
++const remote = connection.remote as RemoteApi & {
++  session?: Record<string, unknown>
++  commands?: Record<string, unknown>
++}
++
++const session = remote.session
++if (session === undefined) fail('the host mounted no `session` namespace')
++check(true, 'namespace: session')
++const missingSession = SESSION_METHODS.filter((method) => typeof session[method] !== 'function')
++check(missingSession.length === 0, `session methods (${SESSION_METHODS.length}): ${missingSession.length === 0 ? 'all present' : `missing ${missingSession.join(', ')}`}`)
++
++const commands = remote.commands
++check(commands !== undefined, 'namespace: commands (dsh-commands descriptor mounted)')
++if (commands !== undefined) {
++  const missingCommands = COMMANDS_METHODS.filter((method) => typeof commands[method] !== 'function')
++  check(missingCommands.length === 0, `commands methods: ${missingCommands.length === 0 ? COMMANDS_METHODS.join(', ') : `missing ${missingCommands.join(', ')}`}`)
++}
++
++if (!live) finish()
++
++// ── live half: one throwaway session, one turn ──────────────────────────────
++const sessionId = await createRemoteSession(remote, '/tmp')
++check(true, `scratch session: ${sessionId}`)
++
++const handle = await openRemoteSession(
++  { remote, projections: connection.projections, catalog: connection.catalog, approvals: connection.approvals },
++  sessionId,
++)
++
++const seen = new Set<string>()
++const unsubscribe = handle.session.subscribe((batch) => {
++  for (const event of batch) seen.add(event.type)
++})
++
++// The translator rewrites `user.message`, so the wire field the adapter claims
++// on has to be read from the raw stream — that is the contract being checked.
++let echoedRpcId: string | undefined
++interface FollowFrame {
++  readonly type: string
++  readonly event?: { readonly type: string; readonly data?: { readonly source?: { readonly rpcId?: string } } }
++}
++const follow = remote.session?.['follow'] as
++  | ((args: { address: { kind: 'session'; sessionId: string }; maxMessages: number }) => AsyncIterable<FollowFrame>)
++  | undefined
++const rawLoop = (async () => {
++  if (follow === undefined) return
++  const stream = follow({ address: { kind: 'session', sessionId }, maxMessages: 100 })
++  for await (const frame of stream) {
++    if (frame.type === 'event' && frame.event?.type === 'user/message') {
++      echoedRpcId = frame.event.data?.source?.rpcId
++      return
++    }
++  }
++})()
++
++const clientMessageId = `verify-${Date.now()}`
++const submitted = await handle.session.submit({ clientMessageId, text: 'reply with the single word: ok', images: [] }, 'followup')
++check(submitted.accepted, 'session/prompt accepted')
++
++const deadline = Date.now() + 60_000
++let turnEnded = false
++while (Date.now() < deadline && !turnEnded) {
++  await new Promise((resolve) => setTimeout(resolve, 500))
++  turnEnded = (await handle.session.history()).some((event) => event.type === 'turn.end')
++}
++unsubscribe()
++await Promise.race([rawLoop, new Promise((resolve) => setTimeout(resolve, 5000))])
++
++const missingLive = LIVE_EVENTS.filter((type) => !seen.has(type))
++check(missingLive.length === 0, `live events: ${missingLive.length === 0 ? LIVE_EVENTS.join(', ') : `missing ${missingLive.join(', ')}`}`)
++
++// The pending preview is retired by the adapter's claim; the echo must still
++// carry our id or the transcript and the queue disagree (see design doc §29).
++check(echoedRpcId === clientMessageId, `user.message.source.rpcId carries the client id (${String(echoedRpcId)})`)
++
++// `/compact` availability is gated on this capability, so its absence is a
++// contract break even when the command itself is not exercised here.
++const compact = (handle.session.capabilities as { compact?: { run?: unknown } }).compact
++check(typeof compact?.run === 'function', 'session capabilities: compact.run present')
++
++const descriptors = await (commands as { list(sessionId: string): Promise<{ ok: boolean; value?: readonly { name: string }[] }> }).list(sessionId)
++const names = descriptors.ok ? (descriptors.value ?? []).map((descriptor) => descriptor.name) : []
++check(names.includes('compact'), `commands/list includes /compact (${names.length} commands)`)
++
++await connection.close()
++finish()
+diff --git a/src/dsh-adapter/sessions/list.ts b/src/dsh-adapter/sessions/list.ts
+index c0fe14c..4e4418d 100644
+--- a/src/dsh-adapter/sessions/list.ts
++++ b/src/dsh-adapter/sessions/list.ts
+@@ -398,7 +398,7 @@ export async function listSummaries(
+ }
+ 
+ function compareSummaries(left: SessionSummary, right: SessionSummary): number {
+-  return right.updatedAt - left.updatedAt || right.createdAt - left.createdAt ||
++  return right.updatedAt - left.updatedAt || (right.createdAt ?? 0) - (left.createdAt ?? 0) ||
+     (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+ }
+ 
+diff --git a/src/i18n.ts b/src/i18n.ts
+index 3a75177..6ec2931 100644
+--- a/src/i18n.ts
++++ b/src/i18n.ts
+@@ -1304,6 +1304,8 @@ const dict = {
+   'hint-model-effort': { zh: '**←/→** 调整', en: '**←/→** adjust' },
+   'hint-model-select': { zh: '**Enter** 选择', en: '**Enter** select' },
+   'hint-model-cancel': { zh: '**Esc** 取消', en: '**Esc** cancel' },
++  'picker-search-active': { zh: '搜索 {{query}}', en: 'Search {{query}}' },
++  'picker-search-empty': { zh: '没有匹配「{{query}}」的模型', en: 'No model matches "{{query}}"' },
+   'picker-recents-empty': { zh: '暂无最近使用的模型，按 Tab 查看提供商', en: 'No recent models; press Tab to browse providers' },
+   'picker-models-empty': { zh: '暂无可用模型', en: 'No models available' },
+   'picker-effort-loading': { zh: '正在加载…', en: 'Loading…' },
+diff --git a/src/screens/Chat.tsx b/src/screens/Chat.tsx
+index a6ba070..cd3bbf9 100644
+--- a/src/screens/Chat.tsx
++++ b/src/screens/Chat.tsx
+@@ -5888,6 +5888,7 @@ export function Chat({
+                 groups={modelPicker.groups}
+                 provider={modelPicker.provider}
+                 models={modelPicker.models}
++                query={modelPicker.query}
+                 focusIndex={modelPicker.index}
+                 currentModel={`${channel.provider}/${channel.model}`}
+                 loading={modelsLoading}
+diff --git a/src/screens/StatusLine.tsx b/src/screens/StatusLine.tsx
+index caf36d1..1332a43 100644
+--- a/src/screens/StatusLine.tsx
++++ b/src/screens/StatusLine.tsx
+@@ -450,7 +450,7 @@ const selectionBadge = formatSelectionBadge(channel.selection)
+   const leftFields: FieldPart[] = [
+     ...(startingPart !== undefined ? [startingPart] : []),
+     ...(statusBar.model
+-      ? [{ key: 'model', id: 'model' as const, ...(modelPicker === undefined ? {} : { onClick: modelPicker.onOpen }), node: <Text color="inactiveShimmer">{channel.modelDisplay ?? channel.model}</Text> }]
++      ? [{ key: 'model', id: 'model' as const, ...(modelPicker === undefined ? {} : { onClick: modelPicker.onOpen }), node: <Text color="inactiveShimmer">{channel.provider === '' ? channel.modelDisplay ?? channel.model : `${channel.provider}/${channel.modelDisplay ?? channel.model}`}</Text> }]
+       : []),
+     ...(tpsPart !== undefined ? [tpsPart] : []),
+     ...(jobsPart !== undefined ? [jobsPart] : []),
+diff --git a/src/screens/chat/useModelPicker.ts b/src/screens/chat/useModelPicker.ts
+index ba4f830..41a3b4a 100644
+--- a/src/screens/chat/useModelPicker.ts
++++ b/src/screens/chat/useModelPicker.ts
+@@ -38,10 +38,23 @@ export function useModelPicker({ channel, models, providers, recents, open, onPi
+   const draftsRef = React.useRef(drafts)
+   const [catalogs, setCatalogs] = React.useState(new Map<string, EffortCatalog | 'error'>())
+   const [cursorZone, setCursorZone] = React.useState<ModelCursorZone>('model')
++  const [query, setQuery] = React.useState('')
++  const queryRef = React.useRef('')
+ 
+-  const modelsFor = (provider: string): readonly LlmModelInfo[] => recents === undefined ? models : provider === RECENTS_GROUP_PROVIDER
++  /** Type-to-filter: provider, id and display name all match, case-folded. */
++  const matches = (model: LlmModelInfo, query: string): boolean => query === ''
++    || `${model.provider} ${model.id} ${model.name}`.toLowerCase().includes(query.toLowerCase())
++  const baseFor = (provider: string): readonly LlmModelInfo[] => recents === undefined ? models : provider === RECENTS_GROUP_PROVIDER
+     ? recentCatalogModels(recents, models)
+     : models.filter(model => model.provider === provider)
++  // The ref (not the state) is read here: consecutive keystrokes in one stdin
++  // batch must each filter against the query the previous one left. A live
++  // filter searches the whole catalog — typing a provider name from another
++  // tab must still find its models.
++  const modelsFor = (provider: string): readonly LlmModelInfo[] => {
++    const query = queryRef.current
++    return query === '' ? baseFor(provider) : models.filter(model => matches(model, query))
++  }
+   const normalize = (value: Cursor): Cursor => {
+     const provider = !providerTabs ? channel.provider : groups.some(group => group.provider === value.provider) ? value.provider : RECENTS_GROUP_PROVIDER
+     const list = modelsFor(provider)
+@@ -54,7 +67,7 @@ export function useModelPicker({ channel, models, providers, recents, open, onPi
+   }
+   const selected = normalize(cursor)
+   const provider = selected.provider
+-  const listed = React.useMemo(() => modelsFor(provider), [provider, models, recents])
++  const listed = React.useMemo(() => query === '' ? baseFor(provider) : models.filter(model => matches(model, query)), [provider, models, recents, query])
+   const focused = listed[selected.index]
+   const focusedKey = focused === undefined ? undefined : modelKey(focused)
+   const catalog = focusedKey === undefined ? undefined : catalogs.get(focusedKey)
+@@ -84,6 +97,16 @@ export function useModelPicker({ channel, models, providers, recents, open, onPi
+     draftsRef.current = new Map()
+     setDrafts(draftsRef.current)
+     setCatalogs(new Map())
++    // A reopen starts from the whole catalog, never the last filter.
++    queryRef.current = ''
++    setQuery('')
++  }
++  /** Filter edit: the new query re-lands the cursor on its first match. */
++  const editQuery = (next: string): void => {
++    queryRef.current = next
++    setQuery(next)
++    const current = normalize(cursorRef.current)
++    focus({ provider: current.provider, index: 0 })
+   }
+   React.useEffect(() => {
+     if (!open || focused === undefined || catalog !== undefined) return
+@@ -157,6 +180,18 @@ export function useModelPicker({ channel, models, providers, recents, open, onPi
+   }
+   const handleKey = (input: string, key: Key, plainReturn: boolean): void => {
+     if (!activeRef.current) return
++    // Type-to-filter owns printable input and backspace. Everything the picker
++    // navigates with is excluded so arrows/Tab/Enter keep their meaning.
++    if (key.backspace || key.delete) {
++      if (queryRef.current !== '') editQuery(queryRef.current.slice(0, -1))
++      return
++    }
++    if (input !== '' && !key.ctrl && !key.meta && !key.super && !key.escape && !key.tab && !key.return
++      && !key.upArrow && !key.downArrow && !key.leftArrow && !key.rightArrow && !key.pageUp && !key.pageDown
++      && !key.home && !key.end && !/[\u0000-\u001f\u007f]/.test(input)) {
++      editQuery(queryRef.current + input)
++      return
++    }
+     if (key.tab) {
+       if (!providerTabs || groups.length === 0) return
+       const index = groups.findIndex(group => group.provider === normalize(cursorRef.current).provider)
+@@ -174,11 +209,13 @@ export function useModelPicker({ channel, models, providers, recents, open, onPi
+     } else if (plainReturn) {
+       confirm()
+     } else if (key.escape || (key.ctrl && input === 'c')) {
+-      cancel()
++      // Esc peels the filter first — the picker itself stays open.
++      if (queryRef.current !== '') editQuery('')
++      else cancel()
+     }
+   }
+   return {
+-    groups, provider: selected.provider, models: listed, index: selected.index,
++    groups, provider: selected.provider, models: listed, index: selected.index, query,
+     efforts: catalog === undefined || catalog === 'error' ? [] : catalog.efforts,
+     effortId: focused === undefined ? undefined : effortFor(focused, catalog),
+     effortsLoading: focused !== undefined && catalog === undefined,
+diff --git a/src/sessions/format.ts b/src/sessions/format.ts
+index 09233ef..0ce81ad 100644
+--- a/src/sessions/format.ts
++++ b/src/sessions/format.ts
+@@ -122,7 +122,10 @@ export function tailWidth(text: string, maxWidth: number): string {
+  * @param now - Epoch ms of the present, injectable so the formatter is a pure
+  *   function and its regression does not depend on a clock.
+  */
+-export function formatWhen(at: number, now: number): string {
++export function formatWhen(at: number | undefined, now: number): string {
++  // A store that publishes activity but not creation (the remote DSH API)
++  // leaves the fact unknown; the row says so instead of inventing a time.
++  if (at === undefined) return '—'
+   const seconds = Math.max(0, Math.round((now - at) / 1000))
+   if (seconds < 45) return t('session-when-now')
+   const minutes = Math.round(seconds / 60)
+diff --git a/src/tips.ts b/src/tips.ts
+index 3141984..2c10dde 100644
+--- a/src/tips.ts
++++ b/src/tips.ts
+@@ -327,8 +327,8 @@ export const TIPS: readonly Tip[] = [
+   {
+     id: 'cmd-model',
+     group: 'commands',
+-    zh: '/model 同会话换模型，历史不丢',
+-    en: '/model switches in place: session and history are preserved',
++    zh: '/model 同会话换模型，历史不丢；列表里直接输入可按 provider 或模型名筛选',
++    en: '/model switches in place; typing in the picker filters by provider or model name',
+   },
+   {
+     id: 'cmd-effort',
