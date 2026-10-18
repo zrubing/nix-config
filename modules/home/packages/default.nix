@@ -123,7 +123,9 @@ in {
         pkgs-nix-ai.codex
         pkgs-nix-ai.semble
         pkgs-nix-ai.workmux
-        pkgs-nix-ai.openskills
+        # openskills 已被上游删除（numman-ali/openskills 停更），换用维护中的
+        # vercel-labs/skills；~/.agents/.skill-lock.json 即该 CLI 的产物。
+        pkgs-nix-ai.skills
         #pkgs-nix-ai.beads
         #pkgs-nix-ai.catnip
         pkgs-nix-ai.opencode
