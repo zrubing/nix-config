@@ -52,6 +52,23 @@ typed `modes` 能力：
 场景出现。改为在 `catalog ready` 处直接断言每行都带前缀，两条 caret 断言只保留 caret
 性质。
 
+## `/model` 模糊搜索
+
+`/model` 的过滤器（上游没有，本包加的 type-to-filter）先是大小写不敏感的子串匹配，
+现在走 `src/modelSearch.ts` 的模糊匹配：
+
+1. 子序列命中：查询字符按序出现在任一字段即可，`dskfl` 能找到 `deepseek-flash`。
+2. 空白分词，各词可落在不同字段：`relay flash` 命中 provider 带 relay、name 带 flash
+   的行。每个词都必须命中，缺一即出局。
+3. 排序而不是只过滤：每次按键后 caret 落在第一行，所以必须保证「用户正在拼的那行」
+   排最前。连续命中（含子串）比零散命中高 500 分起步，字段起点 +60、词边界（`-_. /:`）
+   +25、位置越靠后略扣；并列时按目录原序（稳定排序）。
+4. 空查询原样返回，不重排标签内的列表。
+
+无头回归是 `scripts/verify-model-search.mjs`（17 项断言，含「只会多出结果、不会藏掉
+旧子串命中」的超集性质）；`verify-model-picker-ui.tsx` 另加一段真实终端的搜索用例：
+输入 `sm2` 后只剩 `Short model 2` 且带焦点，Esc 先清过滤、再按才关选择器。
+
 ## `--model`（暂未接入）
 
 以下为原设计，当前构建不包含该补丁：启动器仍会把 `--model` 的值搬进
@@ -103,7 +120,7 @@ nix build .#dsh-tui-remote     # 已验证通过（2026-10-19）
 ```
 
 四个 hash 都已填好（源码、pnpm 11 tarball、根 node_modules FOD、vendor node_modules FOD）。
-2026-10-19 实际构建产物：`/nix/store/3zphz4igbjqakz5nhal366m9ijcn3zra-dsh-tui-remote-0.16.1`；
+2026-10-19 实际构建产物：`/nix/store/dph4y83zlr8sc61m1vbpi473vvflh4ys-dsh-tui-remote-0.16.1`；
 两个依赖 FOD 的 hash 已按当前 lockfile 的真实依赖树回填。
 
 启动由 `modules/home/dsh` 的 `dshTuiRemote` 包装器负责：`DSH_TUI_REMOTE_TREE` 现在指向

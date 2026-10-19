@@ -1,3 +1,201 @@
+diff --git a/scripts/run-ci-group.mjs b/scripts/run-ci-group.mjs
+index b1cf086..3eef29f 100644
+--- a/scripts/run-ci-group.mjs
++++ b/scripts/run-ci-group.mjs
+@@ -1280,6 +1280,9 @@ const GROUPS = {
+ // /model 标签选择器派生回归：provider 分组（首现排序、显示名回退、
+ // 计数）、最近使用目录交集/持久化与初始提供商/模型焦点。
+     ["verify-model-picker-groups", ['node', 'scripts/verify-model-picker-groups.mjs']],
++// /model 模糊过滤回归：子序列命中、连续优先于零散、多词跨字段、前缀/边界
++// 加分、并列保持目录顺序，以及「只会多出结果、不会藏掉旧子串命中」。
++    ["verify-model-search", ['node', 'scripts/verify-model-search.mjs']],
+ // /model 同页交互：最近使用置顶、Tab/Shift+Tab、模型/推理草稿、取消、
+ // 同批键序、鼠标/滚轮与 inline/fullscreen 窄终端窗口化。
+     ['verify-model-picker-ui', ['node', '--import', 'tsx/esm', 'scripts/verify-model-picker-ui.tsx']],
+diff --git a/scripts/verify-model-picker-ui.tsx b/scripts/verify-model-picker-ui.tsx
+index 0e5c0f5..1b9f1f2 100644
+--- a/scripts/verify-model-picker-ui.tsx
++++ b/scripts/verify-model-picker-ui.tsx
+@@ -526,7 +526,11 @@ async function shortTerminal(backendId: 'dsh' | 'claude' | 'codex', fullscreen:
+     stdin.write('/model')
+     await check('composer', () => text().includes('/model'))
+     stdin.write('\r')
+-    await check('catalog ready', () => text().includes('Short model 2') && text().includes('MEDIUM'))
++    // Every row names its route, not just the recents tab or a live filter:
++    // two gateways can ship the same display name, so a bare model name would
++    // not say which provider a row switches to.
++    await check('catalog ready', () => text().includes('Short model 2') && text().includes('MEDIUM')
++      && models.every(model => text().includes(`${model.provider} / ${model.name}`)))
+     for (const rows of [11, 12, 10]) {
+       stdout.rows = rows
+       term.resize(columns, rows)
+@@ -544,7 +548,7 @@ async function shortTerminal(backendId: 'dsh' | 'claude' | 'codex', fullscreen:
+         if (backendId === 'dsh' && rows === 11 && index === 0) {
+           stdin.write('\t')
+           await check('a clipped provider tab hands its caret to the visible model', () =>
+-            !text().includes('alpha / Short model') && cursorShown() && caretOnPointer(term, models[0]!.name))
++            cursorShown() && caretOnPointer(term, models[0]!.name))
+           stdout.rows = 12
+           term.resize(columns, 12)
+           stdout.emit('resize')
+@@ -562,7 +566,7 @@ async function shortTerminal(backendId: 'dsh' | 'claude' | 'codex', fullscreen:
+             !text().includes('Alpha') && cursorShown() && caretOnPointer(term, models[0]!.name))
+           stdin.write('\x1b[Z')
+           await check('reverse provider navigation also keeps the visible model caret', () =>
+-            text().includes('alpha / Short model') && cursorShown() && caretOnPointer(term, models[0]!.name))
++            cursorShown() && caretOnPointer(term, models[0]!.name))
+         }
+         if (index < models.length - 1 || rows !== 10) stdin.write('\x1b[B')
+       }
+@@ -578,6 +582,24 @@ async function shortTerminal(backendId: 'dsh' | 'claude' | 'codex', fullscreen:
+     }
+     await check('visible confirmation applies the last focused model', () => picks.length === 1 && !text().includes('Enter 选择'))
+     assert.deepEqual(picks, ['a2'])
++    // The filter is fuzzy and ranked: a scattered query still lands a row, and
++    // the row it lands on is the best match, not merely the first in the
++    // catalog. Esc peels the filter before it closes the picker.
++    stdin.write('/model')
++    await check('reopen for a fuzzy filter', () => text().includes('Short model 2'))
++    stdin.write('\r')
++    await check('the picker is back on the recents tab', () => text().includes('Short model 0'))
++    stdin.write('sm2')
++    await check('a scattered query keeps exactly its best row', () => {
++      // Model rows are the ones carrying a route prefix; the transcript above
++      // them also prints ❯, so the pointer alone does not identify a row.
++      const rows = viewportLines(term).filter(line => line.includes(' / '))
++      return rows.length === 1 && rows[0]!.includes('Short model 2') && rows[0]!.includes('❯')
++    })
++    stdin.write('\x1b')
++    await check('Esc peels the filter back to the whole tab', () => text().includes('Short model 0') && text().includes('Short model 2'))
++    stdin.write('\x1b')
++    await check('a second Esc closes the picker', () => !text().includes('Enter 选择'))
+     console.log(`PASS /model ${label}`)
+   } finally {
+     app.unmount()
+diff --git a/scripts/verify-model-search.mjs b/scripts/verify-model-search.mjs
+new file mode 100644
+index 0000000..cc3eae0
+--- /dev/null
++++ b/scripts/verify-model-search.mjs
+@@ -0,0 +1,118 @@
++/**
++ * Headless regression for the `/model` fuzzy filter (src/modelSearch.ts):
++ * subsequence matching, contiguous-over-scattered ranking, per-term field
++ * matching, prefix/boundary bonuses, stable catalog tie-break, the identity
++ * result for an empty query, and the superset property that every row the old
++ * substring filter accepted is still listed.
++ *
++ * Run with plain node against the compiled lib (after `pnpm build`):
++ * `node scripts/verify-model-search.mjs`
++ * Keyboard and layout behavior are covered by verify-model-picker-ui.tsx.
++ */
++import { filterModels } from '../lib/types/modelSearch.js'
++
++let failed = 0
++function check(name, ok, extra = '') {
++  console.log(`${ok ? 'PASS' : 'FAIL'}: ${name}${extra ? `  (${extra})` : ''}`)
++  if (!ok) failed += 1
++}
++const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
++const id = model => `${model.provider}/${model.id}`
++const model = (provider, id_, name) => ({ provider, id: id_, name: name ?? id_ })
++
++// A catalog that mirrors the live routes' shape: several gateways ship the same
++// display name, and every model id repeats its provider-ish prefix.
++const catalog = [
++  model('deepseek-relay', 'deepseek-flash', 'DeepSeek V4.1 Flash'),
++  model('runinfra', 'deepseek-v4-1-flash', 'DeepSeek V4.1 Flash'),
++  model('openrouter', 'deepseek/deepseek-v4.1-flash', 'DeepSeek V4.1 Flash'),
++  model('nvidia-nim', 'deepseek-ai/deepseek-v4-flash-0731', 'Deepseek V4 Flash'),
++  model('zai-coding-cn', 'glm-5.3-flash', 'GLM-5.3 Flash'),
++  model('openai', 'gpt-5.4', 'GPT-5.4'),
++]
++
++// 1. The unfiltered cases: empty and whitespace-only queries are the identity.
++{
++  check('1 empty query keeps the catalog untouched', filterModels(catalog, '') === catalog)
++  check('1 whitespace-only query keeps the catalog untouched', filterModels(catalog, '   ') === catalog)
++  check('1 empty catalog filters to nothing', eq(filterModels([], 'flash'), []))
++}
++
++// 2. Subsequence: characters in order, not necessarily adjacent.
++{
++  const hits = filterModels(catalog, 'dskfl').map(id)
++  check('2 a scattered query still finds the route', hits.includes('deepseek-relay/deepseek-flash'), hits.join(' '))
++  check('2 a scattered query never invents rows', filterModels(catalog, 'zzz').length === 0)
++}
++
++// 3. Contiguous beats scattered, even when the scattered row comes first in the
++//    catalog — the caret lands on index 0, so this is the ranking that matters.
++{
++  const models = [
++    model('gateway', 'd-e-e-p-s-e-e-k', 'Scattered Row'),
++    model('gateway', 'deepseek-flash', 'Contiguous Row'),
++  ]
++  const ranked = filterModels(models, 'deepseek').map(model => model.name)
++  check('3 a contiguous hit outranks an earlier scattered one', eq(ranked, ['Contiguous Row', 'Scattered Row']), ranked.join(' '))
++}
++
++// 4. Terms are ANDed across fields: neither term needs the other's field.
++{
++  const hits = filterModels(catalog, 'relay flash').map(id)
++  check('4 terms may land on different fields', eq(hits, ['deepseek-relay/deepseek-flash']), hits.join(' '))
++  check('4 every term must hit something', filterModels(catalog, 'relay gpt').length === 0)
++  check('4 term order does not matter', eq(filterModels(catalog, 'flash relay').map(id), hits))
++}
++
++// 5. Positional bonuses: a name that starts with the query wins over one that
++//    merely contains it, and a hit after a separator wins over a mid-word hit.
++{
++  const models = [
++    model('gateway', 'aa-flash-extra', 'Wrapped Flash'),
++    model('gateway', 'bb', 'Flash Runner'),
++  ]
++  check('5 a name-initial hit outranks a mid-name hit',
++    eq(filterModels(models, 'flash').map(model => model.name), ['Flash Runner', 'Wrapped Flash']))
++
++  const boundary = [model('gateway', 'aaflash', 'Plain'), model('gateway', 'aa-flash', 'Dashed')]
++  check('5 a hit after a separator outranks one inside a word',
++    eq(filterModels(boundary, 'flash').map(model => model.name), ['Dashed', 'Plain']))
++}
++
++// 6. Ties keep the registry's own order (the sort must stay stable).
++{
++  const models = [
++    model('zz', 'same-flash', 'A'),
++    model('yy', 'same-flash', 'B'),
++    model('xx', 'same-flash', 'C'),
++  ]
++  check('6 equal scores keep catalog order', eq(filterModels(models, 'same-flash').map(model => model.name), ['A', 'B', 'C']))
++}
++
++// 7. Superset property: fuzzy only ever adds rows, never hides a row the old
++//    case-insensitive substring filter accepted.
++{
++  const queries = ['flash', 'deepseek', 'relay', 'gpt', 'v4', 'glm-5.3', 'nvidia', 'openai/gpt']
++  const missing = []
++  for (const query of queries) {
++    const needle = query.toLowerCase()
++    const fuzzy = new Set(filterModels(catalog, query).map(id))
++    for (const row of catalog) {
++      const haystack = `${row.provider} ${row.id} ${row.name}`.toLowerCase()
++      if (haystack.includes(needle) && !fuzzy.has(id(row))) missing.push(`${query} -> ${id(row)}`)
++    }
++  }
++  check('7 fuzzy keeps every substring hit', missing.length === 0, missing.join('; '))
++}
++
++// 8. Case folding applies to the query and to every field.
++{
++  check('8 query case is ignored', eq(filterModels(catalog, 'FLASH').map(id), filterModels(catalog, 'flash').map(id)))
++  const models = [model('Gateway', 'MiXeD-Case', 'CamelName')]
++  check('8 provider case is ignored', filterModels(models, 'gateway').length === 1)
++  check('8 id case is ignored', filterModels(models, 'mixed-case').length === 1)
++  check('8 name case is ignored', filterModels(models, 'camelname').length === 1)
++}
++
++check('zero failures', failed === 0, `${failed} failed`)
++process.exit(failed === 0 ? 0 : 1)
 diff --git a/src/adapter/ports/channel-session.ts b/src/adapter/ports/channel-session.ts
 index 845f9ce..ff8a72c 100644
 --- a/src/adapter/ports/channel-session.ts
@@ -34,7 +232,7 @@ index cda3dbd..714021b 100644
    readonly updatedAt: number
  }
 diff --git a/src/components/ModelPicker.tsx b/src/components/ModelPicker.tsx
-index bd36b02..95cbf4b 100644
+index bd36b02..0e7db13 100644
 --- a/src/components/ModelPicker.tsx
 +++ b/src/components/ModelPicker.tsx
 @@ -26,7 +26,7 @@ import { useOverlayListRows } from './OverlayAbove.js'
@@ -2572,6 +2770,112 @@ index 3a75177..6ec2931 100644
    'picker-recents-empty': { zh: '暂无最近使用的模型，按 Tab 查看提供商', en: 'No recent models; press Tab to browse providers' },
    'picker-models-empty': { zh: '暂无可用模型', en: 'No models available' },
    'picker-effort-loading': { zh: '正在加载…', en: 'Loading…' },
+diff --git a/src/modelSearch.ts b/src/modelSearch.ts
+new file mode 100644
+index 0000000..8596e3f
+--- /dev/null
++++ b/src/modelSearch.ts
+@@ -0,0 +1,100 @@
++/**
++ * Fuzzy matching for the `/model` filter. Kept free of React/channel state so
++ * `scripts/verify-model-search.mjs` can drive it headless.
++ *
++ * A predicate alone is not enough here: the picker re-lands the caret on the
++ * first row after every keystroke, so whatever survives the filter has to be
++ * ranked — a scattered subsequence hit must never outrank the row the user is
++ * spelling out. Ranking therefore scores every field of a row, keeps
++ * contiguous hits strictly above scattered ones, and falls back to catalog
++ * order for ties (the sort is stable, so the registry's own order survives).
++ *
++ * Fuzzy here means two things together: a subsequence matches when its
++ * characters appear in order (`dskfl` finds `deepseek-flash`), and whitespace
++ * separates terms that may land on different fields (`relay flash` matches a
++ * model whose provider carries one word and whose name carries the other).
++ *
++ * @module dsh-tui/modelSearch
++ */
++
++import type { LlmModelInfo } from './adapter/ports/channel-view.js'
++
++/**
++ * Weights. A contiguous hit starts five hundred points above any scattered
++ * one, while per-character and positional bonuses stay inside that gap — so
++ * ordering is decided by "did the user type this run of characters", not by
++ * how long the field happens to be.
++ */
++const CONTIGUOUS_BASE = 1000
++const SCATTERED_BASE = 500
++
++/** Characters that begin a new word inside an id, a route key or a name. */
++const WORD_BOUNDARY = /[-_. /:]/
++
++/**
++ * Score one whitespace-free term against one field.
++ * @param term - Lower-cased term, never empty.
++ * @param field - Provider, id or display name of the row.
++ * @returns the score, or undefined when the term does not appear at all.
++ */
++function scoreField(term: string, field: string): number | undefined {
++  const haystack = field.toLowerCase()
++  const at = haystack.indexOf(term)
++  if (at >= 0) {
++    return CONTIGUOUS_BASE + term.length * 10
++      + (at === 0 ? 60 : 0)
++      + (WORD_BOUNDARY.test(haystack[at - 1] ?? '') ? 25 : 0)
++      - Math.min(at, 40)
++  }
++  let cursor = 0
++  let gaps = 0
++  let first = -1
++  for (const char of term) {
++    const found = haystack.indexOf(char, cursor)
++    if (found < 0) return undefined
++    if (first < 0) first = found
++    gaps += found - cursor
++    cursor = found + 1
++  }
++  return SCATTERED_BASE + term.length * 5
++    + (first === 0 ? 60 : 0)
++    - gaps * 2 - Math.min(first, 40)
++}
++
++/**
++ * Score one row against every term; a term may hit any field, and every term
++ * must hit one — otherwise the row is out.
++ * @param terms - Lower-cased, non-empty terms of the query.
++ * @param model - Catalog row being filtered.
++ * @returns the summed score, or undefined when the row does not match.
++ */
++function scoreModel(terms: readonly string[], model: LlmModelInfo): number | undefined {
++  const fields = [model.provider, model.id, model.name]
++  let total = 0
++  for (const term of terms) {
++    let best: number | undefined
++    for (const field of fields) {
++      const score = scoreField(term, field)
++      if (score !== undefined && (best === undefined || score > best)) best = score
++    }
++    if (best === undefined) return undefined
++    total += best
++  }
++  return total
++}
++
++/**
++ * The rows matching a live filter, best match first.
++ * @param models - The whole catalog, in registry order.
++ * @param query - Raw picker input; empty means "no filter, keep the order".
++ * @returns the matching rows, ranked; the input array itself when unfiltered.
++ */
++export function filterModels(models: readonly LlmModelInfo[], query: string): readonly LlmModelInfo[] {
++  const terms = query.toLowerCase().split(/\s+/).filter(term => term !== '')
++  if (terms.length === 0) return models
++  return models
++    .map((model, index) => ({ model, index, score: scoreModel(terms, model) }))
++    .filter((entry): entry is { model: LlmModelInfo; index: number; score: number } => entry.score !== undefined)
++    .sort((left, right) => right.score - left.score || left.index - right.index)
++    .map(entry => entry.model)
++}
 diff --git a/src/screens/Chat.tsx b/src/screens/Chat.tsx
 index a6ba070..cd3bbf9 100644
 --- a/src/screens/Chat.tsx
@@ -2598,10 +2902,18 @@ index caf36d1..1332a43 100644
      ...(tpsPart !== undefined ? [tpsPart] : []),
      ...(jobsPart !== undefined ? [jobsPart] : []),
 diff --git a/src/screens/chat/useModelPicker.ts b/src/screens/chat/useModelPicker.ts
-index ba4f830..41a3b4a 100644
+index ba4f830..84ab7c8 100644
 --- a/src/screens/chat/useModelPicker.ts
 +++ b/src/screens/chat/useModelPicker.ts
-@@ -38,10 +38,23 @@ export function useModelPicker({ channel, models, providers, recents, open, onPi
+@@ -2,6 +2,7 @@ import React from 'react'
+ import type { ChannelUi } from '../../adapter/ports/channel-ui.js'
+ import type { LlmModelInfo, LlmProviderInfo } from '../../adapter/ports/channel-view.js'
+ import { deriveModelGroups, modelPickerLanding, recentCatalogModels, RECENTS_GROUP_PROVIDER, type ModelRef } from '../../modelGroups.js'
++import { filterModels } from '../../modelSearch.js'
+ import type { Key } from '../../ui.js'
+ import { wrapIndex } from '../chatOverlay.js'
+ 
+@@ -38,10 +39,22 @@ export function useModelPicker({ channel, models, providers, recents, open, onPi
    const draftsRef = React.useRef(drafts)
    const [catalogs, setCatalogs] = React.useState(new Map<string, EffortCatalog | 'error'>())
    const [cursorZone, setCursorZone] = React.useState<ModelCursorZone>('model')
@@ -2609,20 +2921,19 @@ index ba4f830..41a3b4a 100644
 +  const queryRef = React.useRef('')
  
 -  const modelsFor = (provider: string): readonly LlmModelInfo[] => recents === undefined ? models : provider === RECENTS_GROUP_PROVIDER
-+  /** Type-to-filter: provider, id and display name all match, case-folded. */
-+  const matches = (model: LlmModelInfo, query: string): boolean => query === ''
-+    || `${model.provider} ${model.id} ${model.name}`.toLowerCase().includes(query.toLowerCase())
 +  const baseFor = (provider: string): readonly LlmModelInfo[] => recents === undefined ? models : provider === RECENTS_GROUP_PROVIDER
      ? recentCatalogModels(recents, models)
      : models.filter(model => model.provider === provider)
++  /**
++   * The rows a tab shows. A live filter searches the whole catalog (typing a
++   * provider name from another tab must still find its models) and ranks the
++   * survivors, because the caret re-lands on the first row after each edit.
++   */
++  const listedFor = (provider: string, query: string): readonly LlmModelInfo[] =>
++    query === '' ? baseFor(provider) : filterModels(models, query)
 +  // The ref (not the state) is read here: consecutive keystrokes in one stdin
-+  // batch must each filter against the query the previous one left. A live
-+  // filter searches the whole catalog — typing a provider name from another
-+  // tab must still find its models.
-+  const modelsFor = (provider: string): readonly LlmModelInfo[] => {
-+    const query = queryRef.current
-+    return query === '' ? baseFor(provider) : models.filter(model => matches(model, query))
-+  }
++  // batch must each filter against the query the previous one left.
++  const modelsFor = (provider: string): readonly LlmModelInfo[] => listedFor(provider, queryRef.current)
    const normalize = (value: Cursor): Cursor => {
      const provider = !providerTabs ? channel.provider : groups.some(group => group.provider === value.provider) ? value.provider : RECENTS_GROUP_PROVIDER
      const list = modelsFor(provider)
@@ -2631,7 +2942,7 @@ index ba4f830..41a3b4a 100644
    const selected = normalize(cursor)
    const provider = selected.provider
 -  const listed = React.useMemo(() => modelsFor(provider), [provider, models, recents])
-+  const listed = React.useMemo(() => query === '' ? baseFor(provider) : models.filter(model => matches(model, query)), [provider, models, recents, query])
++  const listed = React.useMemo(() => listedFor(provider, query), [provider, models, recents, query])
    const focused = listed[selected.index]
    const focusedKey = focused === undefined ? undefined : modelKey(focused)
    const catalog = focusedKey === undefined ? undefined : catalogs.get(focusedKey)
@@ -2718,37 +3029,3 @@ index 3141984..2c10dde 100644
    },
    {
      id: 'cmd-effort',
-diff --git a/scripts/verify-model-picker-ui.tsx b/scripts/verify-model-picker-ui.tsx
---- a/scripts/verify-model-picker-ui.tsx
-+++ b/scripts/verify-model-picker-ui.tsx
-@@ -526,7 +526,11 @@
-     stdin.write('/model')
-     await check('composer', () => text().includes('/model'))
-     stdin.write('\r')
--    await check('catalog ready', () => text().includes('Short model 2') && text().includes('MEDIUM'))
-+    // Every row names its route, not just the recents tab or a live filter:
-+    // two gateways can ship the same display name, so a bare model name would
-+    // not say which provider a row switches to.
-+    await check('catalog ready', () => text().includes('Short model 2') && text().includes('MEDIUM')
-+      && models.every(model => text().includes(`${model.provider} / ${model.name}`)))
-     for (const rows of [11, 12, 10]) {
-       stdout.rows = rows
-       term.resize(columns, rows)
-@@ -544,7 +548,7 @@
-         if (backendId === 'dsh' && rows === 11 && index === 0) {
-           stdin.write('\t')
-           await check('a clipped provider tab hands its caret to the visible model', () =>
--            !text().includes('alpha / Short model') && cursorShown() && caretOnPointer(term, models[0]!.name))
-+            cursorShown() && caretOnPointer(term, models[0]!.name))
-           stdout.rows = 12
-           term.resize(columns, 12)
-           stdout.emit('resize')
-@@ -562,7 +566,7 @@
-             !text().includes('Alpha') && cursorShown() && caretOnPointer(term, models[0]!.name))
-           stdin.write('\x1b[Z')
-           await check('reverse provider navigation also keeps the visible model caret', () =>
--            text().includes('alpha / Short model') && cursorShown() && caretOnPointer(term, models[0]!.name))
-+            cursorShown() && caretOnPointer(term, models[0]!.name))
-         }
-         if (index < models.length - 1 || rows !== 10) stdin.write('\x1b[B')
-       }
