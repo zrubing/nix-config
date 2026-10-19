@@ -71,7 +71,8 @@ stdenv.mkDerivation (finalAttrs: {
 
   # remote-mode.patch 是完整的远程客户端改动；permission-presets.patch 叠加在它
   # 之上，把 Host 的权限预设投影成远程会话的 typed `modes`（`/permission` 与
-  # Shift+Tab）。
+  # Shift+Tab）；notification-ghostty-cap.patch 按 Ghostty apprt 的固定通知缓冲
+  # （title 63 B / body 255 B）截断 OSC 777/9，避免其盲截 255 B 时切开 UTF-8。
   #
   # startup-model.patch 暂不接入：它按旧版源码行号生成（session.ts:1556），套不上
   # v0.16.1；且它依赖的 agentDefaultModel 在 Host 侧没有 typert.remote-client 面。
@@ -79,6 +80,7 @@ stdenv.mkDerivation (finalAttrs: {
   patches = [
     ./remote-mode.patch
     ./permission-presets.patch
+    ./notification-ghostty-cap.patch
   ];
 
   # pnpm 11 从 **workspace 清单**读 trustPolicy / minimumReleaseAge，命令行
@@ -100,7 +102,7 @@ stdenv.mkDerivation (finalAttrs: {
     nativeBuildInputs = [ nodejs-slim pnpm cacert ];
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-ifTk1VKjcahWyyjBhsgUgaQdwp3JQ40Yk2q36J3gfGA="; # ROOT_HASH
+    outputHash = "sha256-vaw3UcM1ULwkF4wLL8xec1zJXHF0VCkE96doLQYIOM0="; # ROOT_HASH
     buildCommand = ''
       export HOME=/build/home
       export npm_config_cache=/build/cache
@@ -130,7 +132,7 @@ stdenv.mkDerivation (finalAttrs: {
     nativeBuildInputs = [ nodejs-slim pnpm cacert ];
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-L0gXffTfUepZuBNbUMLhy9ZTPMKdJ/NVuO8i0P4rHUU="; # VENDOR_HASH
+    outputHash = "sha256-4xTj2jKhhQtluTbTdpbXTT01xhm735m3o5Mzd4qzt20="; # VENDOR_HASH
     buildCommand = ''
       export HOME=/build/home
       export npm_config_cache=/build/cache
