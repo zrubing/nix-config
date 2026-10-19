@@ -10,7 +10,16 @@
 | `default.nix` | nix 构建：源码 + 补丁 → store 里的可运行树 |
 | `remote-mode.patch` | 对上游 `v0.16.1` **源码**的完整远程客户端改动 |
 | `permission-presets.patch` | 叠加在上一份之上：Host 权限预设 → 远程会话 typed `modes`（`/permission`、Shift+Tab） |
+| `notification-ghostty-cap.patch` | 按 Ghostty 固定通知缓冲（title 63 B / body 255 B）截断 OSC 777/9，避免 255 B 盲截切开 UTF-8 |
 | `startup-model.patch` | **暂存，未接入构建**：`--model` 启动路由，见下 |
+
+## Ghostty 通知截断
+
+Ghostty 1.3.1 的 apprt 把 OSC 9/777 的 title/body 拷进 `[63:0]` / `[255:0]` 固定
+数组，`@min` + `@memcpy` 不检查 UTF-8 边界；中文预览超过 255 B 时可能切在字符中间，
+GIO 最终显示 `[Invalid UTF-8]`。本补丁在发送侧按 Ghostty 的缓冲上限截断（grapheme
+边界），WezTerm 等其他 OSC 777 终端仍用 2048 B 预算。上游修复在 Ghostty `53c6fdb`
+（tip，未进 1.3.1）。
 
 ## 权限模式（`/permission`）
 
@@ -70,19 +79,19 @@ typed `modes` 能力：
 dsh-tui-remote-verify                  # 描述符 / 方法名 / 事件字段 / 权限 catalog / compact
 ```
 
-全过才算可用；失败说明上游动了客户端依赖的面（见设计文档 §30）。升级时两份补丁都要
-在干净的 `tag` 树上 `git apply --check`：`remote-mode.patch` 之后才是
-`permission-presets.patch`。
+全过才算可用；失败说明上游动了客户端依赖的面（见设计文档 §30）。升级时三份补丁都要
+在干净的 `tag` 树上 `git apply --check`：`remote-mode.patch` → `permission-presets.patch`
+→ `notification-ghostty-cap.patch`。
 
 ## 怎么建
 
 ```sh
-nix build .#dsh-tui-remote     # 已验证通过（2026-10-18）
+nix build .#dsh-tui-remote     # 已验证通过（2026-10-19）
 ```
 
 四个 hash 都已填好（源码、pnpm 11 tarball、根 node_modules FOD、vendor node_modules FOD）。
-2026-10-18 实际构建产物：`/nix/store/r0dmn71jwn825wyd90l2m2r4gckj2ss5-dsh-tui-remote-0.16.1`；
-两个依赖 FOD 的 hash 已按 0.16.1 的真实依赖树回填。
+2026-10-19 实际构建产物：`/nix/store/rbbhnvfln3m0ifpyk8h1s05n54r779zs-dsh-tui-remote-0.16.1`；
+两个依赖 FOD 的 hash 已按当前 lockfile 的真实依赖树回填。
 
 启动由 `modules/home/dsh` 的 `dshTuiRemote` 包装器负责：`DSH_TUI_REMOTE_TREE` 现在指向
 `${dsh-tui-remote}/libexec`，不再依赖 `.m1/` 开发树。

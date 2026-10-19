@@ -1,0 +1,213 @@
+diff --git a/README.md b/README.md
+index 9081453..4a54d4b 100644
+--- a/README.md
++++ b/README.md
+@@ -29,7 +29,7 @@
+ - **Pixel whale pet** — three startup intros, click to wake; freezes after the first task.
+ - **Launchpad and first-run guide** — every ordinary launch lands on a landing page with a **real input box** (big text + whale + quick actions, dropping whole blocks on short/narrow terminals; whale-girl images use a compact native-canvas footprint instead of leaving a large gap before the title; on by default — /settings `launchpad` off boots straight into chat); command completion matches chat: `Tab` fills the input, `Enter` runs the command and clears it. The first run walks a four-step wizard (API key / language+theme / model+workspace / shortcuts), re-runnable with `/setup`.
+ - **Terminal-native UI** — streaming Markdown, tool cards, `/` and `@` completion, `#L12-14` ranges, history search, zh/en UI.
+-- **Task completion notifications** — DSH, Claude and Codex notify after successful live work settles, with no queued follow-up or active goal. The title is “dsh-TUI · Task complete”; the body shows the latest settled reply as a single-line plain-text preview (Markdown formatting removed, up to 200 characters). OSC 777/9 apply an additional 2048-byte sequence budget, including title and protocol bytes, preserving whole graphemes. No reply shows only the title; BEL only rings. `/settings` → Conversation: `taskNotifications` = `unfocused` (default), `always`, or `off`; `notificationMethod` = `auto` (default), `osc9`, or `bel`. Auto uses separate title/body fields on Ghostty/WezTerm (OSC 777) and Kitty (OSC 99); iTerm2/Warp and explicit `osc9` use a title prefix; other terminals ring the bell; delivery follows your terminal's notification/bell settings. tmux requires `set -g allow-passthrough on` for OSC notifications and `set -g focus-events on` for focus reporting. Terminals without focus reporting need `always`. Replay, cancellation and failures do not notify. Works in inline and fullscreen modes.
++- **Task completion notifications** — DSH, Claude and Codex notify after successful live work settles, with no queued follow-up or active goal. The title is “dsh-TUI · Task complete”; the body shows the latest settled reply as a single-line plain-text preview (Markdown formatting removed, up to 200 characters). OSC 777/9 apply an additional 2048-byte sequence budget, including title and protocol bytes, preserving whole graphemes; Ghostty additionally caps the body at 255 bytes. No reply shows only the title; BEL only rings. `/settings` → Conversation: `taskNotifications` = `unfocused` (default), `always`, or `off`; `notificationMethod` = `auto` (default), `osc9`, or `bel`. Auto uses separate title/body fields on Ghostty/WezTerm (OSC 777) and Kitty (OSC 99); iTerm2/Warp and explicit `osc9` use a title prefix; other terminals ring the bell; delivery follows your terminal's notification/bell settings. tmux requires `set -g allow-passthrough on` for OSC notifications and `set -g focus-events on` for focus reporting. Terminals without focus reporting need `always`. Replay, cancellation and failures do not notify. Works in inline and fullscreen modes.
+ - **Native cursor** — focused text inputs inherit your terminal's cursor shape, color, blinking, and enabled animation or trail effects in both inline and fullscreen modes. The `/model` picker shows the same cursor during movement between provider tabs, model rows, and effort levels, then hides it after **0.5 seconds at rest**; clipped regions fall back to the model row. The session manager also moves this cursor between the workspace rail, session rows, and search box; typing claims the search caret, and navigation returns it to the focused row. Configure animation and trail effects in your terminal.
+ - **Images** — Kitty/Sixel thumbnails, centered preview with zoom and pan, paste-time fitting, text fallback. Kitty images scale to the reserved cells' physical pixels, including on HiDPI terminals.
+ - **Mermaid diagrams** — ````mermaid ```` fences drawn as Unicode diagrams.
+diff --git a/README_ZH.md b/README_ZH.md
+index ff499cc..a7e9320 100644
+--- a/README_ZH.md
++++ b/README_ZH.md
+@@ -29,7 +29,7 @@
+ - **原生光标** — 聚焦的文本输入框继承终端的光标形状、颜色、闪烁及已启用的动画或拖尾效果，inline 与 fullscreen 均支持。`/model` 选择器在提供商标签、模型行和推理档位之间移动时显示同样的光标，停稳 **0.5 秒后隐藏**；区域被裁剪时回落到模型行。会话管理界面也会在工作区栏、会话行与搜索框之间移动原生光标；输入时移到搜索框，导航时回到聚焦行。动画与拖尾效果在终端设置中配置。
+ - **图片** — Kitty/Sixel 缩略图，居中大图可缩放平移，粘贴前按限额适配，无图形时文字回退。Kitty 图片按预留格子的物理像素缩放，适配 HiDPI 终端。
+ - **Mermaid 图表** — ```` ```mermaid ```` 代码块画成 Unicode 字符图。
+-- **任务完成通知** — DSH、Claude、Codex 的实时任务成功结束，且没有排队的后续输入或活动目标时提醒。标题为「dsh-TUI · 任务已完成」，正文显示本轮最新回复的单行纯文本摘要（去掉 Markdown 样式，最多 200 字符）；OSC 777/9 还会按包含标题和协议开销的 2048 字节预算截短，保留完整字素；没有回复时只显示标题，BEL 只响铃。`/settings` → 对话：`taskNotifications` 可选 `unfocused`（默认，仅失焦）、`always`（每次完成）、`off`；`notificationMethod` 可选 `auto`（默认）、`osc9`、`bel`。自动模式在 Ghostty/WezTerm（OSC 777）与 Kitty（OSC 99）分别显示标题与正文；iTerm2/Warp 与显式 `osc9` 将标题放在正文前；其他终端使用响铃，实际提醒取决于终端的通知/响铃设置。tmux 的 OSC 通知需要 `set -g allow-passthrough on`，焦点报告需要 `set -g focus-events on`。不支持焦点报告的终端可选 `always`。回放、取消和失败不通知；inline 与 fullscreen 均支持。
++- **任务完成通知** — DSH、Claude、Codex 的实时任务成功结束，且没有排队的后续输入或活动目标时提醒。标题为「dsh-TUI · 任务已完成」，正文显示本轮最新回复的单行纯文本摘要（去掉 Markdown 样式，最多 200 字符）；OSC 777/9 还会按包含标题和协议开销的 2048 字节预算截短，保留完整字素，Ghostty 的正文缓冲额外限制为 255 字节；没有回复时只显示标题，BEL 只响铃。`/settings` → 对话：`taskNotifications` 可选 `unfocused`（默认，仅失焦）、`always`（每次完成）、`off`；`notificationMethod` 可选 `auto`（默认）、`osc9`、`bel`。自动模式在 Ghostty/WezTerm（OSC 777）与 Kitty（OSC 99）分别显示标题与正文；iTerm2/Warp 与显式 `osc9` 将标题放在正文前；其他终端使用响铃，实际提醒取决于终端的通知/响铃设置。tmux 的 OSC 通知需要 `set -g allow-passthrough on`，焦点报告需要 `set -g focus-events on`。不支持焦点报告的终端可选 `always`。回放、取消和失败不通知；inline 与 fullscreen 均支持。
+ - **LaTeX 公式** — `$…$` 与 `$$…$$` 公式转成 Unicode 文本，块级公式里的分数与上下限竖排；`mathRendering: image` 时在支持图形的终端里把块级公式与能压成一行的行内公式排成终端图片。
+ - **时间轴** — 全部回合可点；右栏时间线 / 滚动条 / 隐藏。
+ - **侧栏面板** — `Ctrl+B` 在聊天右侧展开面板列，拖拽分隔线即可调宽，默认启用全部 8 个内置面板；顶部以各面板符号显示未选中的页面，悬停显示名称。终端够宽才分栏，窄屏与 inline 模式保持整屏面板。
+diff --git a/scripts/verify-task-notifications.ts b/scripts/verify-task-notifications.ts
+index ad08395..1a507a0 100644
+--- a/scripts/verify-task-notifications.ts
++++ b/scripts/verify-task-notifications.ts
+@@ -113,7 +113,8 @@ try {
+   const header = osc(777, 'notify', notificationTitle, '')
+   const oscEnd = header.endsWith('\x07') ? '\x07' : '\x1b\\'
+   const oscPrefix = header.slice(0, -oscEnd.length)
+-  const bodyBudget = 2048 - Buffer.byteLength(header)
++  const ghosttyBodyBudget = 255
++  const ghosttyTitleBudget = 63
+   const assertReceiverBudget = (data: string): void => {
+     assert.ok(Buffer.byteLength(`\x1b]777;${data}${oscEnd}`) <= 2048, 'headless receiver enforces the complete OSC byte budget')
+   }
+@@ -125,15 +126,15 @@ try {
+   const deliveredBody = (packet: string): string => {
+     assert.ok(packet.startsWith(oscPrefix))
+     assert.ok(packet.endsWith(oscEnd))
+-    assert.ok(Buffer.byteLength(packet) <= 2048, 'full OSC 777 packet fits Ghostty, including title and terminator')
++    assert.ok(Buffer.byteLength(packet) <= 2048, 'full OSC 777 packet fits the receiver, including title and terminator')
+     return packet.slice(oscPrefix.length, -oscEnd.length)
+   }
+-  notifier.notify(notificationTitle, 'a'.repeat(bodyBudget))
++  notifier.notify(notificationTitle, 'a'.repeat(ghosttyBodyBudget))
+   const exactPacket = writes.pop()!
+-  assert.equal(Buffer.byteLength(exactPacket), 2048)
+-  assert.equal(deliveredBody(exactPacket), 'a'.repeat(bodyBudget), 'exact byte boundary does not truncate')
+-  notifier.notify(notificationTitle, 'a'.repeat(bodyBudget + 1))
+-  assert.equal(deliveredBody(writes.pop()!), `${'a'.repeat(bodyBudget - 3)}…`, 'ellipsis counts against the UTF-8 byte budget')
++  assert.equal(Buffer.byteLength(deliveredBody(exactPacket)), ghosttyBodyBudget, 'Ghostty body buffer is filled without truncation')
++  assert.equal(deliveredBody(exactPacket), 'a'.repeat(ghosttyBodyBudget), 'exact byte boundary does not truncate')
++  notifier.notify(notificationTitle, 'a'.repeat(ghosttyBodyBudget + 1))
++  assert.equal(deliveredBody(writes.pop()!), `${'a'.repeat(ghosttyBodyBudget - 3)}…`, 'ellipsis counts against the Ghostty body buffer')
+   for (const grapheme of ['👨‍👩‍👧‍👦', `e${'\u0301'.repeat(12)}`]) {
+     notifier.notify(notificationTitle, grapheme.repeat(200))
+     const body = deliveredBody(writes.pop()!)
+@@ -153,7 +154,7 @@ try {
+     byteSession.end(0)
+     byteSession.idle()
+     await nextDispatch()
+-    assert.ok(deliveredBody(writes.pop()!).endsWith('…'), 'real completion and preview generation also obey the Ghostty byte limit')
++    assert.ok(deliveredBody(writes.pop()!).endsWith('…'), 'real completion and preview generation also obey the Ghostty body buffer')
+   } finally {
+     byteChannel.releaseContributions()
+   }
+@@ -164,7 +165,15 @@ try {
+   assert.ok(deliveredBody(wrappedPacket.slice('\x1bPtmux;'.length, -2).replaceAll('\x1b\x1b', '\x1b')).endsWith('…'), 'byte cap applies to the OSC forwarded by tmux, before DCS wrapping')
+   delete process.env.TMUX
+   notifier.notify('x'.repeat(3000), 'reply')
+-  assert.ok(Buffer.byteLength(writes.pop()!) <= 2048, 'an oversized title also respects the packet budget')
++  const titlePacket = writes.pop()!
++  const titlePayload = titlePacket.slice(titlePacket.indexOf(';') + 1, -oscEnd.length)
++  const firstSeparator = titlePayload.indexOf(';')
++  const secondSeparator = titlePayload.indexOf(';', firstSeparator + 1)
++  assert.ok(Buffer.byteLength(titlePayload.slice(firstSeparator + 1, secondSeparator)) <= ghosttyTitleBudget, 'an oversized title respects the Ghostty title buffer')
++  process.env.TERM_PROGRAM = 'WezTerm'
++  const weztermBodyBudget = 2048 - Buffer.byteLength(header)
++  notifier.notify(notificationTitle, 'a'.repeat(weztermBodyBudget))
++  assert.equal(Buffer.byteLength(writes.pop()!), 2048, 'WezTerm keeps the full OSC byte budget')
+   process.env.TERM_PROGRAM = 'kitty'
+   const longReply = '👨‍👩‍👧‍👦'.repeat(200)
+   notifier.notify('Task complete', longReply)
+@@ -190,6 +199,7 @@ try {
+     assert.equal(getNotificationProtocol(), term === 'xterm-kitty' ? 'osc99' : 'osc777')
+   }
+   process.env.TERM = 'xterm-256color'
++  process.env.TERM_PROGRAM = 'ghostty'
+   notifier.configure('always', 'osc9')
+   setTerminalFocused(true)
+   process.env.TMUX = '/tmp/fixture,1,0'
+@@ -199,7 +209,9 @@ try {
+   notifier.notify('Task complete', 'latest reply')
+   assert.equal(writes.pop(), osc(9, 'Task complete: latest reply'), 'explicit OSC 9 retains a title prefix')
+   notifier.notify(notificationTitle, longReply)
+-  assert.ok(Buffer.byteLength(writes.pop()!) <= 2048, 'explicit OSC 9 also fits Ghostty when used as a compatibility override')
++  const osc9Packet = writes.pop()!
++  const osc9Payload = osc9Packet.slice(osc9Packet.indexOf(';') + 1, osc9Packet.endsWith('\x07') ? -1 : -2)
++  assert.ok(Buffer.byteLength(osc9Payload) <= 255, 'explicit OSC 9 also respects Ghostty\'s body buffer')
+   notifier.configure('off', 'osc9')
+   notifier.notify('done')
+   stdout.isTTY = false
+diff --git a/src/ink/terminal-notification.ts b/src/ink/terminal-notification.ts
+index ee92823..2c7d143 100644
+--- a/src/ink/terminal-notification.ts
++++ b/src/ink/terminal-notification.ts
+@@ -1,5 +1,5 @@
+ import { getTerminalFocused } from './terminal-focus-state.js'
+-import { getNotificationProtocol } from './terminal.js'
++import { getNotificationProtocol, isGhostty } from './terminal.js'
+ import { BEL } from './termio/ansi.js'
+ import { OSC, osc, wrapForMultiplexer } from './termio/osc.js'
+ import { logForDebugging } from '../utils/debug.js'
+@@ -12,6 +12,14 @@ export type NotificationMethod = 'auto' | 'osc9' | 'bel'
+ // sequence also reserves the introducer and terminator conservatively.
+ const MAX_OSC_BYTES = 2048
+ 
++// Ghostty's apprt copies OSC 9/777 notifications into fixed [63:0] title and
++// [255:0] body buffers (src/apprt/surface.zig). 1.3.1 truncates at the byte
++// limit without backing up to a UTF-8 boundary, so a longer payload can split
++// a character and surface as "[Invalid UTF-8]". Keep our payload inside those
++// buffers; the OSC framing budget above is a separate limit.
++const GHOSTTY_TITLE_BYTES = 63
++const GHOSTTY_BODY_BYTES = 255
++
+ function truncateUtf8(text: string, maxBytes: number): string {
+   if (Buffer.byteLength(text) <= maxBytes) return text
+   const suffix = maxBytes >= 3 ? '…' : ''
+@@ -40,13 +48,20 @@ export function createTerminalNotifier(stdout: Pick<NodeJS.WriteStream, 'isTTY'
+     notify(title: string, message = ''): void {
+       if (!stdout.isTTY || condition === 'off' || (condition === 'unfocused' && getTerminalFocused())) return
+       const resolved = method === 'auto' ? getNotificationProtocol() : method
++      const ghostty = isGhostty()
+       let sequence: string
+       if (resolved === 'osc777') {
+         // OSC 777 separates title and body with semicolons; only the body
+         // may contain that delimiter. OSC 9 has no separate title field.
+-        const titleBudget = MAX_OSC_BYTES - Buffer.byteLength(osc(OSC.GHOSTTY, 'notify', '', ''))
++        const titleBudget = Math.min(
++          MAX_OSC_BYTES - Buffer.byteLength(osc(OSC.GHOSTTY, 'notify', '', '')),
++          ghostty ? GHOSTTY_TITLE_BYTES : Number.POSITIVE_INFINITY,
++        )
+         const safeTitle = truncateUtf8(title.replaceAll(';', ' '), titleBudget)
+-        const bodyBudget = MAX_OSC_BYTES - Buffer.byteLength(osc(OSC.GHOSTTY, 'notify', safeTitle, ''))
++        const bodyBudget = Math.min(
++          MAX_OSC_BYTES - Buffer.byteLength(osc(OSC.GHOSTTY, 'notify', safeTitle, '')),
++          ghostty ? GHOSTTY_BODY_BYTES : Number.POSITIVE_INFINITY,
++        )
+         sequence = osc(OSC.GHOSTTY, 'notify', safeTitle, truncateUtf8(message, bodyBudget))
+       } else if (resolved === 'osc99') {
+         const id = ++notificationId
+@@ -66,7 +81,10 @@ export function createTerminalNotifier(stdout: Pick<NodeJS.WriteStream, 'isTTY'
+         sequence += chunks.map((part, index) => osc(OSC.KITTY, `i=${id}:d=${index === chunks.length - 1 ? 1 : 0}:p=body`, part)).join('')
+       } else {
+         const payload = message ? `${title}: ${message}` : title
+-        const budget = MAX_OSC_BYTES - Buffer.byteLength(osc(OSC.ITERM2, ''))
++        const budget = Math.min(
++          MAX_OSC_BYTES - Buffer.byteLength(osc(OSC.ITERM2, '')),
++          ghostty ? GHOSTTY_BODY_BYTES : Number.POSITIVE_INFINITY,
++        )
+         sequence = resolved === 'bel' ? BEL : osc(OSC.ITERM2, truncateUtf8(payload, budget))
+       }
+       try {
+diff --git a/src/ink/terminal.ts b/src/ink/terminal.ts
+index a6ae9cd..a6a1dbc 100644
+--- a/src/ink/terminal.ts
++++ b/src/ink/terminal.ts
+@@ -205,12 +205,24 @@ export function setXtversionName(name: string): void {
+   if (xtversionName === undefined) xtversionName = name
+ }
+ 
++/**
++ * True when the receiving terminal is Ghostty, using the same env and
++ * XTVERSION evidence as the notification protocol probe.
++ * @returns true for Ghostty, including a probed name over SSH.
++ */
++export function isGhostty(): boolean {
++  const program = process.env.TERM_PROGRAM?.toLowerCase()
++  const term = process.env.TERM
++  const probed = xtversionName ?? ''
++  return program === 'ghostty' || term === 'xterm-ghostty' || /^ghostty\b/i.test(probed)
++}
++
+ /** Notification protocol, using the existing SSH-capable terminal probe. */
+ export function getNotificationProtocol(): 'osc777' | 'osc99' | 'osc9' | 'bel' {
+   const program = process.env.TERM_PROGRAM?.toLowerCase()
+   const term = process.env.TERM
+   const probed = xtversionName ?? ''
+-  if (program === 'ghostty' || program === 'wezterm' || term === 'xterm-ghostty' || /^(ghostty|wezterm)\b/i.test(probed)) return 'osc777'
++  if (isGhostty() || program === 'wezterm' || /^wezterm\b/i.test(probed)) return 'osc777'
+   if (program === 'kitty' || term === 'xterm-kitty' || /^kitty\b/i.test(probed)) return 'osc99'
+   if (program === 'iterm.app' || program === 'warpterminal' || /^(iterm2?|warp(?:terminal)?)\b/i.test(probed)) return 'osc9'
+   return 'bel'
+diff --git a/src/settings/definitions.ts b/src/settings/definitions.ts
+index 7df6f42..e8ce1ec 100644
+--- a/src/settings/definitions.ts
++++ b/src/settings/definitions.ts
+@@ -472,8 +472,8 @@ export const SETTING_DEFINITIONS = {
+     label: 'Task completion notifications',
+     descriptions: { zh: '任务完成通知' },
+     group: 'conversation',
+-    hint: 'Notify when successful live work finishes with no queued follow-up or active goal. The title is dsh-TUI · Task complete; the body previews the latest reply as plain text in one line, with Markdown formatting removed, up to 200 characters. OSC 777/9 may shorten it further to fit a 2048-byte sequence budget without splitting characters. No reply shows only the title; BEL only rings. Default: only while the terminal is unfocused. Off disables notifications; Always also notifies while focused or when focus reporting is unavailable. Replay, cancellation and errors stay quiet. Applies immediately.',
+-    hintDescriptions: { zh: '实时任务成功结束、没有排队的后续输入或活动目标时提醒。标题为「dsh-TUI · 任务已完成」，正文显示最新回复的单行纯文本摘要，去掉 Markdown 样式，最多 200 字符；OSC 777/9 还会按完整序列的 2048 字节预算截短，不拆字符；没有回复时只显示标题，BEL 只响铃。默认仅在终端失去焦点时通知；关闭可禁用，每次完成则在终端聚焦或不支持焦点报告时也通知。回放、取消和失败不通知。立即生效。' },
++    hint: 'Notify when successful live work finishes with no queued follow-up or active goal. The title is dsh-TUI · Task complete; the body previews the latest reply as plain text in one line, with Markdown formatting removed, up to 200 characters. OSC 777/9 may shorten it further to fit a 2048-byte sequence budget without splitting characters; Ghostty additionally caps the body at 255 bytes. No reply shows only the title; BEL only rings. Default: only while the terminal is unfocused. Off disables notifications; Always also notifies while focused or when focus reporting is unavailable. Replay, cancellation and errors stay quiet. Applies immediately.',
++    hintDescriptions: { zh: '实时任务成功结束、没有排队的后续输入或活动目标时提醒。标题为「dsh-TUI · 任务已完成」，正文显示最新回复的单行纯文本摘要，去掉 Markdown 样式，最多 200 字符；OSC 777/9 还会按完整序列的 2048 字节预算截短，不拆字符，Ghostty 的正文缓冲额外限制为 255 字节；没有回复时只显示标题，BEL 只响铃。默认仅在终端失去焦点时通知；关闭可禁用，每次完成则在终端聚焦或不支持焦点报告时也通知。回放、取消和失败不通知。立即生效。' },
+     kind: 'select',
+     options: [
+       { value: 'unfocused', label: 'When unfocused', descriptions: { zh: '仅失焦时' } },
