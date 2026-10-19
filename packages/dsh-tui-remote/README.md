@@ -39,6 +39,19 @@ typed `modes` 能力：
 5. `auto` 被排除：它的 session 级风险确认只存在于 DSH 的 `/permission` 预设选择器里，
    当作普通 backend mode 展示会绕过风险门。
 
+## `/model` 行内提供方前缀
+
+上游只在 `最近使用` 分组里把行写成 `provider / name`，切到真实 provider 标签后退化成
+只有 `name`。远程目录里跨网关重名是常态（`deepseek-relay`、`runinfra`、`openrouter`、
+`nvidia-nim` 都挂着「DeepSeek V4.1 Flash」这类显示名），只给名字就说不出这行切到哪个
+路由。本包的改动：行文本恒为 `provider / name`，与「实时搜索跨全部标签」的分组无关
+——搜索命中的行也必须自证属于哪个 provider。
+
+副作用是上游 `verify-model-picker-ui.tsx` 里一对断言（「标签被裁时不显示
+`alpha / Short model`」/「标签可见时显示」）的前提消失：它们断言的是前缀只在该补偿
+场景出现。改为在 `catalog ready` 处直接断言每行都带前缀，两条 caret 断言只保留 caret
+性质。
+
 ## `--model`（暂未接入）
 
 以下为原设计，当前构建不包含该补丁：启动器仍会把 `--model` 的值搬进
@@ -90,7 +103,7 @@ nix build .#dsh-tui-remote     # 已验证通过（2026-10-19）
 ```
 
 四个 hash 都已填好（源码、pnpm 11 tarball、根 node_modules FOD、vendor node_modules FOD）。
-2026-10-19 实际构建产物：`/nix/store/rbbhnvfln3m0ifpyk8h1s05n54r779zs-dsh-tui-remote-0.16.1`；
+2026-10-19 实际构建产物：`/nix/store/3zphz4igbjqakz5nhal366m9ijcn3zra-dsh-tui-remote-0.16.1`；
 两个依赖 FOD 的 hash 已按当前 lockfile 的真实依赖树回填。
 
 启动由 `modules/home/dsh` 的 `dshTuiRemote` 包装器负责：`DSH_TUI_REMOTE_TREE` 现在指向
