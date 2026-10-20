@@ -1176,3 +1176,51 @@ Nix 产物上重跑 `verify.js --no-live`：8/8；在 tmux 真 pty 里用
    it (usually the web UI); press Esc here to cancel this turn.`
 3. 清理：`session/cancel` 返回 `accepted:true`，该 scratch 回合被取消，不留悬挂会话。
 4. Esc 取消路径沿用既有 `session/cancel`（§15 已验）。
+
+## 39. 宿主重启后的"吞消息"：单代流（2026-10-20）
+
+### 39.1 现场
+
+用户在一个 TUI 窗口里连发两条消息，屏幕毫无反应（连自己的话都不出现）；新开一个窗口
+却能看到这两条已经发出去，且新窗口同步正常。宿主日志里两条都在（`session-8c55e0d0…`
+的 turn 11/12 正常跑完），说明消息不但在，还被处理了。
+
+时间线对得上：窗口 A 于 `17:15:05` 打开，`17:20:15` `dsh-web` 重启，`17:21:48` 起用户
+连续输入（`17:22:29`、`17:22:44`、`17:23:03` 三条"继续"），`17:23:14` 开了窗口 B。
+窗口 A 的进程至今仍活着，且持有一条**重启之后**新建到 `:3080` 的连接——即连接换代过。
+
+### 39.2 根因
+
+1. 生成式远程方法返回的是**单代流**：`invokeStream` → `ClientStreamHandle`，socket
+   一断就以 `RemoteStreamCarrierError` 抛出并 dispose，不重试、不续传。
+2. 客户端把 `session/follow` 和 `session/control` 直接当长流迭代，没有重连层，也没有
+   订阅 `connection/reset`；`pump` 的 catch 只在 `DSH_TUI_DEBUG=1` 时输出，`projections`
+   的 catch 完全静默。
+3. 一元 RPC 走 `connection.rpc`，按代重建，所以 `session/prompt` 继续成功。`submit` 又
+   在 RPC 确认后立刻撤掉本地预览（`pending.changed claimed`），指望关闭环回显——流一死，
+   屏幕上什么都不留。
+4. 结果：**能写不能读**。新窗口正常是因为新进程重开一条流、重新拉快照。
+
+### 39.3 修法
+
+1. 用库自带的两层：`ctx.remote.$stream()`（carrier 失败后等新连接代、重开同一请求）+
+   `RemoteSnapshotStream`（baseline 重建 + delta 叠加）。`session/follow` 与
+   `session/control` 都是"一帧 baseline 加后续 delta"，形状天然吻合。
+2. 第一代 snapshot 仍走 `translateReplay` 填 `history()`；后续代交给 `resync()`：
+   只重放 `seq > cursor` 的记录（projector 按 seq 去重），并用 snapshot 的
+   `assistantStream.revision` 重置帧栅栏——重启后的帧编号从新一代开始，旧栅栏会把它们
+   全判成过期。
+3. `projections` 收到新 baseline 时整块替换 fold，不合并：宿主重启后旧 cut 的模型/权限
+   不该继续显示。
+4. 不再静默：超出回放窗口的缺口投 `remote-stream-gap`，重试彻底放弃投
+   `remote-stream-lost`。
+
+### 39.4 验证
+
+1. 对照实验（同一脚本、同一场景：建会话 → 发一条 → `SIGTERM` 宿主 → 重启 → 再发一条）：
+   - 旧构建：第二条 `session/prompt` 返回 `accepted=true`，但回显永不到达（复现吞消息）；
+   - 新构建：连接换代后回显正常到达，`lost=false`。
+2. `dsh-tui-remote-verify` 对活宿主 22/22（含一次真实 `session/prompt` 与
+   `turn.start → user.message → assistant.message → turn.end`）。
+3. 尚未覆盖：断线时间超过宿主回放窗口（200 条 message）时的缺口——现在是**报告**而不是
+   补页；要补齐需要 `session/page` 反向翻页，按 KISS 留作后置兜底。

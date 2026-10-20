@@ -12,7 +12,36 @@
 | `permission-presets.patch` | 叠加在上一份之上：Host 权限预设 → 远程会话 typed `modes`（`/permission`、Shift+Tab） |
 | `preset-support.patch` | 叠加在上一份之上：Host agent-preset 名册 → 远程会话 typed `presets`（`/preset`） |
 | `notification-ghostty-cap.patch` | 按 Ghostty 固定通知缓冲（title 63 B / body 255 B）截断 OSC 777/9，避免 255 B 盲截切开 UTF-8 |
+| `stream-resume.patch` | 叠加在上一份之上：`session/follow` 与 `session/control` 换成跨连接代可恢复的流，宿主重启后自动续传 |
 | `startup-model.patch` | **暂存，未接入构建**：`--model` 启动路由，见下 |
+
+## 断线续传（`session/follow` / `session/control`）
+
+生成式远程方法返回的是**单代流**（`ClientStreamHandle`）：WebSocket 一断——`dsh web`
+重启、连接换代——迭代器就带着 `RemoteStreamCarrierError` 结束，不会重开。而一元 RPC
+走的是按代重建的 `connection.rpc`，照常成功。两者叠加的后果：宿主重启后窗口仍能发消息
+（消息真的落到了宿主并被处理），却再也收不到任何帧——用户回显、流式输出、回合结束全都
+不出现，看起来像"消息被吞了"；新开一个窗口反而正常，因为新进程会重新拉一次快照。
+
+`stream-resume.patch` 的改法是把两条流交给 `ctx.remote.$stream()`（Gateway 客户端的
+重连生命周期：carrier 失败后等新连接代、重开同一个请求）并套上
+`RemoteSnapshotStream`（baseline 重建 + delta 叠加）：
+
+1. `remote/live.ts`：`openLiveStream()` 一处封装，`session/follow` 与
+   `session/control` 共用；`ended()` 一律按 carrier 失败分类，因为这两条流没有终止帧。
+2. `session.ts`：第一代的 snapshot 仍走 `translateReplay` 当 `history()`；后续代的
+   snapshot 交给 `resync()`——只重放 `seq > cursor` 的记录（projector 按 seq 去重，
+   不会重复画行），并用 snapshot 的 `assistantStream.revision` 重置帧栅栏
+   （`translate.ts` 的 `resync()`），否则重启后的帧会全部被判成过期。
+3. 断线期间丢掉的记录若超出宿主回放窗口（`maxMessages: 200`），不再静默：投一条
+   `remote-stream-gap` notice；重试彻底放弃时投 `remote-stream-lost`，而不是继续假装
+   会话还能刷新。
+4. `projections.ts`：新 baseline 整块**替换** fold（不合并），宿主重启后状态栏不会残留
+   上一次运行的选择。
+
+验收（2026-10-20）：同一脚本对旧/新构建各跑一次——断开宿主、重启、再发一条；旧构建
+`session/prompt` 返回 accepted 但回显永不到达（复现吞消息），新构建回显正常到达，
+`lost=false`。`dsh-tui-remote-verify` 22/22。
 
 ## Ghostty 通知截断
 
@@ -158,9 +187,9 @@ Host 的 `ask_user_question` 默认是 **legacy 阻塞模式**（`dsh-tool-ask-u
 dsh-tui-remote-verify                  # 描述符 / 方法名 / 事件字段 / 权限 catalog / preset 名册与切换 / compact
 ```
 
-全过才算可用；失败说明上游动了客户端依赖的面（见设计文档 §30）。升级时四份补丁都要
-在干净的 `tag` 树上 `git apply --check`：`remote-mode.patch` → `permission-presets.patch`
-→ `preset-support.patch` → `notification-ghostty-cap.patch`。
+全过才算可用；失败说明上游动了客户端依赖的面（见设计文档 §30）。升级时五份补丁都要
+在干净的 `tag` 树上按序 `git apply --check`：`remote-mode` → `permission-presets` →
+`preset-support` → `notification-ghostty-cap` → `stream-resume`。
 
 ## 怎么建
 
@@ -169,8 +198,9 @@ nix build .#dsh-tui-remote     # 已验证通过（2026-10-19）
 ```
 
 四个 hash 都已填好（源码、pnpm 11 tarball、根 node_modules FOD、vendor node_modules FOD）。
-2026-10-20 实际构建产物：`/nix/store/y5hkmxzllih48rmrkzs5hyilm3wkgyi9-dsh-tui-remote-0.16.1`
-（补丁链：`remote-mode` → `permission-presets` → `preset-support` → `notification-ghostty-cap`）；
+2026-10-20 实际构建产物：`/nix/store/cpjppah945m2npgqnnhqbxzxyzphfw00-dsh-tui-remote-0.16.1`
+（补丁链：`remote-mode` → `permission-presets` → `preset-support` → `notification-ghostty-cap`
+→ `stream-resume`）；
 两个依赖 FOD 的 hash 已按当前 lockfile 的真实依赖树回填。
 
 启动由 `modules/home/dsh` 的 `dshTuiRemote` 包装器负责：`DSH_TUI_REMOTE_TREE` 现在指向

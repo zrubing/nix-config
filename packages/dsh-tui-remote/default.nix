@@ -75,6 +75,8 @@ stdenv.mkDerivation (finalAttrs: {
   # `presets`（`/preset` 选择器、`/preset <id>`、`/preset status`）；
   # notification-ghostty-cap.patch 按 Ghostty apprt 的固定通知缓冲
   # （title 63 B / body 255 B）截断 OSC 777/9，避免其盲截 255 B 时切开 UTF-8。
+  # stream-resume.patch 把 `session/follow` 与 `session/control` 换成跨连接代可
+  # 恢复的流：宿主重启/断线后自动续传，而不是让窗口继续能发消息却收不到任何帧。
   #
   # startup-model.patch 暂不接入：它按旧版源码行号生成（session.ts:1556），套不上
   # v0.16.1；且它依赖的 agentDefaultModel 在 Host 侧没有 typert.remote-client 面。
@@ -84,6 +86,7 @@ stdenv.mkDerivation (finalAttrs: {
     ./permission-presets.patch
     ./preset-support.patch
     ./notification-ghostty-cap.patch
+    ./stream-resume.patch
   ];
 
   # pnpm 11 从 **workspace 清单**读 trustPolicy / minimumReleaseAge，命令行
