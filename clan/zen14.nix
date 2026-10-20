@@ -68,6 +68,22 @@
     '';
   };
 
+  # OpenCode Go 网关 key（https://opencode.ai/inference/go/v1）。
+  # 消费方：home sops 渲染进 dsh.env（dsh opencode-go provider 的 apiKeyEnv）
+  # 与 default.env（终端 agent 的 OPENCODE_API_KEY）。
+  # 换 key：clan vars set zen14 opencode-api-key/api-key
+  clan.core.vars.generators.opencode-api-key = {
+    prompts.api-key = {
+      description = "OpenCode Go gateway API key";
+      type = "hidden";
+    };
+    files.api-key.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/api-key > $out/api-key
+    '';
+  };
+
   # 企业 openai relay 的历史 API key + 共享 base URL。
   # api-key 保留给 openai-relay 自身，不跟随 deepseek-relay 轮换；base-url 仍由
   # dsh 的 deepseek-relay 与内置 catalog 路由 openai 共同消费。

@@ -97,8 +97,13 @@ in
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
 
+    # OpenCode Go 网关 key：密文由 clan vars 管理（clan/zen14.nix 的
+    # opencode-api-key generator，写入 vars/per-machine/zen14/opencode-api-key/）。
+    # 渲染进 dsh.env / default.env 的 OPENCODE_API_KEY。
+    # 换 key：clan vars set zen14 opencode-api-key/api-key
     sops.secrets."opencode/api_key" = {
-      sopsFile = "${mysecrets}/secrets/env.yaml";
+      sopsFile = ../../../vars/per-machine/zen14/opencode-api-key/api-key/secret;
+      format = "binary";
     };
     sops.secrets."openai/api_key" = {
       sopsFile = "${mysecrets}/secrets/env.yaml";
