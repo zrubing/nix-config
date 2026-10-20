@@ -1,0 +1,755 @@
+diff --git a/scripts/verify-backend-channel.ts b/scripts/verify-backend-channel.ts
+index 4f05ee3..d353962 100644
+--- a/scripts/verify-backend-channel.ts
++++ b/scripts/verify-backend-channel.ts
+@@ -288,6 +288,53 @@ try {
+   }
+ }
+ 
++// ── agent presets over the typed `presets` capability ────────────────
++// `/preset` on a non-DSH session: the backend's roster is the picker, the
++// switch is the backend's own (blank-only), and a locked refusal is reported
++// as the rule rather than a generic failure. DSH keeps its extension path;
++// this layer only serves sessions that declare the capability.
++{
++  let current = 'standard'
++  const picks: string[] = []
++  const presetful = fakeSession('55555555-5555-4555-8555-555555555555', {
++    presets: {
++      list: () => Promise.resolve([
++        { id: 'standard', name: 'Standard', isDefault: true },
++        { id: 'minimal', name: 'Minimal' },
++        { id: 'broken', broken: 'activation failed' },
++      ]),
++      current: () => current,
++      set: id => {
++        if (id === 'broken') return Promise.resolve({ kind: 'refused' as const, reason: 'activation failed' })
++        if (id === 'started') return Promise.resolve({ kind: 'refused' as const, reason: 'already started', cause: 'locked' as const })
++        picks.push(id)
++        current = id
++        return Promise.resolve({ kind: 'switched' as const, preset: id })
++      },
++    },
++  })
++  const presetChannel = createChannel(ctx, presetful, { model: 'm', provider: '', cwd: workdir, activity: false, backendLabel: 'Fake Agent' })
++  try {
++    const offered = presetChannel.commandList.map(command => command.name)
++    check('a presets-capable backend offers /preset', offered.includes('preset') && presetChannel.backendCapabilities.presets === true, offered.join(','))
++    check('the preset command joins the snapshot exactly once', offered.filter(name => name === 'preset').length === 1 && JSON.stringify(presetChannel.backendCapabilities.commands) === JSON.stringify(offered), offered.join(','))
++    check('the snapshot marks the pick as session-local (no default persistence)', presetChannel.backendCapabilities.presetDefault === false)
++    const roster = await presetChannel.listPresets()
++    check('listPresets maps the typed roster', JSON.stringify(roster) === JSON.stringify([
++      { id: 'standard', name: 'Standard', isDefault: true },
++      { id: 'minimal', name: 'Minimal', isDefault: false },
++      { id: 'broken', broken: 'activation failed', isDefault: false },
++    ]), JSON.stringify(roster))
++    check('switchPreset delegates and writes the resolved identity', await presetChannel.switchPreset('minimal') === true && presetChannel.agentPreset === 'minimal' && JSON.stringify(picks) === JSON.stringify(['minimal']))
++    check('switching to the current preset says so without a backend call', await presetChannel.switchPreset('minimal') === true && presetChannel.notifications.some(item => item.text === t('preset-already-current', { id: 'minimal' })) && picks.length === 1)
++    check('a locked refusal keeps the current preset and reports the rule', await presetChannel.switchPreset('started') === false && presetChannel.agentPreset === 'minimal' && presetChannel.notifications.some(item => item.text === t('preset-locked', { current: 'minimal' })))
++    check('a refused switch reports the backend reason', await presetChannel.switchPreset('broken') === false && presetChannel.notifications.some(item => item.text === t('preset-switch-failed', { err: 'activation failed' })))
++    check('Tab still offers /preset status (the Host roster is read on open)', presetChannel.commandCompletions('/preset ').some(item => item.name === 'preset status'))
++  } finally {
++    presetChannel.releaseContributions()
++  }
++}
++
+ // ── rejecting capabilities, silent boot effort, no fold, `!!` after the
+ //    session closed, backend config normalization ────────────────────────
+ {
+diff --git a/src/adapter/ports/channel-display.ts b/src/adapter/ports/channel-display.ts
+index ceeea63..a356bc4 100644
+--- a/src/adapter/ports/channel-display.ts
++++ b/src/adapter/ports/channel-display.ts
+@@ -108,6 +108,9 @@ export interface StatusBarConfig {
+   goal: boolean
+   /** Non-default session mode. */
+   mode: boolean
++  /** Agent preset the session runs (the composition: standard / minimal / a
++   *  custom id). Rendered only when the backend reports one. */
++  preset: boolean
+   /** Segmented context progress bar on its own footer row. */
+   contextBar: boolean
+   /** Idle working-activity summary. */
+diff --git a/src/adapter/ports/channel-view.ts b/src/adapter/ports/channel-view.ts
+index 714021b..57bfd98 100644
+--- a/src/adapter/ports/channel-view.ts
++++ b/src/adapter/ports/channel-view.ts
+@@ -1186,6 +1186,13 @@ export interface ChannelCapabilities {
+    *  backend through its typed `goals` capability. False = `/goal` is
+    *  refused as unavailable on this backend. */
+   readonly goals: boolean
++  /** `/preset` is served: DSH through its extensions, another backend through
++   *  its typed `presets` capability. False = refused as unavailable. */
++  readonly presets: boolean
++  /** `/preset` also saves the pick as the default for later sessions (the DSH
++   *  extension's per-user preference). False on a backend whose roster is the
++   *  Host's: new sessions there follow the Host-configured default. */
++  readonly presetDefault: boolean
+ }
+ 
+ /**
+diff --git a/src/agent/capabilities.ts b/src/agent/capabilities.ts
+index e403db3..32c023c 100644
+--- a/src/agent/capabilities.ts
++++ b/src/agent/capabilities.ts
+@@ -49,6 +49,29 @@ export type ModelSwitchOutcome =
+   | { readonly kind: 'switched' }
+   | { readonly kind: 'refused'; readonly reason: string }
+ 
++/** One roster entry a backend's `/preset` picker lists. */
++export interface PresetChoice {
++  readonly id: string
++  /** Display name the roster published. */
++  readonly name?: string
++  /** One sentence on what the preset is for. */
++  readonly description?: string
++  /** Why the preset cannot compose a session; absent when it can. */
++  readonly broken?: string
++  /** Whether a session naming no preset composes this one. */
++  readonly isDefault?: boolean
++}
++
++/** What a preset switch did. */
++export type PresetSwitchOutcome =
++  | { readonly kind: 'switched'; readonly preset: string }
++  | {
++      readonly kind: 'refused'
++      readonly reason: string
++      /** `locked`: the conversation started, so its composition is fixed. */
++      readonly cause?: 'locked'
++    }
++
+ /** A selectable reasoning-effort level. */
+ export interface EffortOption {
+   readonly id: string
+@@ -217,6 +240,18 @@ export interface SessionCapabilities {
+     current(): string
+     set(id: string): Promise<void>
+   }
++  /**
++   * The backend's agent-preset roster (`/preset` on a non-DSH session): the
++   * picker's options, the composition the bound session runs, and the switch.
++   * `set` refuses once the conversation has started (`cause: 'locked'`) — that
++   * blank-only rule is the composition's, not this client's. DSH keeps its
++   * own integration through the extensions, so it declares none.
++   */
++  readonly presets?: {
++    list(): Promise<readonly PresetChoice[]>
++    current(): string | undefined
++    set(id: string): Promise<PresetSwitchOutcome>
++  }
+   /**
+    * The backend's relay channel profiles (the Claude backend's channels.json):
+    * the /channel picker's roster, the active pick (whose mapping the model
+diff --git a/src/channel/capabilities.ts b/src/channel/capabilities.ts
+index a94b0f4..b60fb3d 100644
+--- a/src/channel/capabilities.ts
++++ b/src/channel/capabilities.ts
+@@ -52,6 +52,9 @@ export function channelCapabilities(input: {
+     // DSH serves /goal through its registry row; another backend through
+     // the typed `goals` capability (BACKEND_GOAL_COMMAND below).
+     goals: input.dsh || caps.goals !== undefined,
++    // DSH serves /preset through its extensions; another backend through
++    // the typed `presets` capability (the channel's listPresets/switchPreset).
++    presets: input.dsh || caps.presets !== undefined,
+   }
+   return Object.freeze({
+     backendId: input.backendId,
+@@ -74,6 +77,10 @@ export function channelCapabilities(input: {
+       ...(input.dsh || caps.goals === undefined ? [] : ['goal']),
+     ]),
+     retractPending: caps.pendingRetraction !== undefined,
++    // `/preset` writes the pick to the DSH extension's per-user preference
++    // (the default for later sessions). A backend whose roster is the Host's
++    // does not: the Host's configured default decides new sessions there.
++    presetDefault: input.dsh,
+     ...flags,
+   })
+ }
+diff --git a/src/channel/projection.ts b/src/channel/projection.ts
+index 78ada16..2e350ec 100644
+--- a/src/channel/projection.ts
++++ b/src/channel/projection.ts
+@@ -110,7 +110,13 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
+   let reasoningStart = 0
+   /** Decode-throughput fold for the current turn. One step is one model call
+    *  plus its tools; summing only first-token → message spans excludes tool
+-   *  execution and per-request TTFT from generation speed. */
++   *  execution and per-request TTFT from generation speed.
++   *
++   *  A rate needs a measurable span: a two-token reply whose deltas and
++   *  settlement share a millisecond otherwise reads as thousands of tps, and
++   *  the status bar would print that as fact. Both the live and the settlement
++   *  sampling paths hold off until this much decode time has accumulated. */
++  const MIN_TPS_WINDOW_MS = 500
+   let tpsTurn: number | undefined
+   let tpsBeforeTurn: number | undefined
+   let tpsTurnDecodeMs = 0
+@@ -531,7 +537,7 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
+       tps.firstTokenTime ??= time
+       tps.outputEstimate += tokenDeltaEstimate(delta)
+       const elapsedMs = Math.max(0, time - tps.firstTokenTime)
+-      if (elapsedMs > 500) {
++      if (elapsedMs > MIN_TPS_WINDOW_MS) {
+         const decodeMs = tpsTurnDecodeMs + elapsedMs
+         const outputTokens = tpsTurnDecodeTokens + Math.ceil(tps.outputEstimate)
+         state.tps = outputTokens / (decodeMs / 1000)
+@@ -708,7 +714,7 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
+       if (outputTokens !== undefined) {
+         tpsTurnDecodeTokens += outputTokens
+         tpsTurnSampled = true
+-        if (tpsTurnDecodeMs > 0) {
++        if (tpsTurnDecodeMs > MIN_TPS_WINDOW_MS) {
+           state.tps = tpsTurnDecodeTokens / (tpsTurnDecodeMs / 1000)
+         }
+       }
+@@ -1366,6 +1372,11 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
+         // (a translator bug must not turn a marker into a projector throw).
+         const aliases: unknown = event.aliases
+         const preset = current !== undefined && Array.isArray(aliases) && aliases.includes(current) ? current : event.preset
++        // The durable record of the composition outlives this client's
++        // knowledge of it: adopt the log's spelling (a replayed log on resume,
++        // or a switch another client made) so `/preset status` never reports
++        // a composition the session no longer runs.
++        state.agentPreset = preset
+         appendRow({
+           id: deps.rowIds.value,
+           kind: 'notice',
+diff --git a/src/commands.ts b/src/commands.ts
+index 8b94667..9a6a9a7 100644
+--- a/src/commands.ts
++++ b/src/commands.ts
+@@ -194,6 +194,7 @@ export const BACKEND_GOAL_COMMAND: LocalCommand = {
+ export type LocalCommandRequirement =
+   | 'any' | 'dsh' | 'models' | 'effort' | 'compact' | 'rewind' | 'fork' | 'resume'
+   | 'subagents' | 'tasks' | 'mcp' | 'context' | 'login' | 'sideQuery' | 'rename' | 'color' | 'init'
++  | 'presets'
+ 
+ const LOCAL_COMMAND_REQUIREMENTS: ReadonlyMap<string, LocalCommandRequirement> = new Map<string, LocalCommandRequirement>([
+   ['new', 'any'], ['clear', 'any'], ['status', 'any'], ['cost', 'any'], ['tokens', 'any'],
+@@ -207,6 +208,7 @@ const LOCAL_COMMAND_REQUIREMENTS: ReadonlyMap<string, LocalCommandRequirement> =
+   ['compact', 'compact'], ['resume', 'resume'], ['home', 'resume'], ['agentview', 'resume'],
+   ['bg', 'resume'], ['background', 'resume'], ['rewind', 'rewind'], ['fork', 'fork'],
+   ['model', 'models'], ['effort', 'effort'], ['agents', 'subagents'], ['jobs', 'tasks'], ['mcp', 'mcp'],
++  ['preset', 'presets'],
+   ['context', 'context'], ['login', 'login'], ['logout', 'login'], ['init', 'init'],
+   ['recap', 'sideQuery'], ['btw', 'sideQuery'], ['rename', 'rename'], ['color', 'color'],
+   // /trace opens on every backend; one without trajectory data shows the
+diff --git a/src/dsh-adapter/channel/core/actions.ts b/src/dsh-adapter/channel/core/actions.ts
+index 7cc51ba..5876029 100644
+--- a/src/dsh-adapter/channel/core/actions.ts
++++ b/src/dsh-adapter/channel/core/actions.ts
+@@ -17,6 +17,7 @@
+  */
+ import type { AgentSession } from '../../../agent/session.js'
+ import { conversationRecapPrompt, parseRecapResponse, sideQuestionPrompt } from '../../../channel/side-prompts.js'
++import { WORKING_GATE_NOTICES } from '../../../commands.js'
+ import { t } from '../../../i18n.js'
+ import { createUnavailableActionDelegates, type ChannelActionDelegates, type createChannelActionReadiness } from '../action-readiness.js'
+ import type { ChannelOwner } from '../owner.js'
+@@ -25,7 +26,7 @@ import type { ChannelState } from '../types.js'
+ export function createCapabilityDelegates(deps: {
+   owner: Pick<ChannelOwner, 'current'>
+   session(): AgentSession
+-  state: () => Pick<ChannelState, 'provider' | 'model' | 'backendCapabilities'>
++  state: () => Pick<ChannelState, 'provider' | 'model' | 'agentPreset' | 'working' | 'backendCapabilities' | 'emit'>
+   notify: ChannelState['notify']
+   unavailable(name: string): void
+   unavailableLines(name: string): string[]
+@@ -98,6 +99,43 @@ export function createCapabilityDelegates(deps: {
+       await effort.set(id)
+       return true
+     }),
++    // `/preset` on a non-DSH session: the backend's roster is the picker and
++    // the backend owns the switch (its blank-only rule included). DSH sessions
++    // never reach this layer — the extension's model actions override it.
++    listPresets: () => guarded('preset', [], async () => {
++      const presets = caps().presets
++      if (presets === undefined) { unavailable('preset'); return [] }
++      const list = await presets.list()
++      return list.map(preset => ({
++        id: preset.id,
++        ...(preset.name === undefined ? {} : { name: preset.name }),
++        ...(preset.description === undefined ? {} : { description: preset.description }),
++        ...(preset.broken === undefined ? {} : { broken: preset.broken }),
++        isDefault: preset.isDefault === true,
++      }))
++    }),
++    switchPreset: presetId => guarded('preset', false, async () => {
++      const presets = caps().presets
++      if (presets === undefined) { unavailable('preset'); return false }
++      const state = deps.state()
++      // A running turn has started the conversation, so the backend would
++      // refuse anyway; say it without a round trip (the same gate DSH's own
++      // switch keeps).
++      if (state.working) { notify(t(WORKING_GATE_NOTICES.preset), { color: 'warning' }); return false }
++      if (state.agentPreset === presetId) { notify(t('preset-already-current', { id: presetId }), { color: 'success' }); return true }
++      const outcome = await presets.set(presetId)
++      if (outcome.kind === 'refused') {
++        if (outcome.cause === 'locked') notify(t('preset-locked', { current: state.agentPreset ?? '—' }), { color: 'warning', timeoutMs: 8000 })
++        else notify(t('preset-switch-failed', { err: outcome.reason }), { color: 'error', timeoutMs: 8000 })
++        return false
++      }
++      // The backend records the resolved identity; the durable
++      // `preset.selected` event that follows repeats it through the projector.
++      state.agentPreset = outcome.preset
++      state.emit()
++      notify(t('preset-switched', { id: outcome.preset }), { color: 'success' })
++      return true
++    }),
+     // `/btw`: the backend's side call with the shared side-question contract.
+     sideQuestion: async (question, options) => {
+       const side = caps().sideQuery
+diff --git a/src/dsh-adapter/channel/core/session-switch.ts b/src/dsh-adapter/channel/core/session-switch.ts
+index 87dd7e1..130365b 100644
+--- a/src/dsh-adapter/channel/core/session-switch.ts
++++ b/src/dsh-adapter/channel/core/session-switch.ts
+@@ -445,6 +445,9 @@ export function createBackendOpener(deps: {
+     state.agentId = candidate.ref.sessionId
+     state.sessionId = candidate.ref.sessionId
+     state.backendCapabilities = deps.snapshotOf(candidate)
++    // The candidate's own composition: a Host-backed roster reads its live
++    // record, every backend without the capability carries none across.
++    state.agentPreset = candidate.capabilities.presets?.current()
+     // A placeholder whose startup open failed is retried by `/new`.
+     state.ready = true
+     state.startupFailure = undefined
+diff --git a/src/dsh-adapter/index.ts b/src/dsh-adapter/index.ts
+index 56c647a..f03822a 100644
+--- a/src/dsh-adapter/index.ts
++++ b/src/dsh-adapter/index.ts
+@@ -395,6 +395,7 @@ export const Config: Schema<Config, RuntimeConfig<Config>> = editableConfig<Conf
+     sessionId: Schema.boolean().default(DEFAULT_STATUS_BAR.sessionId),
+     goal: Schema.boolean().default(DEFAULT_STATUS_BAR.goal),
+     mode: Schema.boolean().default(DEFAULT_STATUS_BAR.mode),
++    preset: Schema.boolean().default(DEFAULT_STATUS_BAR.preset),
+     contextBar: Schema.boolean().default(DEFAULT_STATUS_BAR.contextBar),
+     activity: Schema.boolean().default(DEFAULT_STATUS_BAR.activity),
+     trajectory: Schema.boolean().default(DEFAULT_STATUS_BAR.trajectory),
+diff --git a/src/dsh-adapter/plugin.ts b/src/dsh-adapter/plugin.ts
+index 5f0150f..9d6ed47 100644
+--- a/src/dsh-adapter/plugin.ts
++++ b/src/dsh-adapter/plugin.ts
+@@ -832,7 +832,13 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+       config.preset,
+     )
+   let agent: Agent | undefined = resolved.agent
+-  const { handle, agentPreset, route: createdRoute } = resolved
++  const { handle, route: createdRoute } = resolved
++  // The composition the startup session runs. The in-process path reports it
++  // through `resolveAgent`; a remote startup resolved it from the Host's
++  // opening snapshot (the projection it also follows arrives later), and
++  // dropping it here left the status line and `/preset status` claiming no
++  // roster was mounted.
++  const agentPreset = resolved.agentPreset ?? backendStart?.agentPreset
+   // Workspace ownership is a DSH session-store fact (skipped off DSH).
+   // `ctx` here is the context that owns the session: this plugin's, or the
+   // dsh-tui row's for the in-process DSH kernel (`attachDsh`).
+@@ -1240,6 +1246,7 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+           sessionId: Schema.boolean().default(DEFAULT_STATUS_BAR.sessionId),
+           goal: Schema.boolean().default(DEFAULT_STATUS_BAR.goal),
+           mode: Schema.boolean().default(DEFAULT_STATUS_BAR.mode),
++          preset: Schema.boolean().default(DEFAULT_STATUS_BAR.preset),
+           contextBar: Schema.boolean().default(DEFAULT_STATUS_BAR.contextBar),
+           activity: Schema.boolean().default(DEFAULT_STATUS_BAR.activity),
+           trajectory: Schema.boolean().default(DEFAULT_STATUS_BAR.trajectory),
+@@ -1802,6 +1809,9 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+         {
+           ...settingField('statusBar.mode'),
+         },
++        {
++          ...settingField('statusBar.preset'),
++        },
+         {
+           ...settingField('statusBar.contextBar'),
+         },
+diff --git a/src/dsh-adapter/remote/connection.ts b/src/dsh-adapter/remote/connection.ts
+index 6aeada2..5ea39a1 100644
+--- a/src/dsh-adapter/remote/connection.ts
++++ b/src/dsh-adapter/remote/connection.ts
+@@ -191,6 +191,16 @@ export async function connectRemote(baseUrl: string, root?: ClientContext): Prom
+   if (permissionModule?.default !== undefined) {
+     mounted.push(await remote.$mount(permissionModule.default))
+   }
++  // `/preset`'s roster and switch live on the Host's agent-preset registry.
++  // Optional the same way: a Host without the namespace keeps `/preset`
++  // unavailable (the session declares no `presets` capability) rather than
++  // failing the connection.
++  const agentPresetModule = await load('@deepseek-ai/dsh-agent-preset-registry/lib/typert.remote-client.js')
++    .then(module => module as { readonly default?: unknown })
++    .catch(() => undefined)
++  if (agentPresetModule?.default !== undefined) {
++    mounted.push(await remote.$mount(agentPresetModule.default))
++  }
+   note(`mounted ${mounted.length} descriptor(s)`)
+   await waitFor(
+     () => (ctx.connection?.generation.getSnapshot() === undefined ? undefined : true),
+diff --git a/src/dsh-adapter/remote/session.ts b/src/dsh-adapter/remote/session.ts
+index d8cd191..e626aee 100644
+--- a/src/dsh-adapter/remote/session.ts
++++ b/src/dsh-adapter/remote/session.ts
+@@ -11,9 +11,10 @@ import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+ import type { SessionEvent } from '@deepseek-ai/dsh-session'
+ import type { AgentSession, AgentSessionStatus, CancelCause, CancelReceipt, AgentInput, SubmitPlacement } from '../../agent/session.js'
+ import type { AgentEvent, AgentEventMeta } from '../../agent/events.js'
+-import type { EffortOption, ImageLimitsView, ModelRef, ModelSwitchOutcome, PermissionDecision, SessionCapabilities } from '../../agent/capabilities.js'
++import type { EffortOption, ImageLimitsView, ModelRef, ModelSwitchOutcome, PermissionDecision, PresetChoice, PresetSwitchOutcome, SessionCapabilities } from '../../agent/capabilities.js'
+ import type { ImageRef, PermissionOptionView, PermissionOutcome, PermissionRequestView, QuestionRequestView } from '../../agent/events.js'
+ import type { AgentSessionRef } from '../../agent/refs.js'
++import { t } from '../../i18n.js'
+ import { createDshTranslator } from '../backend/translate.js'
+ import type { RemoteResult, RemoteStream } from './connection.js'
+ import type { RemoteApprovals, ApprovalOutcome, RemoteQuestionAnswer } from './approvals.js'
+@@ -103,6 +104,19 @@ type FollowFrame =
+   | { readonly type: 'event'; readonly event: unknown }
+   | { readonly type: 'assistant-stream'; readonly frame: unknown }
+ 
++/** One row of the Host's `agentPresets/list` roster. */
++interface HostPresetRow extends PresetChoice {
++  readonly isDefault: boolean
++}
++
++/** The `agentPresets/*` methods this adapter calls. */
++export interface AgentPresetsRemote {
++  list(): Promise<RemoteResult<{ readonly presets: readonly HostPresetRow[] }>>
++  /** Rebind a blank Agent's composition; the Host refuses one that started
++   *  (`agent-preset/locked`) and answers the committed identity. */
++  select(agentId: string, agentPreset: string): Promise<RemoteResult<string>>
++}
++
+ export interface RemoteSessionHandle {
+   readonly session: AgentSession & { readonly status: AgentSessionStatus }
+   /** The route the session runs on (its recorded choice, else the Host's
+@@ -156,6 +170,10 @@ export interface RemoteSessionDeps {
+ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: string): Promise<RemoteSessionHandle> {
+   const { projections, catalog } = deps
+   const sessions = (deps.remote as unknown as { readonly session: SessionRemote }).session
++  // Absent on a Host that predates the namespace (connection.ts mounts it
++  // optionally): without it the session declares no `presets` capability and
++  // `/preset` stays unavailable instead of failing half-way.
++  const agentPresets = (deps.remote as unknown as { readonly agentPresets?: AgentPresetsRemote }).agentPresets
+   // `assistantStream` is the Host's opt-in for the per-token frames: the
+   // durable log alone carries only settlements, which is why a remote turn
+   // used to appear in one piece.
+@@ -205,6 +223,13 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+   cursor = snapshot.cursor
+   history = translator.translateReplay(snapshot.records.map((record) => record.event as SessionEvent))
+   status = 'idle'
++  // A question asked before this client attached lives only in the durable
++  // log: the Host forwards the answer waterfall live, with no replay, so this
++  // client can neither see nor answer it. The reminder rows ride the view
++  // history itself — the channel replays it twice on startup (construction,
++  // then adoption), so a delivery on `subscribe` would be wiped by the
++  // adoption's projection reset.
++  history = [...history, ...pendingQuestionNotices(history)]
+ 
+   // The durable selection and every other live projection come from the
+   // connection's control fold: `session/follow`'s snapshot carries the log
+@@ -524,6 +549,46 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+           return { kind: 'switched' }
+         },
+       },
++      // `/preset`: the Host's roster is the picker and the switch. Its
++      // `agentPresets/select` is the same blank-only path the browser's preset
++      // seat uses, so a started conversation refuses (`locked`) instead of
++      // half-recomposing; the committed identity comes back as the return
++      // value and again as the durable `agent-preset/selected` event.
++      ...(agentPresets === undefined ? {} : {
++        presets: {
++          list: async (): Promise<readonly PresetChoice[]> => {
++            const result = await agentPresets.list()
++            if (!result.ok || result.value === undefined) {
++              throw new Error(`remote: agentPresets/list failed: ${result.error?.message ?? 'unknown error'}`)
++            }
++            return result.value.presets.map(row => ({
++              id: row.id,
++              ...(row.name === undefined ? {} : { name: row.name }),
++              ...(row.description === undefined ? {} : { description: row.description }),
++              ...(row.broken === undefined ? {} : { broken: row.broken }),
++              isDefault: row.isDefault,
++            }))
++          },
++          // The control fold is the Host's live record (it also covers a switch
++          // another client made); the opening snapshot is the value to fall
++          // back to before any projection frame arrived.
++          current: (): string | undefined => {
++            const projected = projections.get<string | null>(sessionId, 'agentPreset')
++            return typeof projected === 'string' ? projected : snapshot.header.agentPreset
++          },
++          set: async (id: string): Promise<PresetSwitchOutcome> => {
++            const result = await agentPresets.select(sessionId, id)
++            if (!result.ok) {
++              return {
++                kind: 'refused',
++                reason: result.error?.message ?? 'the host refused the preset',
++                ...(result.error?.code === 'agent-preset/locked' ? { cause: 'locked' as const } : {}),
++              }
++            }
++            return { kind: 'switched', preset: result.value ?? id }
++          },
++        },
++      }),
+       // `/fork`: the Host copies the exact prefix; the anchor the channel passes
+       // is the durable seq of the picked user message (the translator's
+       // `user.message.anchor`), which is exactly what `atSeq` wants.
+@@ -662,10 +727,13 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+   }
+ 
+   const live = selection()
++  // The control fold already published this session's preset in most opens;
++  // the snapshot header is the value the Host has before any frame.
++  const preset = session.capabilities.presets?.current() ?? snapshot.header.agentPreset
+   return {
+     session,
+     route: { provider: live.provider, model: live.model },
+-    ...(snapshot.header.agentPreset === undefined ? {} : { agentPreset: snapshot.header.agentPreset }),
++    ...(preset === undefined ? {} : { agentPreset: preset }),
+     async close() {
+       await session.dispose()
+     },
+@@ -712,3 +780,62 @@ export async function listRemoteSessions(remote: unknown): Promise<readonly Remo
+   }
+   return result.value.items
+ }
++
++/** The questions of one logged `ask_user_question` call; none when its
++ *  arguments are unreadable (a malformed log renders no notice, never throws). */
++function askQuestions(argsJson: string): readonly { readonly question: string; readonly options?: readonly { readonly label: string }[] }[] {
++  try {
++    const parsed: unknown = JSON.parse(argsJson)
++    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return []
++    const questions = (parsed as { questions?: unknown }).questions
++    if (!Array.isArray(questions)) return []
++    return questions.flatMap((item) => {
++      if (typeof item !== 'object' || item === null) return []
++      const question = (item as { question?: unknown }).question
++      if (typeof question !== 'string') return []
++      const rawOptions = (item as { options?: unknown }).options
++      const options = Array.isArray(rawOptions)
++        ? rawOptions.flatMap((option) => {
++            if (typeof option !== 'object' || option === null) return []
++            const label = (option as { label?: unknown }).label
++            return typeof label === 'string' ? [{ label }] : []
++          })
++        : undefined
++      return [{ question, ...(options === undefined ? {} : { options }) }]
++    })
++  } catch {
++    return []
++  }
++}
++
++/**
++ * Reminder rows for a question the session is still waiting on that this
++ * client attached too late to answer.
++ *
++ * The Host forwards the answer waterfall live and never replays it, so a
++ * resumed client has no request object to respond to while the durable call
++ * stays unanswered and the turn stays parked — the failure the user sees as
++ * "messages do not go through". The rows name the question, its options, and
++ * the two ways out (answer in the client that received it, or cancel the
++ * turn). They never pretend this client can answer, because it cannot.
++ */
++function pendingQuestionNotices(events: readonly AgentEvent[]): AgentEvent[] {
++  const open = new Map<string, string>()
++  for (const event of events) {
++    if (event.type === 'tool.call' && event.name === 'ask_user_question') open.set(event.callId, event.argsJson)
++    else if (event.type === 'tool.result') open.delete(event.callId)
++  }
++  const notices: AgentEvent[] = []
++  for (const argsJson of open.values()) {
++    const questions = askQuestions(argsJson)
++    const asked = questions.map(question => question.question).join(' / ')
++    if (asked === '') continue
++    notices.push({ type: 'notice', level: 'warning', text: t('question-unanswerable', { question: asked }) })
++    const options = questions.flatMap(question => question.options?.map(option => option.label) ?? [])
++    if (options.length > 0) {
++      notices.push({ type: 'notice', level: 'info', text: t('question-unanswerable-options', { options: options.join(' · ') }) })
++    }
++    notices.push({ type: 'notice', level: 'info', text: t('question-unanswerable-hint') })
++  }
++  return notices
++}
+diff --git a/src/dsh-adapter/remote/verify.ts b/src/dsh-adapter/remote/verify.ts
+index 1cddb66..9a96128 100644
+--- a/src/dsh-adapter/remote/verify.ts
++++ b/src/dsh-adapter/remote/verify.ts
+@@ -33,6 +33,9 @@ const SESSION_METHODS = [
+ /** Methods `remote/commands.ts` and the compact capability call. */
+ const COMMANDS_METHODS = ['execute', 'list'] as const
+ 
++/** Methods the `/preset` capability calls (`agentPresets/*`). */
++const AGENT_PRESET_METHODS = ['list', 'select'] as const
++
+ /** Translated event kinds the channel consumes; the translator renames the wire
+  *  vocabulary (`turn/start` → `turn.start`), so both halves are checked. */
+ const LIVE_EVENTS = ['turn.start', 'user.message', 'assistant.message', 'turn.end'] as const
+@@ -79,6 +82,7 @@ check(true, `connected: ${baseUrl}`)
+ const remote = connection.remote as RemoteApi & {
+   session?: Record<string, unknown>
+   commands?: Record<string, unknown>
++  agentPresets?: Record<string, unknown>
+ }
+ 
+ const session = remote.session
+@@ -94,6 +98,13 @@ if (commands !== undefined) {
+   check(missingCommands.length === 0, `commands methods: ${missingCommands.length === 0 ? COMMANDS_METHODS.join(', ') : `missing ${missingCommands.join(', ')}`}`)
+ }
+ 
++const agentPresets = remote.agentPresets
++check(agentPresets !== undefined, 'namespace: agentPresets (agent-preset registry descriptor mounted)')
++if (agentPresets !== undefined) {
++  const missingPresets = AGENT_PRESET_METHODS.filter((method) => typeof agentPresets[method] !== 'function')
++  check(missingPresets.length === 0, `agentPresets methods: ${missingPresets.length === 0 ? AGENT_PRESET_METHODS.join(', ') : `missing ${missingPresets.join(', ')}`}`)
++}
++
+ // `/permission` on a non-DSH Session is the typed `modes` capability; the
+ // connection must read the Host's process-level catalog before the Session
+ // opens, or the command never reaches the channel's command list.
+@@ -123,6 +134,30 @@ const handle = await openRemoteSession(
+ const permissionModes = handle.session.capabilities.modes
+ check(permissionModes !== undefined, `session capabilities: permission modes${permissionModes === undefined ? '' : ` (${permissionModes.list().map(mode => mode.id).join(', ')})`}`)
+ 
++// `/preset` is gated on this capability; the roster read proves the namespace
++// mounted *and* answers. The scratch session is blank, so a switch is the
++// shape the picker exercises (a started one refuses — the Host's rule).
++const presetCapability = handle.session.capabilities.presets
++check(presetCapability !== undefined, 'session capabilities: presets (agentPresets list/select)')
++if (presetCapability !== undefined) {
++  const roster = await presetCapability.list()
++  check(roster.length > 0, `preset roster: ${roster.map(preset => preset.id).join(', ')}`)
++  const openingPreset = presetCapability.current()
++  check(typeof openingPreset === 'string', `current preset: ${String(openingPreset)}`)
++  const target = roster.find(preset => preset.id !== openingPreset && preset.broken === undefined)
++  if (target !== undefined) {
++    const switched = await presetCapability.set(target.id)
++    check(switched.kind === 'switched' && switched.preset === target.id, `agentPresets/select switches a blank session to ${target.id}`)
++    // Restore the opening composition: the rest of the live half (one turn,
++    // `/compact` in the command list) must run under the same preset it
++    // started with.
++    if (openingPreset !== undefined) {
++      const restored = await presetCapability.set(openingPreset)
++      check(restored.kind === 'switched' && restored.preset === openingPreset, `agentPresets/select restores ${openingPreset}`)
++    }
++  }
++}
++
+ const seen = new Set<string>()
+ const unsubscribe = handle.session.subscribe((batch) => {
+   for (const event of batch) seen.add(event.type)
+diff --git a/src/i18n.ts b/src/i18n.ts
+index 6ec2931..c4663e7 100644
+--- a/src/i18n.ts
++++ b/src/i18n.ts
+@@ -119,6 +119,8 @@ const dict = {
+   'preset-pref-write-failed': { zh: '无法写入 ~/.dsh-tui/agent-preset.json，选择未保存', en: 'Cannot write ~/.dsh-tui/agent-preset.json, selection not saved' },
+   'preset-locked-saved-default': { zh: '会话已开始，preset 已锁定（当前：{{current}}）· 已保存为默认：{{id}}（/new 或下次启动生效）', en: 'Session already started, preset locked (current: {{current}}) · Saved as default: {{id}} (applies on /new or next start)' },
+   'preset-switch-failed': { zh: 'Preset 切换失败 · {{err}}', en: 'Preset switch failed · {{err}}' },
++  'preset-switched': { zh: 'Preset 已切换：{{id}}', en: 'Preset switched: {{id}}' },
++  'preset-locked': { zh: '会话已开始，preset 已锁定（当前：{{current}}）', en: 'Session already started, preset locked (current: {{current}})' },
+   'preset-switched-pref-failed': { zh: 'Preset 已切换：{{id}}，但默认偏好写入失败（重启后不保留）', en: 'Preset switched: {{id}}, but writing the default preference failed (won\'t persist after restart)' },
+   'preset-switched-saved': { zh: 'Preset 已切换：{{id}}（已保存为默认）', en: 'Preset switched: {{id}} (saved as default)' },
+   // Built-in preset display text (issue: the /preset picker showed the raw
+@@ -500,6 +502,7 @@ const dict = {
+   'preset-roster-missing': { zh: '（未挂载名册）', en: '(roster not mounted)' },
+   'preset-switch-hint': { zh: '切换        /preset（选择器）或 /preset <id>', en: 'Switch        /preset (picker) or /preset <id>' },
+   'preset-persist-hint': { zh: '持久化      ~/.dsh-tui/agent-preset.json（重启后仍生效；cordis.yml preset 优先）', en: 'Persisted      ~/.dsh-tui/agent-preset.json (survives restart; cordis.yml preset wins)' },
++  'preset-host-hint': { zh: '新会话默认  由 Host 配置决定（本命令不修改）', en: 'New sessions  the Host-configured default applies (this command does not change it)' },
+   'preset-lock-hint': { zh: '锁定规则    已开始的会话不可切换（官方 blank-only 规则）', en: 'Lock rule     started sessions cannot switch (official blank-only rule)' },
+   'preset-roster-unmounted': { zh: '当前组合未挂载 agent-presets 名册（preset 不可用）', en: 'The agent-presets roster is not mounted (presets unavailable)' },
+   'theme-current': { zh: '当前主题  {{name}}', en: 'Current theme  {{name}}' },
+@@ -510,6 +513,7 @@ const dict = {
+   'theme-switched-saved': { zh: '主题已切换：{{name}}（已保存）', en: 'Theme switched: {{name}} (saved)' },
+   'theme-unknown': { zh: '未知主题「{{name}}」· /theme 查看全部', en: 'Unknown theme "{{name}}" · /theme to view all' },
+   'status-model': { zh: '模型   {{model}}', en: 'Model   {{model}}' },
++  'status-preset': { zh: '预设 {{name}}', en: 'preset {{name}}' },
+   'status-working': { zh: '工作中', en: 'working' },
+   'status-idle': { zh: '空闲', en: 'idle' },
+   'status-state': { zh: '状态   {{state}}', en: 'Status   {{state}}' },
+@@ -1695,6 +1699,9 @@ const dict = {
+   'question-provider-occupied': { zh: '⚠️ 问卷通道已被非宿主组件 {{id}} 占用，模型提问可能被代答（本界面未接入问卷）', en: '⚠️ The questionnaire channel is held by a non-host component ({{id}}); model questions may be answered by it (this UI did not take the seat)' },
+   'question-provider-occupied-unverified': { zh: '⚠️ 问卷通道被一个自报为 {{id}} 的组件占用——身份未经宿主验证，模型提问可能被代答（本界面未接入问卷）', en: '⚠️ The questionnaire channel is held by a component self-reporting as {{id}} — identity not host-verified; model questions may be answered by it (this UI did not take the seat)' },
+   'question-provider-occupied-unknown': { zh: '身份未知', en: 'identity unknown' },
++  'question-unanswerable': { zh: '本会话在等待一个「连接本客户端之前」发出的提问，此客户端无法回答：{{question}}', en: 'This session is waiting on a question asked before this client attached; this client cannot answer it: {{question}}' },
++  'question-unanswerable-options': { zh: '选项：{{options}}', en: 'Options: {{options}}' },
++  'question-unanswerable-hint': { zh: '请到收到该提问的客户端（通常是 Web）回答；在本端按 Esc 可取消这一回合。', en: 'Answer it in the client that received it (usually the web UI); press Esc here to cancel this turn.' },
+   'question-select-or-answer': { zh: '至少选择一个选项，或在最后一行输入回答', en: 'Select at least one option, or type an answer on the last line' },
+   'question-answer-or-check': { zh: '输入回答或勾选选项后再提交', en: 'Type an answer or check options before submitting' },
+   'question-type-answer-first': { zh: '先输入回答内容再提交', en: 'Type your answer before submitting' },
+diff --git a/src/screens/Chat.tsx b/src/screens/Chat.tsx
+index cd3bbf9..b54ad62 100644
+--- a/src/screens/Chat.tsx
++++ b/src/screens/Chat.tsx
+@@ -2914,15 +2914,16 @@ export function Chat({
+         // minimal/cordis plus any user-authored presets); `/preset <id>`
+         // switches directly; `/preset status` shows the current choice. A
+         // blank session swaps composition in place (official blank-only
+-        // rule); a started session is locked and the choice persists as the
+-        // default for future sessions (~/.dsh-tui/agent-preset.json).
++        // rule); a started session is locked. Where the pick also becomes the
++        // default for later sessions (DSH's per-user preference) the status
++        // says so; a backend serving the Host's roster says the Host decides.
+         const parts = rawInput.trim().split(/\s+/).filter(Boolean)
+         if (parts[0] === 'status') {
+           setHelpOpen(false)
+           channel.pushLocal('/preset', [
+             t('preset-current', { name: channel.agentPreset ?? t('preset-roster-missing') }),
+             t('preset-switch-hint'),
+-            t('preset-persist-hint'),
++            t(channel.backendCapabilities.presetDefault ? 'preset-persist-hint' : 'preset-host-hint'),
+             t('preset-lock-hint'),
+           ])
+           return true
+diff --git a/src/screens/StatusLine.tsx b/src/screens/StatusLine.tsx
+index 1332a43..3be80bf 100644
+--- a/src/screens/StatusLine.tsx
++++ b/src/screens/StatusLine.tsx
+@@ -319,6 +319,15 @@ export function StatusLine({
+       ),
+     })
+   }
++  // The composition the session runs. Off by default (footer width); the id
++  // is the same token `/preset <id>` takes, and a backend that records no
++  // preset renders nothing rather than a placeholder.
++  if (statusBar.preset && channel.agentPreset !== undefined) {
++    contextParts.push({
++      key: 'preset',
++      node: <Text color="inactiveShimmer">{t('status-preset', { name: channel.agentPreset })}</Text>,
++    })
++  }
+ 
+   const formattedContext = statusBar.contextUsage
+     ? formatContextUsage(contextUsed, contextWindow, statusBar.compact)
+diff --git a/src/settings/definitions.ts b/src/settings/definitions.ts
+index 7df6f42..f0bef64 100644
+--- a/src/settings/definitions.ts
++++ b/src/settings/definitions.ts
+@@ -412,6 +412,14 @@ export const SETTING_DEFINITIONS = {
+     kind: 'boolean',
+     group: 'status-bar',
+   },
++  'statusBar.preset': {
++    label: 'Show agent preset',
++    descriptions: { zh: '显示 Agent preset' },
++    hint: 'Show the agent preset the session runs (standard / minimal / a custom id) in the status bar. The segment prints the id `/preset` takes; the picker shows display names.',
++    hintDescriptions: { zh: '在状态栏显示会话运行的 Agent preset（standard / minimal 或自定义 id）。状态栏打印的是 `/preset` 接受的 id；选择器里显示的是展示名。' },
++    kind: 'boolean',
++    group: 'status-bar',
++  },
+   'statusBar.sessionId': {
+     label: 'Show session id',
+     descriptions: { zh: '显示会话 ID' },
+diff --git a/src/tuiDisplayPrefs.ts b/src/tuiDisplayPrefs.ts
+index 8832bd5..405e1aa 100644
+--- a/src/tuiDisplayPrefs.ts
++++ b/src/tuiDisplayPrefs.ts
+@@ -18,6 +18,9 @@ export const DEFAULT_STATUS_BAR: Readonly<StatusBarConfig> = Object.freeze({
+   sessionId: false,
+   goal: true,
+   mode: false,
++  // Composition detail, off until asked for (`/settings → Show agent preset`):
++  // the footer is width-bound and most sessions keep the deployment default.
++  preset: false,
+   // On by default (2026-09-10, user ask): the segmented bar is the only place
+   // the per-segment context breakdown shows, so users who never open
+   // /settings were missing it entirely. `/settings → statusBar.contextBar`

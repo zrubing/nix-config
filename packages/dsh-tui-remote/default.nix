@@ -71,7 +71,9 @@ stdenv.mkDerivation (finalAttrs: {
 
   # remote-mode.patch 是完整的远程客户端改动；permission-presets.patch 叠加在它
   # 之上，把 Host 的权限预设投影成远程会话的 typed `modes`（`/permission` 与
-  # Shift+Tab）；notification-ghostty-cap.patch 按 Ghostty apprt 的固定通知缓冲
+  # Shift+Tab）；preset-support.patch 再把 Host 的 agent-preset 名册投影成 typed
+  # `presets`（`/preset` 选择器、`/preset <id>`、`/preset status`）；
+  # notification-ghostty-cap.patch 按 Ghostty apprt 的固定通知缓冲
   # （title 63 B / body 255 B）截断 OSC 777/9，避免其盲截 255 B 时切开 UTF-8。
   #
   # startup-model.patch 暂不接入：它按旧版源码行号生成（session.ts:1556），套不上
@@ -80,6 +82,7 @@ stdenv.mkDerivation (finalAttrs: {
   patches = [
     ./remote-mode.patch
     ./permission-presets.patch
+    ./preset-support.patch
     ./notification-ghostty-cap.patch
   ];
 

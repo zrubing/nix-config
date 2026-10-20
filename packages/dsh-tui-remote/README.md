@@ -10,6 +10,7 @@
 | `default.nix` | nix 构建：源码 + 补丁 → store 里的可运行树 |
 | `remote-mode.patch` | 对上游 `v0.16.1` **源码**的完整远程客户端改动 |
 | `permission-presets.patch` | 叠加在上一份之上：Host 权限预设 → 远程会话 typed `modes`（`/permission`、Shift+Tab） |
+| `preset-support.patch` | 叠加在上一份之上：Host agent-preset 名册 → 远程会话 typed `presets`（`/preset`） |
 | `notification-ghostty-cap.patch` | 按 Ghostty 固定通知缓冲（title 63 B / body 255 B）截断 OSC 777/9，避免 255 B 盲截切开 UTF-8 |
 | `startup-model.patch` | **暂存，未接入构建**：`--model` 启动路由，见下 |
 
@@ -38,6 +39,54 @@ typed `modes` 能力：
    `Shift+Tab` 按 `modes.list()` 顺序循环。
 5. `auto` 被排除：它的 session 级风险确认只存在于 DSH 的 `/permission` 预设选择器里，
    当作普通 backend mode 展示会绕过风险门。
+
+## Agent 预设（`/preset`）
+
+远程会话同样没有 DSH extensions，所以 `/preset` 不走 `agentPresets` 服务（宿主侧那份），
+而是把 Host 的 registry 投影成 typed `presets` 能力：
+
+1. `agentPresets/list` 是名册（含 `isDefault` / `broken`），`connection.ts` 把
+   `@deepseek-ai/dsh-agent-preset-registry` 的 remote descriptor 作为可选挂载；老 Host
+   没有该命名空间时不声明 `presets`，`/preset` 保持不可用，连接不受影响。
+2. `agentPresets/select(sessionId, id)` 是切换：与网页端 preset「座位」同一条路径，
+   只允许空白会话；已开始的会话返回 `agent-preset/locked`，适配器映射成
+   `refused{cause:'locked'}`，channel 说「已锁定」而不是通用失败。
+3. `current()` 读 `session/control` 的 `agentPreset` 投影（Host 的实时记录），快照 header
+   只是首帧之前的回退。切换成功后 channel 先写本地状态，随后持久日志里的
+   `agent-preset/selected` 事件再经投影器确认（另一个客户端切换也会这样跟上）。
+4. 声明 `presets` 后，`channelCapabilities.commands` 自动加入 `preset`：无参打开选择器、
+   `/preset <id>` 直切、`/preset status` 显示当前值。
+5. **不写默认**：远程模式下新会话由 Host 配置的默认 preset 决定，`/preset` 不碰
+   `~/.dsh-tui/agent-preset.json`（那是进程内 DSH 组合的偏好），也不改 Host 的
+   `agent-preset-registry.selectedDefault`。`/preset status` 的第二行按
+   `backendCapabilities.presetDefault` 选择文案，如实说明「新会话默认由 Host 决定」。
+6. Tab 补全在远程只给 `status`：宿主名册是异步 RPC，而补全路径是同步的；选择器打开时
+   才拉全量名册。这是刻意保留的窄缺口，不是错误。
+7. 状态栏段 `statusBar.preset`（默认关，`/settings → Show agent preset` 开启）：显示
+   `预设 <id>`（`id` 就是 `/preset <id>` 接受的那个 token）。后端没有记录 preset 时
+   整段不画；极简界面（minimal UI）的固定字段集里不会出现。tok/s 同理走既有的
+   `statusBar.tps`（gauge / sparkline + `N tps`），默认关，开启即可，无需另加代码。
+
+## 连接前发出的提问（resume 后无法在 TUI 回答）
+
+Host 的 `ask_user_question` 默认是 **legacy 阻塞模式**（`dsh-tool-ask-user` 的
+`mode: 'legacy'`）：它没有 `timeout` 参数，`userQuestions` 投影不登记这类调用；而
+`user-questions/request` 这个 waterfall 是**只发在线客户端、不重放**的。于是：
+
+1. TUI 在提问发出之后才 attach（`/resume`、重连）时，既收不到请求，也无法用
+   `userQuestions/answer` 回答（那个 RPC 只接受 `continued` 的定时提问）。
+2. 会话日志里留下一个没有 `tool/result` 的 `tool/call`，回合一直挂着；此后 TUI 发的
+   消息只会进 Host inbox（日志里能看到 `agent/inbox/spliced`），模型不会回复。
+
+本包的处理：打开会话时扫描已翻译的日志，找出未回答的 `ask_user_question` 调用，
+在 channel 订阅（历史已经画完）时投递 notice 行——问题原文、选项、以及两条出路：
+到收到该请求的客户端（通常是 Web）回答，或在 TUI 按 Esc 取消本回合。notice 不会
+假装本端能回答，因为协议上不能。
+
+要真正让 TUI 能回答“连接前发出的提问”，需要 Host 切成 `mode: 'timed'`
+（提问进 `userQuestions` 投影，超时后变 `continued`，可用
+`userQuestions/answer(sessionId, callId, answer)` 回答）；那是 Host 侧语义变更，
+本包暂不代改。
 
 ## `/model` 行内提供方前缀
 
@@ -106,12 +155,12 @@ typed `modes` 能力：
 改动 `tag`/`hash` 之后先跑契约自检，再开 TUI 手点：
 
 ```sh
-dsh-tui-remote-verify                  # 描述符 / 方法名 / 事件字段 / 权限 catalog / compact
+dsh-tui-remote-verify                  # 描述符 / 方法名 / 事件字段 / 权限 catalog / preset 名册与切换 / compact
 ```
 
-全过才算可用；失败说明上游动了客户端依赖的面（见设计文档 §30）。升级时三份补丁都要
+全过才算可用；失败说明上游动了客户端依赖的面（见设计文档 §30）。升级时四份补丁都要
 在干净的 `tag` 树上 `git apply --check`：`remote-mode.patch` → `permission-presets.patch`
-→ `notification-ghostty-cap.patch`。
+→ `preset-support.patch` → `notification-ghostty-cap.patch`。
 
 ## 怎么建
 
@@ -120,7 +169,8 @@ nix build .#dsh-tui-remote     # 已验证通过（2026-10-19）
 ```
 
 四个 hash 都已填好（源码、pnpm 11 tarball、根 node_modules FOD、vendor node_modules FOD）。
-2026-10-19 实际构建产物：`/nix/store/dph4y83zlr8sc61m1vbpi473vvflh4ys-dsh-tui-remote-0.16.1`；
+2026-10-20 实际构建产物：`/nix/store/y5hkmxzllih48rmrkzs5hyilm3wkgyi9-dsh-tui-remote-0.16.1`
+（补丁链：`remote-mode` → `permission-presets` → `preset-support` → `notification-ghostty-cap`）；
 两个依赖 FOD 的 hash 已按当前 lockfile 的真实依赖树回填。
 
 启动由 `modules/home/dsh` 的 `dshTuiRemote` 包装器负责：`DSH_TUI_REMOTE_TREE` 现在指向
