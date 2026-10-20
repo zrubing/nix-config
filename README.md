@@ -20,6 +20,22 @@ sudo nixos-rebuild switch --flake .#
 home-manager switch --flake .#jojo
 ```
 
+## 二进制缓存（cachix）
+
+自建包推到 `https://zrubing.cachix.org`（公开读，`cliphist-gui` 这类 nixpkgs 里没有的包），
+另一台机器直接替代、不必重建。nixpkgs 依赖不用推。
+
+```bash
+cd ~/nix-config
+nix build .#<pkg> --no-link --print-out-paths \
+  | CACHIX_AUTH_TOKEN=$(grep -oP 'CACHIX_AUTH_TOKEN="\K[^"]+' ~/.config/default.env) \
+    xargs nix run nixpkgs#cachix -- push zrubing
+```
+
+token 存 clan vars（`clan vars set zen14 cachix-auth-token/token`），客户端配置在
+`modules/unix/nix-settings`。完整流程、验证方法和配额边界见
+[docs/binary-cache.md](docs/binary-cache.md)。
+
 ## Nix 验证方法
 
 ### 1. 构建验证

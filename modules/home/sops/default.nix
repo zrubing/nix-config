@@ -178,6 +178,18 @@ in
       format = "binary";
     };
 
+    # Cachix auth token：密文由 clan vars 管理（clan/zen14.nix 的
+    # cachix-auth-token generator，写入 vars/per-machine/zen14/cachix-auth-token/）。
+    # 渲染进 dsh.env（dsh-web 宿主进程）与 default.env（终端）的
+    # CACHIX_AUTH_TOKEN——cachix CLI 优先读该 env，其次才读
+    # ~/.config/cachix/cachix.dhall，所以不需要 `cachix authtoken` 落盘明文。
+    # 加密 recipients 同 apipost（machines/zen14 与 users/jojo）。
+    # 换值：clan vars set zen14 cachix-auth-token/token
+    sops.secrets."cachix/auth_token" = {
+      sopsFile = ../../../vars/per-machine/zen14/cachix-auth-token/token/secret;
+      format = "binary";
+    };
+
     # Figma PAT：密文由 clan vars 管理（clan/zen14.nix 的 figma-api-key
     # generator）。渲染进 dsh.env 与 default.env 的 FIGMA_API_KEY——
     # Framelink MCP（figma-developer-mcp）读该变量鉴权，pi / dsh / claude-code
@@ -342,6 +354,11 @@ in
         # 下载也走它）。不用 `hf auth login`——那会把明文写到
         # ~/.cache/huggingface/token；env 变量是声明式的等价物。
         export HF_TOKEN="${config.sops.placeholder."huggingface/token"}"
+        # Cachix auth token（clan vars cachix-auth-token）：cachix CLI 先读
+        # CACHIX_AUTH_TOKEN，再回落 ~/.config/cachix/cachix.dhall，故不必跑
+        # `cachix authtoken`（那会把明文写进 dhall）。变量名含 TOKEN，dsh 的
+        # agent 子进程会被敏感名 scrub 擦掉，只在宿主进程与交互 shell 生效。
+        export CACHIX_AUTH_TOKEN="${config.sops.placeholder."cachix/auth_token"}"
 
         # OpenBao LDAP agent 凭据（clan vars openbao-ldap-agent-username /
         # -password / openbao-addr）：终端 agent（codex 等）与 dsh 走同一套
@@ -382,6 +399,9 @@ in
         # subprocess 的敏感名 scrub 擦除，agent 侧只能经受信通道
         # （DSH_HF_TOKEN）+ BASH_ENV 桥接拿回原名。
         HF_TOKEN=${config.sops.placeholder."huggingface/token"}
+        # Cachix auth token（clan vars cachix-auth-token）：宿主进程内 cachix
+        # push 可用；同 HF_TOKEN 一样含 TOKEN 会被 agent subprocess scrub。
+        CACHIX_AUTH_TOKEN=${config.sops.placeholder."cachix/auth_token"}
         OPENBAO_LDAP_AGENT_USERNAME=${config.sops.placeholder."openbao-ldap-agent/username"}
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
         BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}
