@@ -1011,3 +1011,168 @@ Nix 产物上重跑 `verify.js --no-live`：8/8；在 tmux 真 pty 里用
 
 补丁文件保留，等上游补上远端配置面、并按当时源码重生后再接回；当前 `--model`
 会被启动器搬进 `DSH_TUI_MODEL`，但远程入口不读取，等同于未设置。
+
+## 37. 远程会话的 `/preset`（2026-10-20）
+
+### 37.1 协议面（读宿主类型与实现确认）
+
+1. `@deepseek-ai/dsh-agent-preset-registry` 的 remote descriptor 提供三个方法：
+   `agentPresets/list` → `{ presets: [{id, isDefault, name?, description?, broken?}] }`、
+   `agentPresets/read(id)` → 组合文档、`agentPresets/select(agentId, id)` → 提交后的 id。
+2. `select` 就是网页端 preset「座位」走的同一条路：它先读会话的 `turnBoundary`，
+   已开过 turn 的直接抛 `agent-preset/locked`；空白会话则 `recompose` 并 append
+   `agent-preset/selected`，返回真正提交的 preset id。
+3. `session/control` 的 `agentPreset` 投影是 Host 的实时记录；`session/follow` 的
+   snapshot header 也带一份（open 时可用，投影帧随后到）。`session/create` 返回的空白
+   会话 header 已有部署默认 preset，所以启动时不必等投影。
+4. 客户端原来在 `plugin.ts` 把这个值丢了：`resolved` 在 `backendStart` 分支被写成
+   `{ agentPreset: undefined }`，`openRemoteStartup` 解析出的 `agentPreset` 没有任何
+   消费者。于是 `/preset status` 在远程会话里恒为「未挂载名册」——这不是名册缺失，
+   是启动状态没接线。修法是把 `resolved.agentPreset ?? backendStart?.agentPreset`
+   交给 `ChannelLaunchOptions.agentPreset`（本地 DSH 路径仍是 `resolveAgent` 的答案）。
+
+### 37.2 接入形状
+
+远程会话没有 DSH extensions，所以 `/preset` 与 `/permission` 同构：把 Host 的 registry
+投影成 typed `presets` 能力，由 channel 核心的后端中立层消费。
+
+1. `src/agent/capabilities.ts`：新增 `PresetChoice` / `PresetSwitchOutcome` 与
+   `SessionCapabilities.presets { list, current, set }`；`set` 的拒绝带
+   `cause: 'locked'`，UI 文案由 channel 决定，能力层只给事实。
+2. `src/channel/capabilities.ts` + `src/commands.ts`：`presets` 标志进入
+   `ChannelCapabilities`，`LOCAL_COMMAND_REQUIREMENTS` 把 `preset` 的依赖从默认
+   `dsh` 改成 `presets`。声明能力的后端因此自动获得 `/preset` 命令、选择器与补全
+   入口；没有能力的后端仍旧「不可用」，不静默降级。
+3. `src/dsh-adapter/channel/core/actions.ts`：能力层的 `listPresets` / `switchPreset`
+   是唯一的非 DSH 实现。DSH 会话由 extensions 的 model actions 覆盖，行为不变。
+   - 切换前 `state.working` 时按 `preset-agent-running` 拒绝（与 DSH 门一致）；
+   - 已是当前值 → `preset-already-current`，不发 RPC；
+   - `refused{cause:'locked'}` → `preset-locked`（会话已开始：composition 固定）；
+   - 其它拒绝 → `preset-switch-failed`；
+   - 成功 → 写 `state.agentPreset` 并 emit（Host 的 `agent-preset/selected` 事件随后
+     还会经投影器再确认一次）。
+4. `src/channel/projection.ts`：`preset.selected` 现在也写 `state.agentPreset`。这修的是
+   一个既有缺陷——重放日志或另一个客户端切换后，界面仍显示启动时的旧值；转录行
+   仍按原语义追加。
+5. `src/dsh-adapter/channel/core/session-switch.ts`：后端自己的 `/new` / `/resume`
+   采纳候选会话时，从 `candidate.capabilities.presets.current()` 取当前 composition
+   （远程 `/new` 之后不再留着上一个会话的 preset）。
+6. `src/dsh-adapter/remote/connection.ts`：`agent-preset-registry` 的 descriptor 与
+   `permission-presets` 一样按可选挂载；老 Host 缺命名空间时 `presets` 不声明，
+   `/preset` 保持不可用，连接本身不受影响。
+7. `src/dsh-adapter/remote/session.ts`：`list` 直读 Host 名册；`current` 读
+   `session/control` 的 `agentPreset`，回退到打开时的 snapshot header；`set` 调
+   `agentPresets/select(sessionId, id)`，把 `agent-preset/locked` 映射成
+   `cause: 'locked'`。
+8. `src/dsh-adapter/remote/verify.ts`：契约自检新增 `agentPresets` 描述符与方法断言，
+   并在 scratch 空白会话上实际切换一次再切回，确认名册与 `select` 都可用。
+
+### 37.3 语义边界：不写默认
+
+本地 DSH 的 `/preset` 在已开始会话上会把选择写进 `~/.dsh-tui/agent-preset.json`
+（下次启动的默认）。远程模式**不做**这件事：
+
+1. 那个文件是进程内 DSH 组合的偏好，Host 侧的 `session/create` 从不读它；写它等于
+   撒谎（提示「已保存为默认」但下次 `/new` 不生效）。
+2. Host 侧的「新会话默认」是 `agent-preset-registry.selectedDefault` 设置项（网页端
+   设置页写它）。`/preset` 是会话内切换命令，不是改部署默认的命令；让一个 TUI
+   命令全局改 Host 配置超出它的语义，也会影响网页端。
+3. 因此远程的 `/preset status` 用 `preset-host-hint`（「新会话默认由 Host 配置决定」）
+   取代本地的 `preset-persist-hint`（文件路径），靠 `ChannelCapabilities.presetDefault`
+   区分。已开始会话的切换请求得到 `preset-locked`，不会假装保存。
+
+已知窄缺口：`/preset ` 的 Tab 补全在远程只给 `status`。宿主名册是异步 RPC，而补全
+路径是同步的；全量名册在选择器打开时读取。要补这一项需要给 channel 增加同步快照，
+本轮不做（KISS）。
+
+### 37.4 构建与验证（2026-10-20）
+
+1. `preset-support.patch`（19 文件，+374/−10；含 §37.5 状态栏段与 §38 提问提示）叠在
+   `permission-presets.patch` 之上，
+   在干净 v0.16.1 上按 `remote-mode → permission-presets → preset-support →
+   notification-ghostty-cap` 顺序 `git apply --check` 全通过。
+2. `nix build .#dsh-tui-remote` 通过，产物
+   `/nix/store/y5hkmxzllih48rmrkzs5hyilm3wkgyi9-dsh-tui-remote-0.16.1`。
+3. `verify.js` 对真实 3080：22/22，包括
+   `preset roster: router-standard, standard, my-router-standard, ptc, minimal, cordis,
+   my-ptc, my-minimal`、`current preset: standard`、
+   `agentPresets/select switches a blank session to router-standard` 与切回。
+4. 门禁：`verify:i18n`（2035 条）、`verify:boundary`（1804 文件）、
+   `verify:adapter-ports`、`verify:agent-capabilities`（67 项）、
+   `verify:channel-composition`、`verify-backend-channel`（200 项，新增 9 项 preset 断言）
+   全通过。
+5. 真 pty（tmux，`DSH_TUI_REMOTE_TREE=<store>/libexec dsh-tui-remote`）：
+   - `/preset status` → `Current preset standard` + 「新会话默认由 Host 决定」+ 锁定规则；
+   - `/preset` 打开选择器，列出 Host 的 8 个 preset，当前项标 `✓`、默认项标 `(default)`；
+   - 选择器选中 `minimal` → 转录横幅 `Agent preset switched: minimal` + toast
+     `Preset switched: minimal`；再查 status → `Current preset minimal`；
+   - 直接带参 `/preset minimal` 同样生效（另一进程、另一空白会话）；
+   - `/new` 之后 status 回到 `standard`（Host 部署默认），说明采纳路径读的是新会话的
+     能力，而不是沿用上一个会话的值；
+   - 该空白会话跑完一轮后再 `/preset standard` → `Session already started, preset locked
+     (current: minimal)`，Host 侧未被改动。
+
+### 37.5 状态栏 preset 段与 tok/s（2026-10-20）
+
+1. `StatusBarConfig.preset`（默认 false）：`StatusLine` 在 mode 段之后画
+   `t('status-preset', {name})` → `预设 <id>` / `preset <id>`。`id` 是 `/preset <id>`
+   接受的同一个 token；`channel.agentPreset` 为空时整段不画；极简界面的
+   `MINIMAL_UI_STATUS_BAR` 继承默认值，不会出现该段。
+2. 同步点四处（既有设计就是四处枚举）：`channel-display.ts` 类型、`tuiDisplayPrefs.ts`
+   的 `DEFAULT_STATUS_BAR`、`dsh-adapter/index.ts` 与 `dsh-adapter/plugin.ts` 的两份
+   schemastery（后者同时驱动 `settingField('statusBar.preset')`），外加
+   `settings/definitions.ts` 的 `/settings` 行。
+3. tok/s 不是新功能：`statusBar.tps` 早就有（gauge/sparkline + `N tps`，远程由
+   `assistant-stream` 帧驱动投影器计算），只是默认关。本轮只在用户设置里开启，不改代码。
+4. 用户层（`~/.dsh-tui/settings.json`）写入 `statusBar: { preset: true, tps: true }`；
+   这是 `/settings` 写出的同一层，重启后仍生效，随时可在设置页关掉。
+
+## 38. resume 后的在途提问：协议事实与处理（2026-10-20）
+
+### 38.1 现场
+
+用户 resume `session-b1fb5a5e…`（Emacs telega）后消息发不出去，Web 端显示一个未回答
+的提问。查日志：`tool/call`（`ask_user_question`，seq 462）之后没有 `tool/result`，
+只有 `agent/inbox/spliced`（TUI 发出的消息进了 Host inbox）与 `command/run/done`；
+`session/control` 的 `userQuestions` 投影是 `{active:[],settled:[]}`。
+
+### 38.2 根因（两条协议事实）
+
+1. 该部署的 `ask_user_question` 是 **legacy 阻塞模式**：`dsh-tool-ask-user` 的
+   `mode` 默认 `legacy`，工具 schema 不含 `timeout`；`dsh-user-questions` 的投影只
+   登记“带 timeout 的 timed 调用”，所以这个调用在投影里根本不存在。
+2. `user-questions/request` 是 **转发 waterfall**：只发给请求发出时在线的客户端，
+   没有重放（`dsh-api-remotes` 的转发白名单里 `mode: 'waterfall'`）。TUI 在提问之后
+   才 attach，就拿不到请求对象；`userQuestions/answer` 只接受 `continued` 的 timed
+   提问（Host 实现里 `continued(agent)` 过滤），对 legacy 调用返回 false。
+
+结论：这类提问在协议上只能由“收到请求的那个客户端”（此例是 Web）回答；TUI 既不能
+显示也不能回答——直到本轮为它补上显示与出路。
+
+### 38.3 处理
+
+1. `remote/session.ts` 打开会话后扫描已翻译历史：收集没有 `tool/result` 的
+   `ask_user_question` 调用，从 `argsJson` 解析问题与选项（解析失败静默跳过，绝不抛）。
+2. 把 notice 行**直接追加进视图历史（`history()`）**，由 channel 的 replay 画出来。
+   不能只在 `subscribe` 时投递一次：启动路径会两次 replay（构造时一次、adoption 时
+   又一次，后者前面还有 `resetProjection`），一次性投递会被 adoption 的 reset 抹掉——
+   第一版就栽在这里（行确实产生了，但界面上没有）。
+3. 三条 notice：问题原文、选项、出路说明（到收到请求的客户端回答；本端 Esc 取消本回合）。
+   文案明确“本客户端无法回答”，不提供假按钮。
+4. 代价与边界：这是**只读提示**。要让 TUI 真正回答，需要 Host 侧二选一：
+   `tool-ask-user` 切 `mode: 'timed'`（超时即 `continued`，TUI 可用
+   `userQuestions/answer` 回答），或 Host 给 pending waterfall 做 attach 重放。
+   两者都是 Host 语义/实现变更，本包不越界代改。
+
+### 38.4 验证
+
+1. 用户报告的会话（`session-b1fb5a5e…`）在排查途中被 Web 端回答，`tool/result` 已落库，
+   因此不再产生提示——这本身也验证了“只有仍未回答的调用才提示”。
+2. 造一次确定性的在途提问：scratch 会话里让模型立即调用 `ask_user_question`
+   （“Proceed?” / Yes·No），不回答；换一个**后到的**客户端打开同一会话，`history()`
+   末尾得到三条 notice：
+   `This session is waiting on a question asked before this client attached; this client
+   cannot answer it: Proceed?`、`Options: Yes · No`、`Answer it in the client that received
+   it (usually the web UI); press Esc here to cancel this turn.`
+3. 清理：`session/cancel` 返回 `accepted:true`，该 scratch 回合被取消，不留悬挂会话。
+4. Esc 取消路径沿用既有 `session/cancel`（§15 已验）。
