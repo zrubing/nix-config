@@ -173,6 +173,21 @@ export function inScope(id, prefixes) {
 }
 
 /**
+ * Whether an id matches the route's scope: every narrowing that is configured
+ * must accept it, and an empty narrowing accepts everything. Prefixes cover
+ * "this route only owns `deepseek-*`"; suffixes cover "this route only owns the
+ * `-free` tier of an endpoint another route already serves in full". Combining
+ * both is an AND, so a descriptor can never widen its own scope by accident.
+ */
+export function inRouteScope(id, opts) {
+	const prefixes = opts.includePrefixes ?? [];
+	const suffixes = opts.includeSuffixes ?? [];
+	if (!inScope(id, prefixes)) return false;
+	if (suffixes.length === 0) return true;
+	return suffixes.some((suffix) => id.endsWith(suffix));
+}
+
+/**
  * Normalize one model entry against the llm-pi-ai schema.
  *
  * Capacity is required, not defaulted: an entry without a positive
@@ -372,7 +387,8 @@ function compatOf(entry) {
 /**
  * Merge the live listing into the configured models under the plugin's policy.
  *
- * Entries outside `opts.includePrefixes` are the user's business: kept
+ * Entries outside the route's scope (`includePrefixes` / `includeSuffixes`) are
+ * the user's business: kept
  * verbatim, never dropped, never overwritten.
  *
  * Precedence for capability, per id: the configured entry wins over the
@@ -407,7 +423,7 @@ export function reconcile(existing, live, opts, catalogIds, capabilities) {
 	const unresolved = [];
 
 	for (const entry of existing) {
-		if (!inScope(entry.id, opts.includePrefixes)) {
+		if (!inRouteScope(entry.id, opts)) {
 			merged.push(entry);
 			seen.add(entry.id);
 			continue;
@@ -442,7 +458,7 @@ export function reconcile(existing, live, opts, catalogIds, capabilities) {
 
 	for (const liveEntry of live) {
 		const id = typeof liveEntry?.id === "string" ? liveEntry.id.trim() : "";
-		if (id.length === 0 || seen.has(id) || !inScope(id, opts.includePrefixes)) continue;
+		if (id.length === 0 || seen.has(id) || !inRouteScope(id, opts)) continue;
 		// A catalog id keeps the catalog's own metadata; see discoverCatalogIds.
 		if (catalogIds !== undefined && catalogIds.has(id)) continue;
 		// Report-only routes never materialize: their served list is the static
@@ -588,6 +604,10 @@ export function resolveOptions(config, spec) {
 	const prefixes = Array.isArray(configuredPrefixes)
 		? configuredPrefixes.filter((prefix) => typeof prefix === "string" && prefix.length > 0)
 		: spec.includePrefixes ?? [];
+	const configuredSuffixes = config?.includeSuffixes;
+	const suffixes = Array.isArray(configuredSuffixes)
+		? configuredSuffixes.filter((suffix) => typeof suffix === "string" && suffix.length > 0)
+		: spec.includeSuffixes ?? [];
 	const configuredEfforts = config?.defaultReasoningEfforts;
 	const efforts =
 		configuredEfforts !== undefined && configuredEfforts !== null && typeof configuredEfforts === "object"
@@ -603,6 +623,7 @@ export function resolveOptions(config, spec) {
 		deferToCatalog: spec.deferToCatalog === true,
 		reportOnly: spec.reportOnly === true,
 		includePrefixes: prefixes,
+		includeSuffixes: suffixes,
 		...(efforts === undefined || efforts === null ? {} : { defaultReasoningEfforts: { ...efforts } }),
 		...(typeof spec.discover === "function" ? { discover: spec.discover } : {}),
 		...(typeof spec.capabilitySource === "function" ? { capabilitySource: spec.capabilitySource } : {}),

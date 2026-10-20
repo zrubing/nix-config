@@ -1,11 +1,12 @@
 {
   "name": "dsh-autosync",
   "version": "0.1.0",
-  "description": "DSH host plugins: keep the opencode-go / runinfra / deepseek-relay llm-pi-ai routes in step with their live /v1/models listings. One shared skeleton (lib/plugin.js) plus three route descriptors; the route rows are declared in this bundle's cordis.patch.yml and reference the ./opencode, ./runinfra and ./deepseek-relay subpaths.",
+  "description": "DSH host plugins: keep the opencode-go / opencode-free / runinfra / deepseek-relay llm-pi-ai routes in step with their live /v1/models listings. One shared skeleton (lib/plugin.js) plus four route descriptors; the route rows are declared in this bundle's cordis.patch.yml and reference the ./opencode, ./opencode-free, ./runinfra and ./deepseek-relay subpaths.",
   "type": "module",
   "exports": {
     ".": "./lib/plugin.js",
     "./opencode": "./lib/opencode.js",
+    "./opencode-free": "./lib/opencode-free.js",
     "./runinfra": "./lib/runinfra.js",
     "./deepseek-relay": "./lib/deepseek-relay.js",
     "./catalog": "./lib/catalog.js",
@@ -14,6 +15,7 @@
   "files": [
     "lib/plugin.js",
     "lib/opencode.js",
+    "lib/opencode-free.js",
     "lib/runinfra.js",
     "lib/deepseek-relay.js",
     "lib/catalog.js"
