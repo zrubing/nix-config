@@ -1,9 +1,53 @@
-{ inputs, lib, config, ... }:
+{ inputs, lib, config, pkgs, ... }:
 let
   isNixOS = config ? systemd;
+
+  # cargo-nix-plugin（anthropics）：Rust 包的 crate 级构建。
+  #
+  # 插件给 nix 进程加一个 primop `builtins.resolveCargoWorkspace`，eval 期直接
+  # 把 Cargo.lock 解析成 crate 图，每个 crate 一个 buildRustCrate 派生——依赖的
+  # 编译结果因此能进 store / 二进制缓存，改自身源码只重建自己的 crate。
+  # 相比之下 rustPlatform.buildRustPackage 是「依赖 + 源码」一个派生，任何源码
+  # 变动都要全量重编（实测 cliphist-gui：130 个 crate 全编 85 s / 16 核）。
+  #
+  # ⚠️ 插件 ABI 与 nix 版本严格绑定：版本错配时 nix 启动即报错，所有 nix 命令
+  # 不可用。所以 components 不写死，直接从「本系统实际装的 nix」版本推出——
+  # 2.35.3 → nixComponents_2_35；nixpkgs 换 nix 版本时两者一起动，不会错配。
+  #
+  # 用法（packages/<name>/default.nix）：
+  #   { inputs, pkgs, ... }:
+  #   let cargoNix = inputs.cargo-nix-plugin.lib { inherit pkgs; src = ./.; };
+  #   in cargoNix.workspaceMembers.<member>.build
+  # 注意：默认（lockfile resolve）模式在 eval 期要联网查 crates.io sparse index，
+  # 破坏纯求值（离线重建 / CI 会失败）；这种场景改用
+  #   metadata = builtins.readFile ./metadata.json;
+  #   cargoLock = builtins.readFile ./Cargo.lock;
+  # 的显式模式，把 metadata.json 入库。
+  #
+  # 实测两个必须补的坑（用 cliphist-gui 全程跑通验证过，产物二进制可执行、链接正常）：
+  #   1. 原生库依赖走 crateOverrides：nixpkgs 的 defaultCrateOverrides 已覆盖
+  #      gtk4-sys / gdk4-sys / glib-sys / gdk-pixbuf-sys 等常见 crate；冷门的要自己加，
+  #      例如 gtk4-layer-shell-sys 需 pkg-config + buildInputs = [ gtk4-layer-shell ]，
+  #      否则 system-deps 在沙箱里找不到 .pc 而失败。
+  #   2. buildRustCrate 固定 -C opt-level=3、无 LTO、不读 Cargo.toml 的 [profile.*]，
+  #      也不会 wrapProgram：同一份源码产物 1.7 MB（原 buildRustPackage 版是
+  #      opt-level=s + LTO + panic=abort 的 776 KB），PATH 里的辅助命令
+  #      （cliphist / wl-copy / magick / notify-send）得自己 postFixup 包一层。
+  #
+  # 迁移顺序（重要）：plugin-files 是本次 rebuild 后才进 /etc/nix/nix.conf 的，
+  # 所以先把本模块上线，再让包引用 cargoNix；否则求值期没有 primop，直接报错。
+  nixComponents =
+    pkgs.nixVersions."nixComponents_${
+      lib.replaceStrings [ "." ] [ "_" ] (lib.versions.majorMinor config.nix.package.version)
+    }";
+  cargoNixPlugin = pkgs.callPackage "${inputs.cargo-nix-plugin}/nix/plugin.nix" {
+    inherit nixComponents;
+  };
 in
 {
   nix = {
+    # 插件只有加载进评估用的 nix 才有 primop；路径指向目录，nix 自己挑 .so。
+    settings.plugin-files = lib.mkIf isNixOS [ "${cargoNixPlugin}/lib/nix/plugins" ];
     extraOptions = ''
       trusted-users = root jojo
 

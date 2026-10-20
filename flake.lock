@@ -110,6 +110,26 @@
         "type": "github"
       }
     },
+    "cargo-nix-plugin": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1792190757,
+        "narHash": "sha256-2+uVu5o0koHtab36LO99Dhy7IhQr2u4Jw36KonAdGuk=",
+        "owner": "anthropics",
+        "repo": "cargo-nix-plugin",
+        "rev": "00f311abab999b4ad4c7f3fa3d85bb17beb91aee",
+        "type": "github"
+      },
+      "original": {
+        "owner": "anthropics",
+        "repo": "cargo-nix-plugin",
+        "type": "github"
+      }
+    },
     "catppuccin-bat": {
       "flake": false,
       "locked": {
@@ -1258,6 +1278,7 @@
         "agenix": "agenix",
         "antigravity-nix": "antigravity-nix",
         "anysearch-skill": "anysearch-skill",
+        "cargo-nix-plugin": "cargo-nix-plugin",
         "catppuccin-bat": "catppuccin-bat",
         "caveman-skills": "caveman-skills",
         "clan-core": "clan-core",
