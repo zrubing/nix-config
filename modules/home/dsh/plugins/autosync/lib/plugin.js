@@ -56,9 +56,20 @@
  * a live listing that omits a catalog model must not delete a model the
  * protocol resolver still needs, and a catalog id must not be adopted either —
  * adopting it would swap the catalog's real capacities / reasoning levels /
- * compat for this plugin's conservative defaults, permanently (adoption is
+ * compat for whatever the listing disclosed, permanently (adoption is
  * add-only). Nothing is ever removed; only ids neither the route nor the
- * catalog declares are appended.
+ * catalog declares are appended, and only when their capability is known.
+ *
+ * ## Capacity is never invented
+ *
+ * A listing answers *which ids exist*; it usually does not answer *how large
+ * they are* (opencode's returns id/object/created/owned_by). The capability
+ * therefore comes from the route's own facts (`capabilitySource`, e.g.
+ * models.dev for opencode-go, the gateway payload for runinfra) and an id whose
+ * capacity nobody states is **not written**: it is reported under `unresolved`
+ * and left for a human decision. Earlier generations of this file defaulted to
+ * 128000/32000, which is exactly how `opencode-go/deepseek-v4.1-flash` came to
+ * be served at 128k while upstream is 1M.
  *
  * A live listing that is empty never mutates the route: in reconcile mode it
  * would read as "the gateway dropped everything", and in add-only mode it
@@ -73,6 +84,13 @@
  *                              read the gateway's raw /v1/models payload
  *                              (reasoning_efforts / input_modalities / pricing
  *                              are not part of what discoverModels returns).
+ *   capabilitySource(live, opts)
+ *                              resolves id → capability (contextWindow /
+ *                              maxTokens / input / reasoningEfforts /
+ *                              thinkingFormat) for ids the listing disclosed.
+ *                              opencode-go reads models.dev through it; a route
+ *                              whose own payload already states capacities
+ *                              omits it.
  *   publish({ opts, live, merged })
  *                              runs after every pass that leaves the route
  *                              consistent (write succeeded, or nothing
@@ -101,9 +119,6 @@ const FIRST_PASS_DELAY_MS = 20000;
  * 只代价一次重试，而持续失败也不会退化成每 5 分钟一条日志（翻倍到常态间隔为止）。
  */
 const RETRY_DELAY_MS = 5 * 60 * 1000;
-/** Capacities applied to an id the listing discloses but whose figures it hides. */
-const DEFAULT_CONTEXT_WINDOW = 128000;
-const DEFAULT_MAX_TOKENS = 32000;
 /**
  * Compat applied to *newly adopted* ids on the gateways this plugin manages.
  * Both 400 the `developer` role and speak openai-completions, so the openai
@@ -158,9 +173,14 @@ export function inScope(id, prefixes) {
 }
 
 /**
- * Normalize one model entry against the llm-pi-ai schema, filling missing
- * capacity with conservative defaults but never overriding a present value.
- * Every field the schema knows survives untouched: stripping `compat` or
+ * Normalize one model entry against the llm-pi-ai schema.
+ *
+ * Capacity is required, not defaulted: an entry without a positive
+ * `contextWindow` and `maxTokens` returns `undefined` so the caller can leave
+ * it out and report it. A guessed capacity is worse than a missing one — it is
+ * indistinguishable from a real figure at every later layer.
+ *
+ * Every other field the schema knows survives untouched: stripping `compat` or
  * `reasoningEfforts` would silently downgrade a model that carries meaningful
  * per-model protocol metadata (the copies had exactly that bug).
  *
@@ -172,13 +192,15 @@ export function inScope(id, prefixes) {
  * written before the option existed heals), while an explicit
  * `reasoningEfforts: false` is respected as a deliberate opt-out.
  *
- * @param entry - the draft entry (id required).
+ * @param entry - the draft entry (id required, capacity required).
  * @param fallbackId - id to use when the draft carries none.
  * @param opts - resolved plugin options (capability defaults).
- * @returns a plain owned copy carrying the documented fields.
+ * @returns a plain owned copy carrying the documented fields, or `undefined`
+ *          when the capacity is unknown.
  */
 export function normalizeEntry(entry, fallbackId, opts) {
 	const id = typeof entry.id === "string" && entry.id.length > 0 ? entry.id : fallbackId;
+	if (!hasCapacity(entry.contextWindow) || !hasCapacity(entry.maxTokens)) return undefined;
 	const name =
 		typeof entry.name === "string" && entry.name.trim().length > 0
 			? entry.name.trim()
@@ -186,8 +208,8 @@ export function normalizeEntry(entry, fallbackId, opts) {
 	const normalized = {
 		id,
 		name,
-		contextWindow: hasCapacity(entry.contextWindow) ? entry.contextWindow : DEFAULT_CONTEXT_WINDOW,
-		maxTokens: hasCapacity(entry.maxTokens) ? entry.maxTokens : DEFAULT_MAX_TOKENS,
+		contextWindow: Math.trunc(entry.contextWindow),
+		maxTokens: Math.trunc(entry.maxTokens),
 		input: Array.isArray(entry.input) && entry.input.length > 0 ? [...entry.input] : ["text"],
 	};
 	if (entry.reasoningEfforts !== undefined && entry.reasoningEfforts !== null) {
@@ -200,6 +222,15 @@ export function normalizeEntry(entry, fallbackId, opts) {
 	if (entry.compat !== undefined && entry.compat !== null && typeof entry.compat === "object") {
 		normalized.compat = { ...entry.compat };
 	}
+	// A capability source states the wire format as `thinkingFormat` (models.dev
+	// does through `interleaved.field`); the schema wants it inside `compat`,
+	// and deepseek's format also requires the reasoning content echoed back.
+	if (typeof entry.thinkingFormat === "string" && entry.thinkingFormat.length > 0) {
+		normalized.compat = { ...(normalized.compat ?? {}), thinkingFormat: entry.thinkingFormat };
+		if (entry.thinkingFormat === "deepseek") {
+			normalized.compat.requiresReasoningContentOnAssistantMessages = true;
+		}
+	}
 	return normalized;
 }
 
@@ -207,12 +238,14 @@ export function normalizeEntry(entry, fallbackId, opts) {
  * Read the id-indexed slice of a live listing entry that describes capability
  * the configured entry may not have yet. A descriptor whose `discover` returns
  * richer entries than the llm-pi-ai contract (see `discover`) gets its
- * `input` / `reasoningEfforts` copied onto adopted *and* existing entries, so
- * one id set has one capability story for every consumer.
+ * capacities / `input` / `reasoningEfforts` copied onto adopted *and* existing
+ * entries, so one id set has one capability story for every consumer.
  */
 function capabilityOf(entry) {
 	if (entry === undefined || entry === null || typeof entry !== "object") return {};
 	const out = {};
+	if (hasCapacity(entry.contextWindow)) out.contextWindow = Math.trunc(entry.contextWindow);
+	if (hasCapacity(entry.maxTokens)) out.maxTokens = Math.trunc(entry.maxTokens);
 	if (Array.isArray(entry.input) && entry.input.length > 0) out.input = [...entry.input];
 	if (entry.reasoningEfforts !== undefined && entry.reasoningEfforts !== null) {
 		out.reasoningEfforts = typeof entry.reasoningEfforts === "object" ? { ...entry.reasoningEfforts } : entry.reasoningEfforts;
@@ -307,8 +340,8 @@ export async function discoverLive(ctx, opts) {
  * already replaces the served catalog`). The `opencode-go` route declares no
  * models, so the catalog is what serves it — with real capacities, reasoning
  * levels and per-model compat. Adopting a catalog id would therefore swap that
- * metadata for this plugin's conservative defaults (128k / 32k / text-only),
- * and adoption is add-only, so the downgrade would be permanent.
+ * metadata for whatever the listing disclosed, and adoption is add-only, so the
+ * downgrade would be permanent.
  *
  * `discoverModels` short-circuits to the catalog exactly when a provider id is
  * given, and with no baseURL a route the catalog does not describe fails
@@ -342,13 +375,21 @@ function compatOf(entry) {
  * Entries outside `opts.includePrefixes` are the user's business: kept
  * verbatim, never dropped, never overwritten.
  *
+ * Precedence for capability, per id: the configured entry wins over the
+ * listing, and the listing wins over `capabilities` (the route's own facts —
+ * models.dev for opencode-go). A route that states capacities in its payload
+ * (runinfra) therefore needs no `capabilities` map at all.
+ *
  * @param existing - the route's configured models.
  * @param live - the endpoint's advertised listing.
  * @param opts - resolved plugin options (mode, scope, capability defaults).
  * @param catalogIds - ids the installed catalog serves (add-only mode only).
- * @returns `{ merged, added, dropped, repaired }`; the latter three are id lists.
+ * @param capabilities - id → capability for ids whose figures the listing hides.
+ * @returns `{ merged, added, dropped, repaired, unresolved }`; the latter four
+ *          are id lists. `unresolved` are ids left out because no source states
+ *          their capacity — they are reported, never guessed.
  */
-export function reconcile(existing, live, opts, catalogIds) {
+export function reconcile(existing, live, opts, catalogIds, capabilities) {
 	const addOnly = opts.mode === "add-only";
 	const liveIds = new Set(
 		live.map((entry) => (typeof entry?.id === "string" ? entry.id : "")).filter(Boolean)
@@ -363,6 +404,7 @@ export function reconcile(existing, live, opts, catalogIds) {
 	const added = [];
 	const dropped = [];
 	const repaired = [];
+	const unresolved = [];
 
 	for (const entry of existing) {
 		if (!inScope(entry.id, opts.includePrefixes)) {
@@ -378,8 +420,21 @@ export function reconcile(existing, live, opts, catalogIds) {
 		}
 		const before = entry.reasoningEfforts;
 		// Configured fields win (a deliberate `reasoningEfforts: false` opt-out
-		// must survive); the listing only fills what the entry does not declare.
-		const kept = normalizeEntry({ ...capabilityOf(liveById.get(entry.id)), ...entry }, entry.id, opts);
+		// must survive); the listing and the route facts only fill what the
+		// entry does not declare.
+		const kept = normalizeEntry(
+			{ ...capabilities?.get(entry.id), ...capabilityOf(liveById.get(entry.id)), ...entry },
+			entry.id,
+			opts
+		);
+		if (kept === undefined) {
+			// No source states this entry's capacity. Keep the user's entry
+			// verbatim rather than rewriting it with a guess.
+			merged.push(entry);
+			unresolved.push(entry.id);
+			seen.add(entry.id);
+			continue;
+		}
 		if (before === undefined && kept.reasoningEfforts !== undefined) repaired.push(entry.id);
 		merged.push(kept);
 		seen.add(entry.id);
@@ -390,26 +445,33 @@ export function reconcile(existing, live, opts, catalogIds) {
 		if (id.length === 0 || seen.has(id) || !inScope(id, opts.includePrefixes)) continue;
 		// A catalog id keeps the catalog's own metadata; see discoverCatalogIds.
 		if (catalogIds !== undefined && catalogIds.has(id)) continue;
+		// Report-only routes never materialize: their served list is the static
+		// catalog, and writing a `models` list here would replace it with the
+		// handful of ids this pass happened to see.
+		if (opts.reportOnly === true) {
+			unresolved.push(id);
+			continue;
+		}
 		seen.add(id);
 		const adopted = normalizeEntry(
 			{
 				id,
-				...(typeof liveEntry.name === "string" && liveEntry.name.trim().length > 0
-					? { name: liveEntry.name.trim() }
-					: {}),
-				...(hasCapacity(liveEntry.contextWindow) ? { contextWindow: liveEntry.contextWindow } : {}),
-				...(hasCapacity(liveEntry.maxTokens) ? { maxTokens: liveEntry.maxTokens } : {}),
+				...(capabilities?.get(id) ?? {}),
 				...capabilityOf(liveEntry),
 			},
 			id,
 			opts
 		);
-		if (compatOf(adopted) === undefined) adopted.compat = { ...NEW_MODEL_COMPAT };
+		if (adopted === undefined) {
+			unresolved.push(id);
+			continue;
+		}
+		adopted.compat = { ...NEW_MODEL_COMPAT, ...(compatOf(adopted) ?? {}) };
 		merged.push(adopted);
 		added.push(id);
 	}
 
-	return { merged, added, dropped, repaired };
+	return { merged, added, dropped, repaired, unresolved };
 }
 
 /** One full sync pass. Never throws; returns a plain report for the log. */
@@ -427,6 +489,17 @@ export async function syncOnce(ctx, opts) {
 		return { ok: false, reason: "live listing empty; leaving route untouched" };
 	}
 	const catalogIds = opts.deferToCatalog ? await discoverCatalogIds(ctx, opts) : undefined;
+	// Route facts win over the listing when the listing hides figures. A source
+	// failure fails the pass instead of falling through to "adopt nothing
+	// silently": the next tick retries with backoff.
+	let capabilities;
+	if (typeof opts.capabilitySource === "function") {
+		try {
+			capabilities = await opts.capabilitySource(live, opts);
+		} catch (error) {
+			return { ok: false, reason: `capability source failed: ${messageOf(error)}` };
+		}
+	}
 
 	// 同一个命名空间有多个写者（另外两个 autosync、dsh-tap 的宿主镜像、设置页），
 	// 所以每一轮都重新活取 settings 实例并重读路由，而不是用 pass 开头那份快照：
@@ -445,13 +518,14 @@ export async function syncOnce(ctx, opts) {
 		if (exists === false) {
 			return { ok: false, reason: `route "${opts.route}" not declared under ${NS}.providers` };
 		}
-		const { merged, added, dropped, repaired } = reconcile(existing, live, opts, catalogIds);
+		const { merged, added, dropped, repaired, unresolved } = reconcile(existing, live, opts, catalogIds, capabilities);
 		if (added.length === 0 && dropped.length === 0 && repaired.length === 0) {
 			return {
 				ok: true,
 				addedCount: 0,
 				droppedCount: 0,
 				repairedCount: 0,
+				...(unresolved.length > 0 ? { unresolvedCount: unresolved.length, unresolved } : {}),
 				route: opts.route,
 				...await publishOnce(opts, live, merged),
 			};
@@ -471,6 +545,7 @@ export async function syncOnce(ctx, opts) {
 				dropped,
 				repairedCount: repaired.length,
 				repaired,
+				...(unresolved.length > 0 ? { unresolvedCount: unresolved.length, unresolved } : {}),
 				route: opts.route,
 				...await publishOnce(opts, live, merged),
 			};
@@ -526,9 +601,11 @@ export function resolveOptions(config, spec) {
 		intervalMs: Number.isFinite(config?.intervalMs) ? config.intervalMs : DEFAULT_INTERVAL_MS,
 		mode: spec.mode,
 		deferToCatalog: spec.deferToCatalog === true,
+		reportOnly: spec.reportOnly === true,
 		includePrefixes: prefixes,
 		...(efforts === undefined || efforts === null ? {} : { defaultReasoningEfforts: { ...efforts } }),
 		...(typeof spec.discover === "function" ? { discover: spec.discover } : {}),
+		...(typeof spec.capabilitySource === "function" ? { capabilitySource: spec.capabilitySource } : {}),
 		...(typeof spec.publish === "function" ? { publish: spec.publish } : {}),
 	};
 }

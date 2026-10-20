@@ -8,13 +8,15 @@
     "./opencode": "./lib/opencode.js",
     "./runinfra": "./lib/runinfra.js",
     "./deepseek-relay": "./lib/deepseek-relay.js",
+    "./catalog": "./lib/catalog.js",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/plugin.js",
     "lib/opencode.js",
     "lib/runinfra.js",
-    "lib/deepseek-relay.js"
+    "lib/deepseek-relay.js",
+    "lib/catalog.js"
   ],
   "license": "MIT"
 }

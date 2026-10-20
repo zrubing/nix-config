@@ -634,7 +634,10 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
     patch = patchText "dsh-autosync" ''
       # relay / runinfra 的 /v1/models 是权威所以 reconcile（增删同步，保留仍在 live
       # 的既有条目的 compat / reasoningEfforts / 用户修正容量）；opencode-go 是
-      # add-only —— pi-ai 的 catalog 是静态清单，reconcile 会把刚发现的模型当 stale 删掉。
+      # add-only + reportOnly —— 它的服务清单来自 pi-ai 静态 catalog，而一条 `models`
+      # 会整体替换 catalog，物化只会把清单外的 id 丢掉、把没开通的 id 塞进来。
+      # 它的 live 清单还按 opencode console 的逐模型开关过滤，与 catalog 两边都不等，
+      # 所以只记日志（unresolved），不写设置。容量缺口的来源见 lib/catalog.js。
       - insert:
           # baseURL 用官方文档（opencode.ai/v2/docs/console/go）的规范拼写
           # /inference/go/v1；旧拼写 /zen/go/v1 仍是活的别名，两者 2026-10-14
