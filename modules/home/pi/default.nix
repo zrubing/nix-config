@@ -90,13 +90,16 @@ let
   };
   piMcpJson = builtins.toJSON { mcpServers = mcpServers.piServers; };
 
-  # pi-blackhole 三个 memory worker 共用的模型（deepseek-v4-flash 便宜快，适合后台任务）
+  # pi-blackhole 三个 memory worker 共用的模型（deepseek-v4.1-flash 便宜快，适合后台任务）
+  # id 取自 pi 侧 opencode-go catalog（catalog 与 discovery 缓存里只有
+  # deepseek-v4-pro / deepseek-v4.1-flash 两个 deepseek 模型；原 deepseek-v4-flash
+  # 已不在清单内，会在 modelRegistry.find 时报 not found）
   # contextWindow 显式声明 1M，OM pipeline 会在调用前检查输入是否放得下
   # 注意：provider 与 id 是分开的字段，id 只写模型名（不带 provider 前缀），
   # 否则 modelRegistry.find(provider, id) 匹配不到，会报 "provider/provider/id not found"
   blackholeWorkerModel = {
     provider = "opencode-go";
-    id = "deepseek-v4-flash";
+    id = "deepseek-v4.1-flash";
     thinking = "low";
     contextWindow = 1000000;
   };
