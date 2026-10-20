@@ -764,6 +764,53 @@ let
           apiKeyEnv: OPENCODE_API_KEY
           api: openai-completions
           baseURL: https://opencode.ai/inference/go/v1
+        # opencode-free：同一个 Go 网关上的免费档（`-free` 后缀）。单独成路由，
+        # 因为 opencode-go 由 pi-ai 静态 catalog 驱动、写 `models` 会整体替换
+        # catalog；这条路由没有 catalog，models 列表就是唯一 owner，由
+        # dsh-autosync/opencode-free 按网关 /v1/models 的 `-free` 子集 reconcile
+        # （下架自动消失、新增自动进来，本表只是首发 seed）。
+        # 2026-10-20 实测：zen 档的免费模型（deepseek-v4.1-flash-free 等）对非
+        # OpenCode 客户端返回 403 FreeTierError，Go 端对它们返回 400 Model is
+        # unavailable —— 只有这里列出的这几个在 Go 档真的能跑通。
+        # 容量/模态/思考档取自 models.dev 的 opencode slice，不填默认值。
+        opencode-free:
+          apiKeyEnv: OPENCODE_API_KEY
+          displayName: OpenCode Free
+          api: openai-completions
+          baseURL: https://opencode.ai/inference/go/v1
+          models:
+            - id: minimax-m3.1-flash-free
+              name: MiniMax M3.1 Flash Free
+              contextWindow: 1000000
+              maxTokens: 512000
+              input:
+                - text
+                - image
+              reasoningEfforts:
+                low: low
+                medium: medium
+                high: high
+                xhigh: xhigh
+                max: max
+            - id: longcat-2.5-preview-free
+              name: LongCat 2.5 Preview Free
+              contextWindow: 1000000
+              maxTokens: 131072
+              input:
+                - text
+                - image
+            - id: beam-free
+              name: Beam Free
+              contextWindow: 1048576
+              maxTokens: 131072
+              input:
+                - text
+              reasoningEfforts:
+                low: low
+                medium: medium
+                high: high
+                xhigh: xhigh
+                max: max
         # 改本表 route 字段（baseURL/api）时注意：这里只是 seed。运行时生效值是
         # profile 自己的 cordis.patch.yml（Settings 缝的落盘目标），而它排在 bundle
         # 之后应用、且 config 是**整体替换**，所以已存在 profile 的 providers 表会

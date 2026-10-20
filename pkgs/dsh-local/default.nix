@@ -630,7 +630,7 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
   autosync = mkBundle {
     name = "dsh-autosync";
     src = pluginsDir + "/autosync";
-    meta.description = "Live model discovery for the opencode-go / runinfra / deepseek-relay routes.";
+    meta.description = "Live model discovery for the opencode-go / opencode-free / runinfra / deepseek-relay routes.";
     patch = patchText "dsh-autosync" ''
       # relay / runinfra 的 /v1/models 是权威所以 reconcile（增删同步，保留仍在 live
       # 的既有条目的 compat / reasoningEfforts / 用户修正容量）；opencode-go 是
@@ -638,6 +638,9 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
       # 会整体替换 catalog，物化只会把清单外的 id 丢掉、把没开通的 id 塞进来。
       # 它的 live 清单还按 opencode console 的逐模型开关过滤，与 catalog 两边都不等，
       # 所以只记日志（unresolved），不写设置。容量缺口的来源见 lib/catalog.js。
+      # opencode-free 是同一个网关的 `-free` 子集，单独成路由：它没有 catalog，
+      # models 列表就是唯一 owner，因此可以 reconcile（下架的免费档自动消失，
+      # 新增的自动进来）。
       - insert:
           # baseURL 用官方文档（opencode.ai/v2/docs/console/go）的规范拼写
           # /inference/go/v1；旧拼写 /zen/go/v1 仍是活的别名，两者 2026-10-14
@@ -650,6 +653,17 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
               api: openai-completions
               apiKeyEnv: OPENCODE_API_KEY
               intervalMs: 43200000
+
+          # 与上一条同网关同 key：只接管 `-free` 后缀，付费 id 仍归 catalog 路由。
+          - id: opencode-free-autosync
+            name: dsh-autosync/opencode-free
+            config:
+              route: opencode-free
+              baseURL: https://opencode.ai/inference/go/v1
+              api: openai-completions
+              apiKeyEnv: OPENCODE_API_KEY
+              intervalMs: 43200000
+              includeSuffixes: ["-free"]
 
           - id: runinfra-autosync
             name: dsh-autosync/runinfra
