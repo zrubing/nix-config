@@ -16,6 +16,25 @@
 
     llm-agents.url = "github:numtide/llm-agents.nix";
 
+    # Rust 包的 crate 级构建（替代 crate2nix 的 Cargo.nix，也替代
+    # rustPlatform.buildRustPackage 的"全量重编"）。作用：eval 期直接把
+    # Cargo.lock 解析成 crate 图，每个 crate 一个 buildRustCrate 派生，依赖的
+    # 编译结果因此可进 store / 二进制缓存——改自己源码只重建自己的 crate。
+    #
+    # 接入点有两处，缺一不可：
+    #   1. modules/unix/nix-settings 的 nix.settings.plugin-files：把插件 .so
+    #      塞进评估用的 nix 进程，才有 builtins.resolveCargoWorkspace 这个 primop。
+    #      ⚠️ 插件 ABI 与 nix 版本严格绑定，故那里同时 pin 了 nix.package。
+    #   2. lib/cargo-nix.nix：包侧的薄封装（cargoNix { inherit pkgs src; }）。
+    #
+    # follows 本仓库 nixpkgs：插件产物由我们自己的 pkgs + nixComponents 构建
+    # （见 nix-settings），它的 nixpkgs input 只服务上游自己的 devShell/checks，
+    # 不 follow 会白拉一份 nixpkgs 进 lock。
+    cargo-nix-plugin = {
+      url = "github:anthropics/cargo-nix-plugin";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     # deepseek-harness 源码。npm 上 @deepseek-ai/dsh 长期滞后（llm-agents 只打包
     # npm 版），想提前用就得从源码构建。flake=false 让 flake.lock 锁住 rev；
     # nix flake update deepseek-harness-src 可拉新。
