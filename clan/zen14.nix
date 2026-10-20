@@ -271,4 +271,23 @@
       tr -d '\n' < $prompts/token > $out/token
     '';
   };
+
+  # Cachix 二进制缓存的 auth token（https://app.cachix.org → Account → Auth Tokens，
+  # 形如 22 字节 base64）。消费方：home sops（modules/home/sops/default.nix）引用
+  # 本加密文件，渲染进 dsh.env（dsh-web 宿主进程）与 default.env（终端 agent）的
+  # CACHIX_AUTH_TOKEN——cachix CLI 先查该环境变量，缺失才回落到
+  # ~/.config/cachix/cachix.dhall，所以不必跑 `cachix authtoken`（那条路会把
+  # 明文写进 config.dhall，脱离声明式管理）。
+  # 换值：clan vars set zen14 cachix-auth-token/token
+  clan.core.vars.generators.cachix-auth-token = {
+    prompts.token = {
+      description = "Cachix auth token (app.cachix.org → Auth Tokens)";
+      type = "hidden";
+    };
+    files.token.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/token > $out/token
+    '';
+  };
 }

@@ -58,6 +58,12 @@ in
         # 的 pnpm 构建同样在里面。放末位：它只覆盖 dsh 一族，热路径（nixpkgs）先命中
         # cache.nixos.org，不必让每个 path 都先问一次小缓存。
         "https://deepseek-harness-nix.cachix.org"
+
+        # 自建缓存（cachix 账号 zrubing，公开可读）：放本仓库自有的派生包
+        # （cliphist-gui 等 nixpkgs 里没有的东西），zen14 构建后 cachix push，
+        # nova13 直接替代、不必重建。nixpkgs 里已有的依赖不必推——两台机器
+        # 都从 cache.nixos.org 命中。放在末位，理由同上。
+        "https://zrubing.cachix.org"
       ];
 
       trusted-public-keys = [
@@ -69,6 +75,7 @@ in
         # "lantian:EeAUQ+W+6r7EtwnmYjeVwx5kOGEBpjlBfPlzGlTNvHc="
         "noctalia.cachix.org-1:pCOR47nnMEo5thcxNDtzWpOxNFQsBRglJzxWPp3dkU4="
         "deepseek-harness-nix.cachix.org-1:5NrkwLN9veNMhiINtU5ZeV4isXFhFsOwn6Ms7J1M+TA="
+        "zrubing.cachix.org-1:UhoPG6Vn30/rA1Wb5CB8dWMHH6rnk64J31SSibqxVcA="
       ];
     };
 
