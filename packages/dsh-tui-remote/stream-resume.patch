@@ -1,0 +1,766 @@
+diff --git a/src/dsh-adapter/backend/translate.ts b/src/dsh-adapter/backend/translate.ts
+index c30167d..b1db915 100644
+--- a/src/dsh-adapter/backend/translate.ts
++++ b/src/dsh-adapter/backend/translate.ts
+@@ -584,7 +584,17 @@ export function createDshTranslator(deps: DshTranslatorDeps) {
+     unwrittenSpawns.clear()
+   }
+ 
+-  return { translateEvent, translateFrame, translateReplay, reset, presentCallView, presentResultView }
++  /**
++   * Re-fence the live frames at a stream cut the backend reports when it
++   * reopens the stream (a replaced carrier generation numbers revisions from
++   * its own opening): without this, every frame of the replacement stream
++   * compares against the dead generation's fence and is dropped as stale.
++   */
++  const resync = (revision: number | undefined): void => {
++    lastStreamRevision = revision ?? -1
++  }
++
++  return { translateEvent, translateFrame, translateReplay, reset, resync, presentCallView, presentResultView }
+ }
+ 
+ export type DshTranslator = ReturnType<typeof createDshTranslator>
+diff --git a/src/dsh-adapter/remote/approval-check.ts b/src/dsh-adapter/remote/approval-check.ts
+index ce6b84e..2886e2a 100644
+--- a/src/dsh-adapter/remote/approval-check.ts
++++ b/src/dsh-adapter/remote/approval-check.ts
+@@ -47,7 +47,48 @@ const session: SessionRemote = {
+   async prompt() { return { ok: true, value: { accepted: true } } },
+ }
+ 
+-const remote = { session }
++const remote = {
++  $mount: async () => async () => {},
++  // One generation of the follow stream: this check drives approvals, not the
++  // reconnecting lifecycle, so the supervisor sees a stream that never retries.
++  $stream<T>(request: { open(signal: AbortSignal): AsyncIterable<T> }) {
++    return (async function* () {
++      const signal = new AbortController().signal
++      for await (const value of request.open(signal)) yield { generation: 1, value, signal, accept() {} }
++    })()
++  },
++  session,
++}
++const gateway = {
++  apply: () => {},
++  RemoteStreamCarrierError: class extends Error {},
++  RemoteSnapshotStream: class {
++    constructor(
++      private readonly stream: AsyncIterable<{ value: unknown; accept(): void }>,
++      private readonly options: {
++        isSnapshot(value: unknown): boolean
++        replace(snapshot: never): void
++        update(delta: never): void
++        failed(error: unknown): void
++      },
++    ) {}
++    start() {
++      void (async () => {
++        try {
++          for await (const item of this.stream) {
++            if (!item.accept) continue
++            if (this.options.isSnapshot(item.value)) this.options.replace(item.value as never)
++            else this.options.update(item.value as never)
++          }
++        } catch (error) {
++          this.options.failed(error)
++        }
++      })()
++    }
++    async dispose() {}
++  },
++}
++const live = { remote, gateway } as never
+ const projections = {
+   ready: Promise.resolve(),
+   values: () => undefined,
+@@ -85,7 +126,7 @@ const eventRemote = {
+ 
+ const approvals = openApprovals(ctx as never, eventRemote)
+ const handle = await openRemoteSession(
+-  { remote, projections, catalog: createRemoteCatalog(remote), approvals },
++  { remote, live, projections, catalog: createRemoteCatalog(remote), approvals },
+   's1',
+ )
+ const resolve = scopes.get('resolve') as (id: string) => { dshRemoteSessionId?: string } | undefined
+diff --git a/src/dsh-adapter/remote/connection.ts b/src/dsh-adapter/remote/connection.ts
+index 5ea39a1..012a6f8 100644
+--- a/src/dsh-adapter/remote/connection.ts
++++ b/src/dsh-adapter/remote/connection.ts
+@@ -13,6 +13,7 @@ import { pathToFileURL } from 'node:url'
+ import { findHostDsh } from '../host-dsh.js'
+ import { openApprovals, type RemoteApprovals } from './approvals.js'
+ import { createRemoteCatalog, type RemoteCatalog } from './catalog.js'
++import type { LiveStreamHost } from './live.js'
+ import { readRemotePermissionCatalog, type RemotePermissionCatalog } from './permissions.js'
+ import { openProjections, type RemoteProjections } from './projections.js'
+ 
+@@ -39,6 +40,27 @@ export interface ClientContext {
+   }
+ }
+ 
++/** One item of a logical Remote stream, annotated with its carrier generation. */
++export interface RemoteStreamItem<T> {
++  /** Monotone generation number within this logical stream. */
++  readonly generation: number
++  /** Decoded item yielded by the generated Remote method. */
++  readonly value: T
++  /** Cancellation lifetime of the generation that delivered it. */
++  readonly signal: AbortSignal
++  /** Mark this generation's opening baseline as accepted. */
++  accept(): void
++}
++
++/** How one logical stream reopens: the retry belongs to the Gateway client. */
++export interface RemoteStreamRequest<T> {
++  readonly name: string
++  readonly open: (signal: AbortSignal) => AsyncIterable<T>
++  /** Classify a generation that ended on its own. */
++  readonly ended: (accepted: boolean) => Error
++  readonly carrierFailed?: (error: unknown) => void
++}
++
+ /** The typed Remote service installed by `@deepseek-ai/dsh-api-gateway/client`. */
+ export interface RemoteApi {
+   /**
+@@ -47,6 +69,35 @@ export interface RemoteApi {
+    * @returns disposer unmounting the namespaces.
+    */
+   $mount(contribution: unknown): Promise<() => Promise<void>>
++  /**
++   * Wrap one Remote call in the reconnecting lifecycle: carrier losses are
++   * retried against the next connection generation instead of ending the
++   * iteration. Requires `interactions: 'answer'`, which is how this client
++   * connects.
++   */
++  $stream<T>(request: RemoteStreamRequest<T>): AsyncIterable<RemoteStreamItem<T>>
++}
++
++/**
++ * The Gateway client classes of the connected installation. The TUI resolves
++ * them at runtime rather than importing them: the protocol half has to be the
++ * Host's own copy.
++ */
++export interface GatewayClientModule {
++  readonly apply: unknown
++  /** Retryable carrier loss, as the client's stream supervisor classifies it. */
++  readonly RemoteStreamCarrierError: new (message: string, options?: { cause?: unknown }) => Error
++  /** Baseline-and-delta consumer over one reconnecting logical stream. */
++  readonly RemoteSnapshotStream: new <Snapshot, Delta>(
++    stream: AsyncIterable<RemoteStreamItem<Snapshot | Delta>>,
++    options: {
++      readonly name: string
++      readonly isSnapshot: (value: Snapshot | Delta) => value is Snapshot
++      readonly replace: (snapshot: Snapshot) => void
++      readonly update: (delta: Delta) => void
++      readonly failed: (error: unknown) => void
++    },
++  ) => { start(): void; dispose(): Promise<void> }
+ }
+ 
+ /** Result envelope every generated Remote method returns. */
+@@ -64,6 +115,8 @@ export interface RemoteStream<T> extends AsyncIterable<T> {
+ export interface RemoteConnection {
+   readonly ctx: ClientContext
+   readonly remote: RemoteApi
++  /** Everything one live stream needs: the service and its protocol classes. */
++  readonly live: LiveStreamHost
+   /** Host package directory the client half was loaded from. */
+   readonly hostPackageDir: string
+   /** The connection's live-control projection fold (`session/control`). */
+@@ -145,7 +198,7 @@ export async function connectRemote(baseUrl: string, root?: ClientContext): Prom
+   ])
+   const contextModule = modules[0] as ContextModule
+   const connectionModule = modules[1] as ConnectionModule
+-  const gatewayModule = modules[2] as { readonly apply: unknown }
++  const gatewayModule = modules[2] as GatewayClientModule
+   const typertModule = modules[3] as { readonly apply: unknown }
+   const descriptorModules = modules.slice(4) as Array<{ readonly default?: unknown }>
+ 
+@@ -208,7 +261,8 @@ export async function connectRemote(baseUrl: string, root?: ClientContext): Prom
+   )
+   note('connection generation ready')
+ 
+-  const projections = openProjections(remote)
++  const live: LiveStreamHost = { remote, gateway: gatewayModule }
++  const projections = openProjections(live)
+   await projections.ready
+   note('projections baseline ready')
+   const permissionCatalog = await readRemotePermissionCatalog(remote)
+@@ -221,6 +275,7 @@ export async function connectRemote(baseUrl: string, root?: ClientContext): Prom
+   return {
+     ctx,
+     remote,
++    live,
+     hostPackageDir: location.packageDir,
+     projections,
+     catalog,
+diff --git a/src/dsh-adapter/remote/live.ts b/src/dsh-adapter/remote/live.ts
+new file mode 100644
+index 0000000..d6c5999
+--- /dev/null
++++ b/src/dsh-adapter/remote/live.ts
+@@ -0,0 +1,77 @@
++/**
++ * One logical Remote stream that outlives the socket it arrived on.
++ *
++ * A generated stream method (`session/follow`, `session/control`) hands back a
++ * single carrier generation: when its WebSocket dies — the `dsh web` service
++ * restarts, the connection resets — the iterator ends for good. The client then
++ * goes deaf while every unary RPC keeps working, which is how a window can
++ * accept prompts it will never render. `remote.$stream` owns the retry across
++ * generations; this layer gives the reopened generation the meaning the
++ * protocol gives it: one opening baseline, then deltas on top of it.
++ *
++ * Both streams here are baseline-and-delta by construction (`snapshot` /
++ * `baseline` first, then `event` / `projection` frames), so a replacement
++ * generation's baseline is handed to the owner instead of surfacing as a stray
++ * frame the owner would skip.
++ */
++import type { GatewayClientModule, RemoteApi } from './connection.js'
++
++/** What one live stream needs from the connection. */
++export interface LiveStreamHost {
++  /** The mounted client Remote service (owns `$stream`). */
++  readonly remote: RemoteApi
++  /** The client protocol classes loaded from the connected installation. */
++  readonly gateway: GatewayClientModule
++}
++
++/** The owner's half of a baseline-and-delta stream. */
++export interface LiveStreamOptions<Snapshot, Delta> {
++  /** Diagnostic stream name used in protocol failures. */
++  readonly name: string
++  /** Open one carrier generation of this stream. */
++  readonly open: (signal: AbortSignal) => AsyncIterable<Snapshot | Delta>
++  /** Distinguish a generation's opening baseline from its deltas. */
++  readonly isSnapshot: (value: Snapshot | Delta) => value is Snapshot
++  /** Apply a complete baseline: first open, and every replacement generation. */
++  readonly replace: (snapshot: Snapshot) => void
++  /** Apply one delta after its generation's baseline. */
++  readonly update: (delta: Delta) => void
++  /** The stream is over: retries are exhausted or the protocol was violated. */
++  readonly failed: (error: unknown) => void
++}
++
++/** One logical stream: dispose stops it for good. */
++export interface LiveStream {
++  dispose(): Promise<void>
++}
++
++/**
++ * Open the stream now and keep it open across carrier generations.
++ * @param host - the connection's Remote service and protocol classes.
++ * @param options - baseline/delta destinations of the owner.
++ * @returns the running stream; `dispose` is idempotent.
++ */
++export function openLiveStream<Snapshot, Delta>(
++  host: LiveStreamHost,
++  options: LiveStreamOptions<Snapshot, Delta>,
++): LiveStream {
++  const stream = host.remote.$stream<Snapshot | Delta>({
++    name: options.name,
++    open: options.open,
++    // `session/follow` and `session/control` have no terminal frame: a
++    // generation that stops on its own is a lost carrier, and the supervisor
++    // must reopen it against the next connection instead of ending the stream.
++    ended: (accepted) => new host.gateway.RemoteStreamCarrierError(
++      `${options.name} ended${accepted ? '' : ' before its opening baseline'}`,
++    ),
++  })
++  const snapshot = new host.gateway.RemoteSnapshotStream<Snapshot, Delta>(stream, {
++    name: options.name,
++    isSnapshot: options.isSnapshot,
++    replace: options.replace,
++    update: options.update,
++    failed: options.failed,
++  })
++  snapshot.start()
++  return { dispose: () => snapshot.dispose() }
++}
+diff --git a/src/dsh-adapter/remote/probe.ts b/src/dsh-adapter/remote/probe.ts
+index edfcf16..3eba81f 100644
+--- a/src/dsh-adapter/remote/probe.ts
++++ b/src/dsh-adapter/remote/probe.ts
+@@ -18,7 +18,7 @@ if (baseUrl === undefined || command === undefined) {
+ 
+ const connection = await connectRemote(baseUrl)
+ process.stderr.write(`[probe] connected host=${connection.hostPackageDir}\n`)
+-const deps = { remote: connection.remote, projections: connection.projections, catalog: connection.catalog, approvals: connection.approvals }
++const deps = { remote: connection.remote, live: connection.live, projections: connection.projections, catalog: connection.catalog, approvals: connection.approvals }
+ 
+ if (command === 'list') {
+   const sessions = await listRemoteSessions(connection.remote)
+diff --git a/src/dsh-adapter/remote/projections.ts b/src/dsh-adapter/remote/projections.ts
+index e6c7b7e..d06a0db 100644
+--- a/src/dsh-adapter/remote/projections.ts
++++ b/src/dsh-adapter/remote/projections.ts
+@@ -7,26 +7,41 @@
+  * `(sessionId, key)`. Model selection, permissions, titles, todos and the
+  * question queue all live here, so the remote adapter folds this stream once
+  * and every capability reads from the fold.
++ *
++ * The stream rides a carrier generation, so it is consumed through the
++ * reconnecting layer: a Host restart re-delivers the whole baseline, which
++ * replaces the fold rather than leaving the status line on a dead cut.
+  */
+ import type { RemoteStream } from './connection.js'
++import { openLiveStream, type LiveStreamHost } from './live.js'
+ 
+ /** One Session's projection values at a cut. */
+ export type ProjectionValues = Readonly<Record<string, unknown>>
+ 
+ /** The `session/control` methods this layer calls. */
+ export interface ControlRemote {
+-  control(): RemoteStream<ControlFrame>
++  control(signal?: AbortSignal): RemoteStream<ControlFrame>
++}
++
++/** The opening baseline: every live Session's whole projection block. */
++interface ControlBaseline {
++  readonly type: 'baseline'
++  readonly value: {
++    readonly projections: Readonly<Record<string, { readonly asOfSeq: number; readonly values: ProjectionValues }>>
++  }
++}
++
++/** One replaced projection value after the baseline. */
++interface ControlDelta {
++  readonly type: 'projection'
++  readonly sessionId: string
++  readonly key: string
++  readonly value: unknown
++  readonly seq: number
+ }
+ 
+ /** Frames of `session/control`. */
+-type ControlFrame =
+-  | {
+-      readonly type: 'baseline'
+-      readonly value: {
+-        readonly projections: Readonly<Record<string, { readonly asOfSeq: number; readonly values: ProjectionValues }>>
+-      }
+-    }
+-  | { readonly type: 'projection'; readonly sessionId: string; readonly key: string; readonly value: unknown; readonly seq: number }
++type ControlFrame = ControlBaseline | ControlDelta
+ 
+ /** One Session's durable model selection projection. */
+ export interface ModelSelectionProjection {
+@@ -48,14 +63,12 @@ export interface RemoteProjections {
+ 
+ /**
+  * Open the host's live-control stream and fold it into a per-Session store.
+- * @param remote - mounted client Remote service.
++ * @param host - the connection's Remote service and protocol classes.
+  * @returns the projection store; `ready` resolves once the baseline landed.
+  */
+-export function openProjections(remote: unknown): RemoteProjections {
+-  const control = (remote as unknown as { readonly session: ControlRemote }).session
+-  const stream = control.control()
+-  const iterator = stream[Symbol.asyncIterator]()
+-  const baseline = new Map<string, Map<string, unknown>>()
++export function openProjections(host: LiveStreamHost): RemoteProjections {
++  const control = (host.remote as unknown as { readonly session: ControlRemote }).session
++  const fold = new Map<string, Map<string, unknown>>()
+   const listeners = new Map<string, Set<() => void>>()
+   let closed = false
+   let settleReady: () => void = () => {}
+@@ -65,45 +78,50 @@ export function openProjections(remote: unknown): RemoteProjections {
+     for (const listener of listeners.get(sessionId) ?? []) listener()
+   }
+ 
+-  const pump = (async () => {
+-    try {
+-      for (;;) {
+-        const next = await iterator.next()
+-        if (next.done === true) break
+-        const frame = next.value
+-        if (frame.type === 'baseline') {
+-          for (const [sessionId, block] of Object.entries(frame.value.projections)) {
+-            const values = baseline.get(sessionId) ?? new Map<string, unknown>()
+-            for (const [key, value] of Object.entries(block.values)) values.set(key, value)
+-            baseline.set(sessionId, values)
+-            notify(sessionId)
+-          }
+-          settleReady()
+-        } else {
+-          const values = baseline.get(frame.sessionId) ?? new Map<string, unknown>()
+-          values.set(frame.key, frame.value)
+-          baseline.set(frame.sessionId, values)
+-          notify(frame.sessionId)
+-        }
++  const live = openLiveStream<ControlBaseline, ControlDelta>(host, {
++    name: 'session/control',
++    open: (signal) => control.control(signal),
++    isSnapshot: (frame): frame is ControlBaseline => frame.type === 'baseline',
++    replace: (baseline) => {
++      // A replacement generation re-publishes every live Session's block at
++      // its new cut. Blocks the new baseline does not carry belong to Sessions
++      // that are gone, so the whole fold is replaced, never merged: keeping a
++      // dead cut is how the status line ends up naming a model nothing runs.
++      const stale = [...fold.keys()]
++      fold.clear()
++      for (const [sessionId, block] of Object.entries(baseline.value.projections)) {
++        fold.set(sessionId, new Map(Object.entries(block.values)))
++        notify(sessionId)
++      }
++      for (const sessionId of stale) notify(sessionId)
++      settleReady()
++    },
++    update: (frame) => {
++      const values = fold.get(frame.sessionId) ?? new Map<string, unknown>()
++      values.set(frame.key, frame.value)
++      fold.set(frame.sessionId, values)
++      notify(frame.sessionId)
++    },
++    failed: (error) => {
++      // The retries are over: the fold keeps its last cut (the Session's own
++      // stream is the authority for the log), but the reason is on the record
++      // instead of vanishing into an empty catch.
++      if (process.env.DSH_TUI_REMOTE_DEBUG === '1') {
++        process.stderr.write(`remote: session/control stopped: ${String(error)}\n`)
+       }
+-    } catch {
+-      // A dropped stream leaves the last fold in place: the Session's own
+-      // follow stream stays authoritative for the log, and a reconnect
+-      // reopens both.
+-    } finally {
+       settleReady()
+-    }
+-  })()
++    },
++  })
+ 
+   return {
+     ready,
+     values(sessionId) {
+-      const values = baseline.get(sessionId)
++      const values = fold.get(sessionId)
+       if (values === undefined) return undefined
+       return Object.fromEntries(values)
+     },
+     get<T>(sessionId: string, key: string): T | undefined {
+-      return baseline.get(sessionId)?.get(key) as T | undefined
++      return fold.get(sessionId)?.get(key) as T | undefined
+     },
+     subscribe(sessionId, listener) {
+       const set = listeners.get(sessionId) ?? new Set<() => void>()
+@@ -118,8 +136,7 @@ export function openProjections(remote: unknown): RemoteProjections {
+       if (closed) return
+       closed = true
+       listeners.clear()
+-      await iterator.return?.()
+-      await pump
++      await live.dispose()
+     },
+   }
+ }
+diff --git a/src/dsh-adapter/remote/session.ts b/src/dsh-adapter/remote/session.ts
+index e626aee..5436c9c 100644
+--- a/src/dsh-adapter/remote/session.ts
++++ b/src/dsh-adapter/remote/session.ts
+@@ -19,6 +19,7 @@ import { createDshTranslator } from '../backend/translate.js'
+ import type { RemoteResult, RemoteStream } from './connection.js'
+ import type { RemoteApprovals, ApprovalOutcome, RemoteQuestionAnswer } from './approvals.js'
+ import type { RemoteCatalog, ModelCatalog } from './catalog.js'
++import { openLiveStream, type LiveStreamHost } from './live.js'
+ import { createRemotePermissionModes, type RemotePermissionCatalog } from './permissions.js'
+ import type { ModelSelectionProjection, RemoteProjections } from './projections.js'
+ 
+@@ -30,7 +31,7 @@ export interface SessionRemote {
+     /** Opt in to the transient per-token frames. Without it the Host sends
+      *  only durable events, so a turn appears whole when it settles. */
+     readonly assistantStream?: boolean
+-  }): RemoteStream<FollowFrame>
++  }, signal?: AbortSignal): RemoteStream<FollowFrame>
+   list(request: { readonly cursor?: string }): Promise<RemoteResult<{ readonly items: readonly RemoteSessionSummary[] }>>
+   rename(request: { readonly sessionId: string; readonly title: string }): Promise<RemoteResult<unknown>>
+   create(request: { readonly cwd?: string }): Promise<RemoteResult<{ readonly sessionId: string }>>
+@@ -92,18 +93,27 @@ export interface RemoteSessionSummary {
+   }
+ }
+ 
+-/** Frames of `session/follow`. */
+-type FollowFrame =
+-  | {
+-      readonly type: 'snapshot'
+-      readonly header: { readonly id: string; readonly cwd?: string; readonly agentPreset?: string }
+-      readonly cursor: number
+-      readonly records: ReadonlyArray<{ readonly type: 'event'; readonly event: unknown }>
+-      readonly hasMore: boolean
+-    }
++/** The opening frame of one `session/follow` generation: a tail window plus
++ *  the stream cut it was taken at. */
++interface FollowSnapshot {
++  readonly type: 'snapshot'
++  readonly header: { readonly id: string; readonly cwd?: string; readonly agentPreset?: string }
++  readonly cursor: number
++  readonly records: ReadonlyArray<{ readonly type: 'event'; readonly event: unknown }>
++  readonly hasMore: boolean
++  /** The live assistant stream's state at this cut. Its `revision` is the
++   *  fence later `assistant-stream` frames are numbered against. */
++  readonly assistantStream?: { readonly revision: number }
++}
++
++/** Everything a generation delivers after its opening snapshot. */
++type FollowDelta =
+   | { readonly type: 'event'; readonly event: unknown }
+   | { readonly type: 'assistant-stream'; readonly frame: unknown }
+ 
++/** Frames of `session/follow`. */
++type FollowFrame = FollowSnapshot | FollowDelta
++
+ /** One row of the Host's `agentPresets/list` roster. */
+ interface HostPresetRow extends PresetChoice {
+   readonly isDefault: boolean
+@@ -150,6 +160,8 @@ const REMOTE_IMAGE_LIMITS: ImageLimitsView = Object.freeze({
+ export interface RemoteSessionDeps {
+   /** The mounted client Remote service. */
+   readonly remote: unknown
++  /** The connection's reconnecting-stream factory (`session/follow`). */
++  readonly live: LiveStreamHost
+   /** The connection's live-control projection fold. */
+   readonly projections: RemoteProjections
+   /** The connection's model catalog reader. */
+@@ -177,8 +189,7 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+   // `assistantStream` is the Host's opt-in for the per-token frames: the
+   // durable log alone carries only settlements, which is why a remote turn
+   // used to appear in one piece.
+-  const stream = sessions.follow({ address: { kind: 'session', sessionId }, maxMessages: 200, assistantStream: true })
+-  const iterator = stream[Symbol.asyncIterator]()
++  const followRequest = { address: { kind: 'session', sessionId } as const, maxMessages: 200, assistantStream: true }
+ 
+   // Replayed image blocks carry a durable reference, never inline bytes: the
+   // reader resolves it through `session/attachment`, the Host's own
+@@ -207,22 +218,116 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+   const awaiting = new Set<string>()
+   let cwd = ''
+   let closed = false
++  /** Whether the opening snapshot of the first generation already landed. */
++  let opened = false
++  const debug = process.env.DSH_TUI_REMOTE_DEBUG === '1'
+ 
+   const emit = (batch: readonly AgentEvent[], meta: AgentEventMeta): void => {
+     if (batch.length === 0 && meta.wake === undefined) return
+     for (const listener of listeners) listener(batch, meta)
+   }
+ 
+-  const opening = await iterator.next()
+-  if (opening.done === true || opening.value.type !== 'snapshot') {
+-    await iterator.return?.()
+-    throw new Error(`remote: session ${sessionId} did not open with a snapshot`)
++  /**
++   * Resolves with the first generation's snapshot; rejects when the stream is
++   * over before one arrived (the Host refused the Session, or the socket died
++   * for good).
++   */
++  let settleOpening: (snapshot: FollowSnapshot) => void = () => {}
++  let failOpening: (error: unknown) => void = () => {}
++  const opening = new Promise<FollowSnapshot>((resolve, reject) => {
++    settleOpening = resolve
++    failOpening = reject
++  })
++
++  /** One durable event, live: the only writer of the transcript window. */
++  const applyEvent = (event: SessionEvent): void => {
++    cursor = Math.max(cursor, event.seq)
++    if (event.type === 'turn/start') status = 'running'
++    if (event.type === 'turn/end') status = 'idle'
++    const translated: AgentEvent[] = [...translator.translateEvent(event)]
++    // The Host keeps its own message id and files our requestId under
++    // `source.rpcId` — that is the id the channel tracks the preview by.
++    const echoed = event.type === 'user/message'
++      ? (event.data as { source?: { rpcId?: string } }).source?.rpcId
++      : undefined
++    if (echoed !== undefined && awaiting.delete(echoed)) {
++      if (debug) process.stderr.write(`remote: claim ${echoed}\n`)
++      translated.push({ type: 'pending.changed', items: [], claimed: [echoed] })
++    } else if (echoed !== undefined && debug) {
++      process.stderr.write(`remote: unmatched echo rpcId=${echoed} awaiting=[${[...awaiting].join(',')}]\n`)
++    }
++    emit(translated, { replay: false })
++  }
++
++  /** Apply one generation's opening window as the view's whole history. */
++  const applyOpening = (snapshot: FollowSnapshot): void => {
++    cwd = snapshot.header.cwd ?? ''
++    cursor = snapshot.cursor
++    history = translator.translateReplay(snapshot.records.map((record) => record.event as SessionEvent))
++    status = 'idle'
+   }
+-  const snapshot = opening.value
+-  cwd = snapshot.header.cwd ?? ''
+-  cursor = snapshot.cursor
+-  history = translator.translateReplay(snapshot.records.map((record) => record.event as SessionEvent))
+-  status = 'idle'
++
++  /**
++   * Catch the view up after a carrier generation was replaced: the Host
++   * re-serves the tail window from a new cut, and only what this client has
++   * not applied yet is replayed. Rows already painted are not duplicated —
++   * the projector keys assistant rows and tool calls by their durable seq.
++   */
++  const resync = (snapshot: FollowSnapshot): void => {
++    const records = snapshot.records.map((record) => record.event as SessionEvent)
++    const firstSeq = records[0]?.seq
++    if (firstSeq !== undefined && firstSeq > cursor + 1) {
++      // The disconnect outlived the window this snapshot covers. The missing
++      // middle cannot be rebuilt from it, so say so instead of dropping it.
++      emit([{ type: 'notice', level: 'warning', text: t('remote-stream-gap', { count: firstSeq - cursor - 1 }) }], { replay: false })
++    }
++    const lastTurn = [...records].reverse().find((event) => event.type === 'turn/start' || event.type === 'turn/end')
++    status = lastTurn?.type === 'turn/start' ? 'running' : 'idle'
++    cwd = snapshot.header.cwd ?? cwd
++    // The reopened stream numbers its assistant frames from its own cut, so
++    // the fence follows the snapshot instead of the dead generation's.
++    translator.resync(snapshot.assistantStream?.revision)
++    if (debug) {
++      process.stderr.write(`remote: follow ${sessionId} resumed cursor=${cursor} records=${records.length} unseen=${records.filter((event) => event.seq > cursor).length}\n`)
++    }
++    for (const event of records) {
++      if (event.seq > cursor) applyEvent(event)
++    }
++    cursor = Math.max(cursor, snapshot.cursor)
++  }
++
++  // The stream outlives its carrier: a `dsh web` restart reopens it and
++  // re-delivers the tail window, which is what keeps the transcript live
++  // instead of leaving the window deaf while `submit` keeps succeeding.
++  const stream = openLiveStream<FollowSnapshot, FollowDelta>(deps.live, {
++    name: 'session/follow',
++    open: (signal) => sessions.follow(followRequest, signal),
++    isSnapshot: (frame): frame is FollowSnapshot => frame.type === 'snapshot',
++    replace: (snapshot) => {
++      if (opened) resync(snapshot)
++      else {
++        opened = true
++        applyOpening(snapshot)
++        settleOpening(snapshot)
++      }
++    },
++    update: (frame) => {
++      if (frame.type === 'event') applyEvent(frame.event as SessionEvent)
++      else if (frame.type === 'assistant-stream') emit(translator.translateFrame(frame.frame as AssistantStreamFrame), { replay: false, wake: 'frame' })
++    },
++    failed: (error) => {
++      if (debug) process.stderr.write(`remote: follow ${sessionId} stopped: ${String(error)}\n`)
++      if (!opened) {
++        failOpening(error)
++        return
++      }
++      if (closed) return
++      // The retries are over. The Session is not sendable-and-renderable any
++      // more, so the view says so rather than accepting input it cannot show.
++      emit([{ type: 'notice', level: 'warning', text: t('remote-stream-lost') }], { replay: false })
++    },
++  })
++  const snapshot = await opening
+   // A question asked before this client attached lives only in the durable
+   // log: the Host forwards the answer waterfall live, with no replay, so this
+   // client can neither see nor answer it. The reminder rows ride the view
+@@ -361,45 +466,7 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+     })
+   })
+ 
+-  const debug = process.env.DSH_TUI_REMOTE_DEBUG === '1'
+   if (debug) process.stderr.write(`remote: follow ${sessionId} opened cursor=${cursor} records=${snapshot.records.length}\n`)
+-  const pump = (async () => {
+-    try {
+-      for (;;) {
+-        const next = await iterator.next()
+-        if (next.done === true) break
+-        const frame = next.value
+-        if (debug) process.stderr.write(`remote: frame ${frame.type}\n`)
+-        if (frame.type === 'event') {
+-          const event = frame.event as SessionEvent
+-          cursor = Math.max(cursor, event.seq)
+-          if (event.type === 'turn/start') status = 'running'
+-          if (event.type === 'turn/end') status = 'idle'
+-          const translated: AgentEvent[] = [...translator.translateEvent(event)]
+-          // The Host keeps its own message id and files our requestId under
+-          // `source.rpcId` — that is the id the channel tracks the preview by.
+-          const echoed = event.type === 'user/message'
+-            ? (event.data as { source?: { rpcId?: string } }).source?.rpcId
+-            : undefined
+-          if (echoed !== undefined && awaiting.delete(echoed)) {
+-            if (debug) process.stderr.write(`remote: claim ${echoed}\n`)
+-            translated.push({ type: 'pending.changed', items: [], claimed: [echoed] })
+-          } else if (echoed !== undefined && debug) {
+-            process.stderr.write(`remote: unmatched echo rpcId=${echoed} awaiting=[${[...awaiting].join(',')}]\n`)
+-          }
+-          emit(translated, { replay: false })
+-        } else if (frame.type === 'assistant-stream') {
+-          emit(translator.translateFrame(frame.frame as AssistantStreamFrame), { replay: false, wake: 'frame' })
+-        }
+-      }
+-    } catch (error) {
+-      if (!closed && process.env.DSH_TUI_DEBUG === '1') {
+-        process.stderr.write(`dsh-tui remote: follow ${sessionId} failed: ${String(error)}\n`)
+-      }
+-    } finally {
+-      if (!closed) status = 'disposed'
+-    }
+-  })()
+ 
+   /**
+    * The inline image blocks of one message, checked against the same limits
+@@ -721,18 +788,17 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+       unregisterQuestions()
+       unregisterRoute()
+       listeners.clear()
+-      await iterator.return?.()
+-      await pump
++      await stream.dispose()
+     },
+   }
+ 
+-  const live = selection()
++  const selected = selection()
+   // The control fold already published this session's preset in most opens;
+   // the snapshot header is the value the Host has before any frame.
+   const preset = session.capabilities.presets?.current() ?? snapshot.header.agentPreset
+   return {
+     session,
+-    route: { provider: live.provider, model: live.model },
++    route: { provider: selected.provider, model: selected.model },
+     ...(preset === undefined ? {} : { agentPreset: preset }),
+     async close() {
+       await session.dispose()
+diff --git a/src/dsh-adapter/remote/startup.ts b/src/dsh-adapter/remote/startup.ts
+index c371291..993b22f 100644
+--- a/src/dsh-adapter/remote/startup.ts
++++ b/src/dsh-adapter/remote/startup.ts
+@@ -56,6 +56,7 @@ export async function openRemoteStartup(ctx: Context, options: RemoteStartupOpti
+   const connection = await connectRemote(options.url, ctx as unknown as Parameters<typeof connectRemote>[1])
+   const deps = {
+     remote: connection.remote,
++    live: connection.live,
+     projections: connection.projections,
+     catalog: connection.catalog,
+     permissionCatalog: connection.permissionCatalog,
+diff --git a/src/dsh-adapter/remote/verify.ts b/src/dsh-adapter/remote/verify.ts
+index 9a96128..5f6491b 100644
+--- a/src/dsh-adapter/remote/verify.ts
++++ b/src/dsh-adapter/remote/verify.ts
+@@ -124,6 +124,7 @@ check(true, `scratch session: ${sessionId}`)
+ const handle = await openRemoteSession(
+   {
+     remote,
++    live: connection.live,
+     projections: connection.projections,
+     catalog: connection.catalog,
+     permissionCatalog: connection.permissionCatalog,
+diff --git a/src/i18n.ts b/src/i18n.ts
+index c4663e7..de86f68 100644
+--- a/src/i18n.ts
++++ b/src/i18n.ts
+@@ -1702,6 +1702,8 @@ const dict = {
+   'question-unanswerable': { zh: '本会话在等待一个「连接本客户端之前」发出的提问，此客户端无法回答：{{question}}', en: 'This session is waiting on a question asked before this client attached; this client cannot answer it: {{question}}' },
+   'question-unanswerable-options': { zh: '选项：{{options}}', en: 'Options: {{options}}' },
+   'question-unanswerable-hint': { zh: '请到收到该提问的客户端（通常是 Web）回答；在本端按 Esc 可取消这一回合。', en: 'Answer it in the client that received it (usually the web UI); press Esc here to cancel this turn.' },
++  'remote-stream-lost': { zh: '与宿主的事件流已断开且不再重试：本会话不会再刷新。重新打开（或 /resume）以恢复。', en: 'The event stream to the host is gone and will not be retried: this session will not refresh again. Reopen it (or /resume) to recover.' },
++  'remote-stream-gap': { zh: '重连期间有 {{count}} 条记录超出宿主回放窗口，未能补回。', en: 'While reconnecting, {{count}} record(s) fell outside the host\'s replay window and could not be recovered.' },
+   'question-select-or-answer': { zh: '至少选择一个选项，或在最后一行输入回答', en: 'Select at least one option, or type an answer on the last line' },
+   'question-answer-or-check': { zh: '输入回答或勾选选项后再提交', en: 'Type an answer or check options before submitting' },
+   'question-type-answer-first': { zh: '先输入回答内容再提交', en: 'Type your answer before submitting' },
