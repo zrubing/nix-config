@@ -118,7 +118,7 @@ let
   #             （曾误判为 config-editor 的 resolveConfig 少了求值；实测那条路径的
   #             waterfall 已经插值，真正看到未插值值的是下游的 pi-ai 监听器。）
   #
-  # 补丁 2 / 3 都是上游 bug 的本地兜法，上游修好后删除即可；`--replace-fail` 会在
+  # 补丁 2 / 3 / 4 都是上游 bug 的本地兜法，上游修好后删除即可；`--replace-fail` 会在
   # 上游改写这些行时先炸构建，不会静默退回旧行为。
   kernelPatched =
     let
@@ -213,6 +213,46 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
           --replace-fail \
           'const candidate = Config(raw);' \
           'const candidate = Config(interpolate(ctx, raw));'
+
+        # ── 补丁 4：dsh-llm-pi-ai 按会话补 OpenCode Go 的 x-opencode-session ──
+        # 为什么必须补在适配器里：buildProvider 只在路由**没有**声明 api 时才复用
+        # pi-ai 的 catalog provider（opencodeGoProvider 上包着
+        # withOpenCodeSessionHeader）；路由一旦声明 api（手写模型清单必须声明，
+        # 否则拿不到协议），走的是 PROTOCOLS 裸工厂，那层包装到不了，网关直接
+        # 400 MissingSessionID。适配器本来就把 options.sessionId 传给 pi-ai 了，
+        # 裸工厂不看它 —— 在唯一的 streamSimple 调用点合并即可。
+        # 值取会话 id（session-<uuid>，跨轮次 / resume / 压缩稳定），不用固定兜底。
+        # 门控：provider 名以 opencode 开头，或 baseURL 的 host 是 opencode.ai
+        # （含子域），其余路由的请求头字节不变。非可见 ASCII 的会话 id 直接不发，
+        # 免得 Headers 构造抛 TypeError，把一次正常请求变成硬失败。
+        substituteInPlace "$pa" \
+          --replace-fail \
+          '/** Merge deployment headers while removing case-insensitive attribution collisions. */' \
+          '/**
+ * LOCAL PATCH (nix-config)：OpenCode Go 网关强制 x-opencode-session，而显式声明
+ * api 的路由不经过 pi-ai 的 withOpenCodeSessionHeader。见补丁 4。
+ */
+function opencodeSessionHeaders(provider, baseURL, sessionId) {
+    if (typeof sessionId !== "string" || sessionId.length === 0) return {};
+    if (!/^[!-~]+$/.test(sessionId)) return {};
+    let host = "";
+    try {
+        host = new URL(baseURL ?? "").hostname;
+    } catch {}
+    const viaHost = host === "opencode.ai" || host.endsWith(".opencode.ai");
+    const viaProvider = typeof provider === "string" && provider.startsWith("opencode");
+    if (!viaHost && !viaProvider) return {};
+    return { "x-opencode-session": sessionId };
+}
+/** Merge deployment headers while removing case-insensitive attribution collisions. */'
+
+        substituteInPlace "$pa" \
+          --replace-fail \
+          'headers: requestHeaders(profile.headers)' \
+          'headers: {
+...requestHeaders(profile.headers),
+...opencodeSessionHeaders(options.provider, profile.baseURL, options.sessionId)
+}'
 
         # 语法自检：注入的 import / const 一旦位置不对，这里立刻失败，
         # 而不是等运行期在启动路径上抛 SyntaxError。
