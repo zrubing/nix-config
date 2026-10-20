@@ -157,13 +157,13 @@
     # };
 
     # noctalia = {
-    #   url = "github:noctalia-dev/noctalia-shell";
+    #   url = "github:noctalia-dev/noctalia-shell/cachix";
     #   inputs.nixpkgs.follows = "nixpkgs-unstable";
     #   inputs.noctalia-qs.follows = "noctalia-qs-patched";
     # };
     #
     noctalia = {
-      url = "github:noctalia-dev/noctalia-shell";
+      url = "github:noctalia-dev/noctalia-shell/cachix";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
 

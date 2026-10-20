@@ -32,7 +32,10 @@ in
   };
 
   config = lib.mkIf (cfg.enable && cfg.type == "niri") {
-    services.dunst.enable = true;
+    # 通知守护归 shell：wayle / noctalia 各自实现 org.freedesktop.Notifications。
+    # 这里再起一个 dunst 就是两个进程抢同一个总线名，谁先起谁生效——
+    # 之前 wayle 和 dunst 同时开着，才出现"通知样式随机变化"。
+    # services.dunst.enable = true;
     programs.mpv.enable = true;
 
     home.packages = [
