@@ -112,6 +112,9 @@ in
 
     #desktop.kde.enable = true;
     desktop.niri.enable = true;
+    gpui-shell.enable = false;
+    wayle.enable = false;
+    noctalia.enable = true;
     emacs = {
       enable = true;
       type = "doom";

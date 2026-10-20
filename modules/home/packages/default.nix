@@ -78,6 +78,10 @@ in {
   config = lib.mkIf cfg.enable {
     home.packages = with pkgs;
       [
+        # home-manager CLI 跟 flake 的 input 同源：`nix run github:...` 每次都要
+        # 重新求值/取包，且过期后被 GC；装一份进 profile 才能直接 `home-manager switch`。
+        inputs.home-manager.packages.${system}.home-manager
+
         # claude sandbox
         socat
         bubblewrap

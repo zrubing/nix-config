@@ -1175,15 +1175,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1781151084,
-        "narHash": "sha256-ftNKnGmfoQtJK+mLZQyvrMoRWd6sCYj1jT/FOUM77Vk=",
+        "lastModified": 1792502223,
+        "narHash": "sha256-sVeO0/25+P2l8JGIeJSChSNl0jj3EgNrKTDsRXyOQKo=",
         "owner": "noctalia-dev",
         "repo": "noctalia-shell",
-        "rev": "b347de8e1ae24e61b24e28c40173a9a19ff5fb90",
+        "rev": "ee75f7adcc012f2b02852b655769758cce7eb721",
         "type": "github"
       },
       "original": {
         "owner": "noctalia-dev",
+        "ref": "cachix",
         "repo": "noctalia-shell",
         "type": "github"
       }
@@ -1263,7 +1264,7 @@
     "rime-3gram": {
       "flake": false,
       "locked": {
-        "narHash": "sha256-OSxpCdls4DJ/QFeU26M7yjHZCuL+166bsc7e2rD1LI0=",
+        "narHash": "sha256-almNdW8WCSFuolbBWxjLSRfVnolc4R/pl9pwXebwy30=",
         "type": "file",
         "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
       },
