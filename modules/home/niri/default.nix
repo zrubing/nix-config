@@ -150,18 +150,25 @@ in
       };
 
       # 命名工作区（按 key 排序，用 name 属性指定实际名称）
+      # open-on-output 把四个工作区钉死在主屏：不钉的话，外接屏插上后新窗口
+      # 会在那台屏上再建一份同名工作区，拔掉时 niri 把工作区搬回来、索引重排，
+      # 窗口就"漂"到别的工作区了。
       workspaces = {
         "01-web" = {
           name = "web";
+          open-on-output = "eDP-1";
         };
         "02-code" = {
           name = "code";
+          open-on-output = "eDP-1";
         };
         "03-db" = {
           name = "db";
+          open-on-output = "eDP-1";
         };
         "04-chat" = {
           name = "chat";
+          open-on-output = "eDP-1";
         };
       };
 
@@ -422,16 +429,16 @@ in
         "Mod+Ctrl+Shift+WheelScrollDown".action = actions.move-column-right;
         "Mod+Ctrl+Shift+WheelScrollUp".action = actions.move-column-left;
         "Mod+1".action = {
-          focus-workspace = 1;
+          focus-workspace = "web";
         };
         "Mod+2".action = {
-          focus-workspace = 2;
+          focus-workspace = "code";
         };
         "Mod+3".action = {
-          focus-workspace = 3;
+          focus-workspace = "db";
         };
         "Mod+4".action = {
-          focus-workspace = 4;
+          focus-workspace = "chat";
         };
         "Mod+5".action = {
           focus-workspace = 5;
@@ -449,16 +456,16 @@ in
           focus-workspace = 9;
         };
         "Mod+Ctrl+1".action = {
-          move-column-to-workspace = 1;
+          move-column-to-workspace = "web";
         };
         "Mod+Ctrl+2".action = {
-          move-column-to-workspace = 2;
+          move-column-to-workspace = "code";
         };
         "Mod+Ctrl+3".action = {
-          move-column-to-workspace = 3;
+          move-column-to-workspace = "db";
         };
         "Mod+Ctrl+4".action = {
-          move-column-to-workspace = 4;
+          move-column-to-workspace = "chat";
         };
         "Mod+Ctrl+5".action = {
           move-column-to-workspace = 5;
