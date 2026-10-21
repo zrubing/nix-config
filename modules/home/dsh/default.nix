@@ -12,7 +12,7 @@
 # ## 分层：nix 拥有代码与默认值，dsh 拥有状态
 #
 #   bundle 层（nix 独占，dsh 只读）   插件、MCP 条目、llm-pi-ai 路由、preset 声明
-#   profile 层（dsh 独占，nix 不碰）  运行时状态：设置卡写入、逐模型启停、onboarding
+#   profile 层（dsh 独占）            运行时状态：设置卡写入、逐模型启停、onboarding
 #   home 层（不使用）                 patch 的 config 整块替换，会锁死运行时写入
 #
 # 本模块不再托管任何 patch 文件、不再在 activation 里跑 `dsh plugin add`、不再需要
@@ -20,11 +20,20 @@
 # 装配进 dsh 安装目录 —— bundle 从**安装锚点**解析（dsh 的 resolveBundleDir），
 # 所以 profile 目录零依赖（无 node_modules、无 pnpm-workspace、无 lockfile）。
 #
-# ## 为什么 profile 的 cordis.patch.yml 完全交给 dsh
+# ## profile 的 cordis.patch.yml：整份给 dsh，但按**键**划权属
 #
-# 它同时是 dsh 运行时的写入目标（dsh-tap 设置卡、Settings UI 都写它）。旧方案用
-# home.file + force 托管它，实测被 dsh 写回成普通文件后互相覆盖：下次 switch 抹掉
-# 运行时状态。现在 nix 只声明 bundle，运行时想写什么写什么，两层不争同一行。
+# 它同时是 dsh 运行时的写入目标（dsh-tap 设置卡、Settings UI 都写它），所以不能用
+# home.file 托管：实测被 dsh 写回成普通文件后互相覆盖，下次 switch 抹掉运行时状态。
+#
+# 但也不能完全不管：profile 层排在 bundle 层之后、且 config 是**整块替换**，所以
+# profile 里只要还留着一行 llm-pi-ai，nix 在 bundle 层声明的那张 provider 表就永远
+# 被它盖住。2026-10-21 实测：`nix-dsh-tui` 停在 runinfra 7 个模型、`nix-headless`
+# 6 个，而锁里是 8 个 —— autosync 改成 reportOnly 之后没有任何东西再修这份快照。
+#
+# 于是只把 nix 真正声明的那几条 provider 在每次 switch 覆盖回去
+# （home.activation.dshProfileProviders）：行内其余内容（codebuddy 的网关模型列表、
+# Trae/Qoder 注册、逐模型启停）以及其它行一个字节不动，它们是 dsh-tap 的运行期
+# 数据，nix 无从声明。语义 = rebuild 回到声明态，运行时改动活到下次 rebuild。
 #
 # ## llm-pi-ai 为什么在 bundle 层
 #
@@ -993,14 +1002,13 @@ let
           baseURL: https://opencode.ai/inference/go/v1
           models:
   ${opencodeFreeModelsYaml}
-        # 改本表 route 字段（baseURL/api）时注意：这里只是 seed。运行时生效值是
-        # profile 自己的 cordis.patch.yml（Settings 缝的落盘目标），而它排在 bundle
-        # 之后应用、且 config 是**整体替换**，所以已存在 profile 的 providers 表会
-        # 完全盖住本表（2026-10-14 在一次性 DSH_HOME 上用 marker 值实测确认）。
-        # 因此改完这里还要在 dsh 停止时同步改
-        # $DSH_HOME/profiles/nix-{dsh-tui,web,headless}/cordis.patch.yml 里的同名字段；
-        # 新建 profile 不受影响（其 cordis.patch.yml 是 `[]`，全部值来自 bundle）。
-        # 模型清单不受此限：dsh-autosync 按 /v1/models 对账并写回运行时，是活的那份。
+        # 本表是**声明式的那一份**：profile 层那份同名快照会在每次 switch 被
+        # home.activation.dshProfileProviders 覆盖回这里声明的值（否则 profile 层
+        # 排在 bundle 之后、config 又整块替换，本表永远看不生效 —— 2026-10-14 在
+        # 一次性 DSH_HOME 上用 marker 值实测确认过）。
+        # 所以改 route 字段/模型只改本表 + rebuild，不需要手工同步 profile。
+        # 运行期 dsh-tap 仍可往同一行写它自己的东西（codebuddy、额外 provider），
+        # 那些不在本表里，覆盖时原样保留。
         # openrouter 是 pi-ai 内置 catalog 路由（https://openrouter.ai/api/v1，
         # openai-completions），catalog 内置 276 个模型，无需手工声明 models。
         openrouter:
@@ -1289,6 +1297,55 @@ in
           RestartSec = 5;
         };
       };
+    })
+
+    # ── profile 层的 nix 声明行：每次 switch 覆盖回去 ────────────────────────
+    (lib.mkIf cfg.enable {
+      # 为什么只覆盖「provider 的键」而不是整份文件：见文件头那段。这一行同时是
+      # dsh-tap 的数据库，codebuddy 的模型列表与 Trae/Qoder 注册都在同一行里，
+      # 整份渲染会把它们一起抹掉（dsh-tap 只在 boot 时重铺 codebuddy，注册不重铺）。
+      #
+      # 用 `+`（shallow merge）而不是 `*`（deep merge）：provider 条目整条替换，
+      # 声明里删掉的模型才会真的消失；`*` 会把 profile 侧的旧键留下来。
+      #
+      # 只在「该 profile 已经有 llm-pi-ai 行且非空」时动手：没有这行时 bundle 层
+      # 就是生效值，没什么可覆盖的。
+      home.activation.dshProfileProviders = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        ours=${llmPiAiProviders}
+        changed=
+        for target in ${lib.concatMapStringsSep " " (name: lib.escapeShellArg name) (builtins.attrValues profileNames)}; do
+          patch="$HOME/.dsh/profiles/$target/cordis.patch.yml"
+          [ -f "$patch" ] && [ ! -L "$patch" ] || continue
+          OUR="$ours" ${lib.getExe pkgs.yq-go} -e \
+            '[.[] | select(.id == "llm-pi-ai" and ((.config.providers // {}) | length > 0))] | length > 0' \
+            "$patch" >/dev/null 2>&1 || continue
+
+          staged="$(${pkgs.coreutils}/bin/mktemp "$patch.XXXXXX")"
+          if OUR="$ours" ${lib.getExe pkgs.yq-go} \
+            'load(strenv(OUR)).providers as $o
+             | (.[] | select(.id == "llm-pi-ai") | .config.providers) |= (. + $o)' \
+            "$patch" >"$staged" 2>/dev/null && [ -s "$staged" ]; then
+            # cmp 在 diffutils 里，不在 coreutils（踩过一次：127 当成了「有差异」）。
+            if ${pkgs.diffutils}/bin/cmp -s "$staged" "$patch"; then
+              ${pkgs.coreutils}/bin/rm -f "$staged"
+            else
+              ${pkgs.coreutils}/bin/chmod --reference="$patch" "$staged"
+              ${pkgs.coreutils}/bin/mv -f "$staged" "$patch"
+              echo "dsh: $target 的 llm-pi-ai provider 已按 nix 声明复位"
+              changed=1
+            fi
+          else
+            ${pkgs.coreutils}/bin/rm -f "$staged"
+            echo "WARN: 无法把 $patch 的 llm-pi-ai provider 复位成 nix 声明" >&2
+          fi
+        done
+
+        # 生效点在进程启动时：只改文件不重启，运行中的 dsh-web 仍用内存里的旧表。
+        # 只在真的改过时重启，避免每次 switch 都打断会话。
+        if [ -n "$changed" ] && systemctl --user is-active --quiet dsh-web.service 2>/dev/null; then
+          systemctl --user try-restart dsh-web.service 2>/dev/null || true
+        fi
+      '';
     })
 
     # ── dsh.env 变更守卫 + dsh-tap 状态可观测性 ──────────────────────────────
