@@ -120,6 +120,13 @@ let
   #
   # 补丁 2 / 3 / 4 都是上游 bug 的本地兜法，上游修好后删除即可；`--replace-fail` 会在
   # 上游改写这些行时先炸构建，不会静默退回旧行为。
+  #
+  # 补丁 3 为什么不能靠「把端点渲染成字面量」绕过（2026-10-21 评估）：端点来自 clan
+  # vars，store 里不能有，所以 bundle 层只能写 `!!js process.env.*`。只要还有不带
+  # profile 覆盖层的 profile（`--from-default-profile`、手敲 `dsh plugin` 建的目录、
+  # 早先遗留的 `profiles/web` 等），pi-ai 就会看到未求值的 jsExpr —— 删掉本补丁
+  # 等于让那些 profile 的每次设置写入都炸。profile 层那份字面量只能救被 nix 物化的
+  # 那几个，覆盖面不闭合，所以补丁留着。
   kernelPatched =
     let
       version = upstreamPkgs.dsh.dsh-kernel.version;
