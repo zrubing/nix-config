@@ -183,6 +183,28 @@ let
     description = "dsh web profile: start in full access (no sandbox, no approvals)";
   };
 
+  # 浏览器 cookie 默认只有 30 天有效期（client-connection 的 cookieMaxAgeDays）。
+  # 拉到 10 年，是为了「不打 web-auth-bypass 补丁」也能长期免 token：
+  #
+  #   1. `dsh-web-url` 从 journal 里拿本次进程的 `?token=…` 启动 URL（token 每进程
+  #      随机，只在进程存活期间有效）；
+  #   2. 浏览器打开一次 → 303 换出签名 cookie（签名密钥持久存在 credentials 里，
+  #      重启进程不会让已签发的 cookie 失效）；
+  #   3. 此后到 cookie 过期前都不用再拿 token。新增设备/清 cookie 时才重来一次。
+  #
+  # 与 webPermissionBundle 是不同的插件 id（client-connection vs sandbox-policy），
+  # 且 config 是整块替换：这里只写 cookieMaxAgeDays，不碰 trustedHosts ——
+  # trustedHosts 走 `--trusted-host` 那个命令行服务，不在这份 config 里。
+  webConnectionBundle = mkRowBundle {
+    name = "dsh-web-connection";
+    patch = dshLocal.patchText "dsh-web-connection" ''
+      - id: client-connection
+        config:
+          cookieMaxAgeDays: 3650
+    '';
+    description = "dsh web profile: 10-year browser cookie (token-free after first mint)";
+  };
+
   # `requiresWeb` / `requiresTui` 不是装饰：上游据此决定往该 profile 的组合里**追加**
   # 官方 web-app / tui bundle，并且若两者都为假就追加 headless。
   # 不声明 requiresWeb 的后果是 web profile 变成 headless 组合（没有前端）；
@@ -195,7 +217,7 @@ let
     profiles = {
       web = {
         requiresWeb = true;
-        bundles = dshLocal.hostBundles ++ dshLocal.webBundles ++ [ webPermissionBundle ];
+        bundles = dshLocal.hostBundles ++ dshLocal.webBundles ++ [ webPermissionBundle webConnectionBundle ];
       };
       headless.bundles = dshLocal.hostBundles ++ [ headlessBundle ];
     } // lib.optionalAttrs cfg.plugins.tui.enable {
@@ -375,6 +397,29 @@ let
     exec ${lib.getExe dshLocal.upstreamPkgs.nodejs-slim} --expose-internals \
       "$DSH_TUI_REMOTE_TREE/lib/types/dsh-adapter/remote/verify.js" \
       "''${1:-http://${cfg.web.host}:${toString cfg.web.port}}"
+  '';
+
+  # 取本次 dsh-web 进程的带 token 启动 URL（journal 里的 `dsh web: http://…/?token=…`）。
+  # 用途见 webConnectionBundle：浏览器打开一次换 10 年有效的签名 cookie，之后不用再
+  # 拿 token。打了 web-auth-bypass 补丁时这条只是备用。
+  #
+  # token 每进程随机，只能取**当前**那次启动打印的那行；`-n 500` 限住范围，
+  # 免得日志长时捞到上一次进程的旧 token（旧 token 对新进程只会 401，不如直接报错）。
+  dshWebUrl = pkgs.writeShellScriptBin "dsh-web-url" ''
+    set -euo pipefail
+    url=$(${lib.getExe' pkgs.systemd "journalctl"} --user -u dsh-web -n 500 --no-pager 2>/dev/null \
+      | ${lib.getExe' pkgs.gnused "sed"} -n 's/^.*dsh web: \(http[^ ]*\).*$/\1/p' | tail -1)
+    if [ -z "$url" ]; then
+      echo "dsh-web-url: journal 里没有带 token 的启动 URL（dsh-web 未运行或还没打印）" >&2
+      exit 1
+    fi
+    token="''${url##*token=}"
+    echo "本地：$url"
+    ${lib.optionalString (cfg.web.trustedHosts != []) ''
+      for h in ${lib.escapeShellArgs cfg.web.trustedHosts}; do
+        echo "内网：http://$h/?token=$token"
+      done
+    ''}
   '';
 
   # ACP 服务端启动器：Emacs agent-shell（或 Zed 等）以 `command + params` 的形式
@@ -974,7 +1019,10 @@ in
       # TUI 启动器只在启用 dsh-tui profile 时投递 —— 它引用的 profile 必须存在，
       # 否则 dsh 会以 "profile does not exist" 失败。
       home.packages =
-        [ dshPackage ]
+        [
+          dshPackage
+          dshWebUrl
+        ]
         ++ lib.optional cfg.plugins.tui.enable dshTui
         ++ lib.optional cfg.plugins.tui.enable dshTuiRemote
         ++ lib.optional cfg.plugins.tui.enable dshTuiRemoteVerify
