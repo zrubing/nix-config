@@ -18,6 +18,17 @@
 #
 # 两个依赖 FOD 各有一处 `lib.fakeHash`（`ROOT_HASH` / `VENDOR_HASH`）：build 一次 →
 # 抄报错里的 got → 填回。源码与 pnpm tarball 的 hash 已填好。
+#
+# ## 为什么装完要钉 pnpm 的墙钟时间
+#
+# pnpm 会把构建时刻写进产物：`.modules.yaml` 的 `prunedAt`、
+# `.pnpm-workspace-state-v1.json` 的 `lastValidatedTimestamp`。固定输出派生只要
+# 这两个值一变就是 hash mismatch —— 同一台机器隔一分钟重编都对不上，别的机器
+# 更是永远复现不出来（nova13 上就是这么炸的）。它们只是 pnpm 自己的状态缓存，
+# 构建期不再跑 pnpm、产物只做 node_modules 交付，所以统一钉成常量。
+#
+# 结论：这两个 FOD 的 hash 是**可复现**的，任何人都能重编出同一个 store path；
+# 改完安装逻辑必须两个 hash 一起重填。
 {
   lib,
   stdenv,
@@ -55,6 +66,20 @@ let
     # pnpmConfigHook / fetchPnpmDeps 会 `inherit (pnpm) nodejs-slim`。
     passthru.nodejs-slim = nodejs-slim;
   };
+
+  # pnpm 把构建时刻写进产物（见文件头「为什么装完要钉 pnpm 的墙钟时间」）。
+  # 两个依赖 FOD 装完 node_modules 后都要走一遍，否则 hash 不可复现。
+  pinPnpmTimestamps = ''
+    for f in node_modules/.modules.yaml node_modules/.pnpm-workspace-state-v1.json; do
+      if [ -f "$f" ]; then
+        sed -i -E \
+          -e 's/"prunedAt": "[^"]*"/"prunedAt": "Thu, 01 Jan 1970 00:00:00 GMT"/' \
+          -e 's/"lastValidatedTimestamp": [0-9]+/"lastValidatedTimestamp": 0/' \
+          "$f"
+      fi
+    done
+  '';
+
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "dsh-tui-remote";
@@ -111,7 +136,7 @@ stdenv.mkDerivation (finalAttrs: {
     nativeBuildInputs = [ nodejs-slim pnpm cacert ];
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-RV/UP+Pv4DGVCjqjng2XH9yZXy3fj22NA3ATvapFOQE="; # ROOT_HASH
+    outputHash = "sha256-s7byR4602mXHFze6o+k7ftfIFdk3iWUX3dM2N5j8mmY="; # ROOT_HASH
     buildCommand = ''
       export HOME=/build/home
       export npm_config_cache=/build/cache
@@ -128,6 +153,7 @@ stdenv.mkDerivation (finalAttrs: {
       mv ws.yaml pnpm-workspace.yaml
       pnpm install --frozen-lockfile --ignore-scripts --prod=false --store-dir /build/store
       rm -rf node_modules/.cache
+      ${pinPnpmTimestamps}
       cp -a node_modules "$out"
     '';
   };
@@ -141,7 +167,7 @@ stdenv.mkDerivation (finalAttrs: {
     nativeBuildInputs = [ nodejs-slim pnpm cacert ];
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-6H9CHHfcBSLudWFnea28QcWn9VydDs6n0ZmYfUFZg3o="; # VENDOR_HASH
+    outputHash = "sha256-0y+WO1baX8HwWCzxKEUTbFk1Aa4RpUKbv7OEIlA1b0g="; # VENDOR_HASH
     buildCommand = ''
       export HOME=/build/home
       export npm_config_cache=/build/cache
@@ -154,6 +180,7 @@ stdenv.mkDerivation (finalAttrs: {
       mv ws.yaml pnpm-workspace.yaml
       pnpm install --frozen-lockfile --ignore-scripts --prod=false --store-dir /build/store
       rm -rf node_modules/.cache
+      ${pinPnpmTimestamps}
       cp -a node_modules "$out"
     '';
   };
