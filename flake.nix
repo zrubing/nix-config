@@ -290,6 +290,10 @@
           # @settings(deadline=1s)，并行构建时实测 1.28s → DeadlineExceeded，
           # 同一份源码在空载机器上又能过。这种时序测试不该决定派生构建成败，
           # 同样整套 pytest 检查关掉。
+          #
+          # langsmith 的测试会真的往 api.smith.langchain.com 发数据，沙箱里没网，
+          # test_process_inputs_outputs 的断言取决于后台上传有没有跑完 —— 同一份
+          # drv zen14 能过、nova13 挂。同属"测试不该决定构建结果"。
           (final: prev: {
             python312Packages = prev.python312Packages.overrideScope (self: super: {
               curl-cffi = super.curl-cffi.overrideAttrs (old: {
@@ -297,6 +301,10 @@
                 dontUsePytestCheck = true;
               });
               duckdb-engine = super.duckdb-engine.overrideAttrs (old: {
+                doCheck = false;
+                dontUsePytestCheck = true;
+              });
+              langsmith = super.langsmith.overrideAttrs (old: {
                 doCheck = false;
                 dontUsePytestCheck = true;
               });
