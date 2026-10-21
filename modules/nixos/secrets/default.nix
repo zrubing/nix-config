@@ -11,7 +11,21 @@ let
   username = config.snowfallorg.user.name;
   mysecrets = inputs.mysecrets;
   cfg = config.modules.secrets;
-  #agenix = inputs.agenix;
+
+  # agenix CLI，用途是 `agenix -e <file>.age` 直接改密文，不必每次
+  # `nix run github:ryantm/agenix -- ...`（每次重求值、过期即被 GC）。
+  #
+  # 为什么用 callPackage 而不是 inputs.agenix.packages.${system}.default：
+  # 那个包按 agenix 自己的 nixpkgs 构建，里面烤的是 nix 2.28.4；而本机的
+  # /etc/nix/nix.conf 用 plugin-files 给所有 nix 进程挂了 cargo-nix 插件
+  # （见 modules/unix/nix-settings），插件 ABI 与 nix 版本死绑，别的 nix
+  # 一启动就 `could not dynamically open plugin file ... undefined symbol`，
+  # 于是 `nix-instantiate` 求值 secrets.nix 失败、CLI 报 "There is no rule"。
+  # 这里把 nix 参数钉成 config.nix.package（正在运行的那份，插件就是按它的
+  # 版本构建的），CLI 才能真的工作。其余依赖取本仓库 pkgs，不另拉一套。
+  agenixCli = pkgs.callPackage "${inputs.agenix}/pkgs/agenix.nix" {
+    nix = config.nix.package;
+  };
 
   enabledServerSecrets =
     cfg.server.application.enable
@@ -78,6 +92,8 @@ in
     }
 
     (mkIf cfg.desktop.enable {
+      environment.systemPackages = [ agenixCli ];
+
       age.secrets = {
         # ---------------------------------------------
         # no one can read/write this file, even root.
