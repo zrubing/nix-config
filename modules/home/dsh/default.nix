@@ -516,6 +516,9 @@ let
   dshModelsRoutesJson = pkgs.writeText "dsh-models-routes.json" (builtins.toJSON {
     routes."deepseek-relay" = {
       inherit (relayRoute) api apiKeyEnv models;
+      # 人工元数据的 id 集合：`--update` 靠它判断「锁里新增的 id 有没有元数据」，
+      # 从而把「补一条」的提醒提前到提交之前，而不是等 rebuild 求值报错。
+      metaIds = builtins.attrNames llmRoutes.relayModelMeta;
       baseURLEnv = relayRoute.baseURLEnv;
       mode = "reconcile";
       # 与 bundle 行（pkgs/dsh-local 的 deepseek-relay-autosync）逐字一致的
@@ -529,7 +532,15 @@ let
     };
   });
 
+  # 一条命令、零前置：wrapper 自己 source dsh.env，所以交互 shell 里不需要先
+  # export 任何东西。`--update` 的锁文件按当前目录解析（在仓库根跑就是仓库里的
+  # 那份），CLI 不认识仓库布局，路径由这里给死。
   dshModelsSync = pkgs.writeShellScriptBin "dsh-models-sync" ''
+    ${lib.optionalString (cfg.envFile != null) ''
+      set -a
+      . ${lib.escapeShellArg (toString cfg.envFile)}
+      set +a
+    ''}
     exec ${lib.getExe' pkgs.nodejs "node"} \
       ${dshLocal.autosync}/lib/node_modules/dsh-autosync/lib/cli.js \
       --routes ${dshModelsRoutesJson} "$@"

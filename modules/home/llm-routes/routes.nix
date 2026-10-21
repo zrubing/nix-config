@@ -63,9 +63,45 @@ let
     m;
 
   validate = route: models: lib.map (validateModel route) models;
+
+  # ── 模型 id 集合：锁文件；能力元数据：本文件 ────────────────────────────
+  # 网关的 /v1/models 只公布 id，公布不了容量与档位，所以「哪些模型存在」可以
+  # 生成，「每个模型多大」只能人工维护。`dsh-models-sync --update` 重写锁文件，
+  # 这里按锁里的 id 取人工条目：锁里新增的 id 在元数据里缺席时**求值期报错**
+  # （容量不能猜 —— 猜出来的数字在后续每一层都与真值无法区分）。
+  # 锁里消失的 id 自然从清单里消失，不需要额外处理。
+  modelLock = lib.importJSON ./models.lock.json;
+
+  # 探针实测：1M 上下文、384k 输出（mt=384000 与 32768 均 200）、纯红 1x1 PNG
+  # 探针 200（认图）；不传 thinking 参数也自带 reasoning_content（即 off 档实际
+  # 仍会思考，故不声明 off —— 不提供关不掉的档位）。
+  relayModelMeta = {
+    "deepseek-flash" = {
+      name = "DeepSeek V4.1 Flash";
+      contextWindow = 1000000;
+      maxTokens = 384000;
+      input = [ "text" "image" ];
+      reasoningEfforts = {
+        high = "high";
+        max = "max";
+      };
+      compat = {
+        thinkingFormat = "deepseek";
+        maxTokensField = "max_tokens";
+        requiresReasoningContentOnAssistantMessages = true;
+      };
+      # pi 专有（dsh patch schema 无 cost 字段），沿用 pi 侧既有 relay 定价
+      cost = {
+        input = 0.22;
+        output = 0.66;
+        cacheRead = 0.007;
+        cacheWrite = 0;
+      };
+    };
+  };
 in
 {
-  inherit thinkingLevels compatKeys;
+  inherit thinkingLevels compatKeys relayModelMeta;
 
   # 企业 relay 网关（与官方 api.deepseek.com 分开：官方由内置 llm-deepseek
   # 插件的 deepseek-official 路由服务）。
@@ -98,31 +134,17 @@ in
     # 探针实测：1M 上下文、384k 输出（mt=384000 与 32768 均 200）、纯红 1x1 PNG
     # 探针 200（认图）；不传 thinking 参数也自带 reasoning_content（即 off 档实际
     # 仍会思考，故不声明 off —— 不提供关不掉的档位）。
-    models = validate "deepseek-relay" [
-      {
-        id = "deepseek-flash";
-        name = "DeepSeek V4.1 Flash";
-        contextWindow = 1000000;
-        maxTokens = 384000;
-        input = [ "text" "image" ];
-        reasoningEfforts = {
-          high = "high";
-          max = "max";
-        };
-        compat = {
-          thinkingFormat = "deepseek";
-          maxTokensField = "max_tokens";
-          requiresReasoningContentOnAssistantMessages = true;
-        };
-        # pi 专有（dsh patch schema 无 cost 字段），沿用 pi 侧既有 relay 定价
-        cost = {
-          input = 0.22;
-          output = 0.66;
-          cacheRead = 0.007;
-          cacheWrite = 0;
-        };
-      }
-    ];
+    models = validate "deepseek-relay" (
+      map (
+        id:
+        (relayModelMeta.${id} or (
+          throw "llm-routes: models.lock.json 里有 deepseek-relay/${id}，但 routes.nix 没有它的元数据（容量/档位不能猜，请手工补一条）"
+        ))
+        // {
+          inherit id;
+        }
+      ) modelLock."deepseek-relay"
+    );
   };
 
 }
