@@ -285,9 +285,18 @@
           # SIGABRT（exit 134），导致 yfinance 1.3.0 → tradingagents 整条链构建失败。
           # pytest-check-hook 挂在 preDistPhases，不受 doCheckByDefault=false 控制，
           # 因此必须用 dontUsePytestCheck 关掉（doCheck=false 双保险）。
+          #
+          # duckdb-engine 0.17.0 同理，但根因是墙钟断言：test_simple_string 带
+          # @settings(deadline=1s)，并行构建时实测 1.28s → DeadlineExceeded，
+          # 同一份源码在空载机器上又能过。这种时序测试不该决定派生构建成败，
+          # 同样整套 pytest 检查关掉。
           (final: prev: {
             python312Packages = prev.python312Packages.overrideScope (self: super: {
               curl-cffi = super.curl-cffi.overrideAttrs (old: {
+                doCheck = false;
+                dontUsePytestCheck = true;
+              });
+              duckdb-engine = super.duckdb-engine.overrideAttrs (old: {
                 doCheck = false;
                 dontUsePytestCheck = true;
               });
