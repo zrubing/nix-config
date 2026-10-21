@@ -4,7 +4,6 @@
 {
   config,
   lib,
-  pkgs,
   modulesPath,
   ...
 }:
@@ -60,18 +59,23 @@
 
   # --- Hibernate 配置（挂起到磁盘）---
   # 三要素：
-  #   1) swap >= RAM（本机 RAM 27G，扩到 36G 留压缩镜像 + 余量）
+  #   1) swap >= RAM（本机 RAM 27G，swapfile 36G 留压缩镜像 + 余量）
   #   2) boot.resumeDevice —— 设了它，NixOS 自动生成 resume= 内核参数
   #   3) systemd-hibernate-resume（systemd >= 254 支持 FIEMAP 自动探测
   #      swapfile 物理偏移，无需手动维护 resume_offset=）
   #
-  # 当前环境：boot.initrd.systemd.enable=true，initrd 中已含
-  # systemd-hibernate-resume-generator（systemd 260），内核命令行只需
-  # resume= 即可，systemd 自动用 FIEMAP 在休眠/恢复两条路径上定位偏移。
+  # swapfile 一次性人工创建，nix 只声明设备：
+  #   sudo fallocate -l 36G /var/lib/swapfile
+  #   sudo chmod 600 /var/lib/swapfile
+  #   sudo mkswap /var/lib/swapfile
+  #
+  # 不在 boot 阶段创建。任何 wantedBy=var-lib-swapfile.swap 的 oneshot 都会
+  # 被 DefaultDependencies 排到 basic.target 之后，而 swap 单元属于 sysinit
+  # 阶段，必然形成 ordering cycle；systemd 破环时每靴随机删掉一个启动 job
+  # （已导致 NetworkManager、greetd 的 PAM helper、tmpfiles 等未启动）。
   swapDevices = [
     {
       device = "/var/lib/swapfile";
-      size = 36 * 1024;
     }
   ];
 
@@ -87,77 +91,17 @@
     "amdgpu.ip_block_mask=0xfffff7ff"
   ];
 
-  # --- 用 fallocate 代替 dd 创建 swapfile，确保块连续 ---
-  # NixOS 默认用 dd 写全零再 mkswap，在磁盘接近满时会产生严重碎片
-  # （当前 ~15K extent）。此 service 抢先于 NixOS 内置 mkswap 执行，
-  # 用 fallocate 一次分配连续空间。内置服务随后发现文件已存在且大小
-  # 正确，直接跳过 dd 阶段，只负责后续 swapon。
-  systemd.services.ensure-contiguous-swapfile = {
-    description = "Pre-create swapfile with fallocate for contiguous extents";
-    wantedBy = [ "var-lib-swapfile.swap" ];
-    before = [ "mkswap-var-lib-swapfile.service" ];
-    after = [ "local-fs.target" ];
-    path = with pkgs; [ util-linux ];
-    serviceConfig.Type = "oneshot";
-    script = ''
-      set -euo pipefail
-      f=/var/lib/swapfile
-      want_mb=36864
-      if [ -f "$f" ]; then
-        cur_mb=$(( $(stat -c "%s" "$f" 2>/dev/null || echo 0) / 1024 / 1024 ))
-        if [ "$cur_mb" -eq "$want_mb" ]; then
-          echo "swapfile already exists with correct size ($want_mb MB), nothing to do"
-          exit 0
-        fi
-        echo "swapfile size mismatch (want $want_mb MB, got $cur_mb MB), recreating..."
-        swapoff "$f" 2>/dev/null || true
-        rm -f "$f"
-      fi
-      mkdir -p "$(dirname "$f")"
-      echo "Creating $want_mb MB swapfile with fallocate..."
-      fallocate -l ''${want_mb}M "$f"
-      chmod 0600 "$f"
-      mkswap "$f"
-      echo "swapfile created, extents:"
-      filefrag -v "$f" | head -5 || true
-    '';
-  };
+  # 蓝牙走 USB（MediaTek 0489:e0cd），autosuspend 后设备会掉线且不再枚举：
+  #   usb 1-5: device descriptor read/64, error -110 → USB disconnect
+  #   → bluetooth.target 停止，只能重启恢复
+  # 关掉该设备的运行时挂起（模块参数 + udev 双保险，规则对新插入设备立即生效）。
+  boot.extraModprobeConfig = ''
+    options btusb enable_autosuspend=0
+  '';
 
-  # 每次启动时检查 swapfile extent 数量是否过高。
-  # resume_offset 已由 systemd-hibernate-resume（FIEMAP）自动探测，
-  # 不再需要偏移比对。
-  systemd.services.swapfile-frag-check = {
-    description = "Check swapfile fragmentation";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "var-lib-swapfile.swap" ];
-    path = with pkgs; [ e2fsprogs util-linux ];
-    serviceConfig.Type = "oneshot";
-    script = ''
-      set -euo pipefail
-      swapfile="/var/lib/swapfile"
-      if [ ! -f "$swapfile" ]; then
-        echo "swapfile not found: $swapfile" >&2
-        exit 0
-      fi
-      extent_count=$(filefrag -v "$swapfile" 2>/dev/null | grep -cE '^[[:space:]]*[0-9]+:' || echo 0)
-      if [ "$extent_count" -gt 1000 ]; then
-        echo "" >&2
-        echo "============================================" >&2
-        echo "  WARNING: swapfile has $extent_count extents — severely fragmented!" >&2
-        echo "  Hibernation may fail or be extremely slow." >&2
-        echo "  Action: sudo swapoff /var/lib/swapfile" >&2
-        echo "          sudo rm /var/lib/swapfile" >&2
-        echo "          sudo systemctl start ensure-contiguous-swapfile" >&2
-        echo "          sudo swapon /var/lib/swapfile" >&2
-        echo "============================================" >&2
-        echo "" >&2
-      elif [ "$extent_count" -gt 100 ]; then
-        echo "NOTE: swapfile has $extent_count extents (moderate fragmentation)"
-      else
-        echo "swapfile OK: $extent_count extents"
-      fi
-    '';
-  };
+  services.udev.extraRules = ''
+    ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0489", ATTR{idProduct}=="e0cd", ATTR{power/control}="on"
+  '';
 
   # Enables DHCP on each ethernet and wireless interface. In case of scripted networking
   # (the default) this is the recommended approach. When using systemd-networkd it's
