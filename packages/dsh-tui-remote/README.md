@@ -13,6 +13,7 @@
 | `preset-support.patch` | 叠加在上一份之上：Host agent-preset 名册 → 远程会话 typed `presets`（`/preset`） |
 | `notification-ghostty-cap.patch` | 按 Ghostty 固定通知缓冲（title 63 B / body 255 B）截断 OSC 777/9，避免 255 B 盲截切开 UTF-8 |
 | `stream-resume.patch` | 叠加在上一份之上：`session/follow` 与 `session/control` 换成跨连接代可恢复的流，宿主重启后自动续传 |
+| `remote-link-visibility.patch` | 叠加在上一份之上：连接状态可见（断线常驻提示 / 恢复提示），并把宿主重启导致的 `interrupted` 与用户 Esc 的 `aborted` 分成两种文案 |
 | `startup-model.patch` | **暂存，未接入构建**：`--model` 启动路由，见下 |
 
 ## 断线续传（`session/follow` / `session/control`）
@@ -42,6 +43,25 @@
 验收（2026-10-20）：同一脚本对旧/新构建各跑一次——断开宿主、重启、再发一条；旧构建
 `session/prompt` 返回 accepted 但回显永不到达（复现吞消息），新构建回显正常到达，
 `lost=false`。`dsh-tui-remote-verify` 22/22。
+
+## 断线可见性（`remote-link-visibility.patch`）
+
+续传解决的是"能不能恢复"，这个补丁解决"看不看得出来"。旧行为：断线、重连、恢复全
+程静默，窗口看起来和死掉一样；同时宿主重启留下的 `turn/end interrupted` 与用户按 Esc
+的 `aborted` 共用一句「已打断」，于是"宿主重启"被读成"客户端断了/我打断了"。
+
+1. `connection.ts`：从 `ctx.connection.generation` 派生 `RemoteLink`
+   （`connected` / `reconnecting`）。generation 是传输层的真身——逻辑流会在它之上
+   重开，所以短暂抖动不会冒出流错误，只有它知道"现在其实没连上"。
+2. `plugin.ts`：订阅它。断线超过 1.5 s 弹一条**常驻**提示（`timeoutMs: 0`，恢复时
+   释放），恢复后换成 2.5 s 的「已重新连上宿主」。1.5 s 以内不吭声：没丢东西，
+   留一行反而是噪音。
+3. `projection.ts`：`aborted`（用户 Esc）与 `interrupted`（宿主进程死在半路、
+   `dsh-session` 的 `interruptedTurnClosers` 在 resume 时补写）分开渲染，后者改成
+   「宿主重启，这一轮没有跑完」。
+
+边界：这条提示只描述传输。宿主进程死了，正在跑的那一轮必然结束——任何客户端都救不
+回来，能做的只是别把它说成用户的动作。
 
 ## Ghostty 通知截断
 
