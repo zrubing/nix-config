@@ -1262,3 +1262,45 @@ Nix 产物上重跑 `verify.js --no-live`：8/8；在 tmux 真 pty 里用
 2. 恢复提示是 2.5 s 的一次性通知，不是常驻徽标；状态栏段（`statusBar.*` 那一套四处
    同步点）留作后置，避免为一个瞬态事实加一个永久配置项。
 3. 传送层彻底判死（`remote-stream-lost`）仍走 §39 的 notice，两条路径互不覆盖。
+
+## 41. 长会话 Ctrl+O 展开卡顿（2026-10-22）
+
+### 41.1 现场
+
+长会话里按 Ctrl+O 展开详情会明显卡住，且会话越长越明显；同一份 TUI 在短会话里没有
+这个问题。用户对照的是 `dsh-web` 的长会话优化。
+
+### 41.2 根因
+
+`MessageList` 的布局签名把全局 `expanded` 当成**每一行**的高度输入。一次 Ctrl+O 会让
+整段 transcript 的实测高度全部失效：`heightsRef` 被逐行删除，窗口扩展循环再用
+`!heightsRef.has(id)` 把"高度缺失"当成"刚失效"，把所有已绘制行重新挂载、重新测量。
+长会话里被挂载过的行更多、尾部工具/思考行更大，这一下就是数百行同步 Yoga。
+
+这不是虚拟列表缺失：TUI 本来就有 spacer 虚拟化、视口窗口和 120 行绘制上限。缺的是
+"展开模式"与"行内容"的分离——展开是同一内容的另一种布局，不是内容变更。
+
+### 41.3 改法（`ctrl-o-layout.patch`）
+
+1. 布局签名移除 `expanded`（以及只随展开出现的 `model` 元数据）：Ctrl+O 不再使任何
+   高度失效；已挂载行照常重渲染并在下一帧实测，视口外行保留上次实测高度作为惰性估计。
+2. 重新挂载只由**本帧**的内容签名变化触发（`changedRowsRef`），不再从"高度缺失"推断。
+   快速滚动留下的"已绘制但未测量"行不会被一次无关的展开连带重挂载。
+3. 超长 reasoning 与工具卡共用 400 行窗口（`messages/bodyWindow.ts`）：全文保留，
+   只限制单帧布局量，超出部分给出"只显示前 N 行"的说明。
+
+### 41.4 测量
+
+1. 32 行 / 1 MB 尾部（reasoning 106 KB、tool 49 KB 各取最大值）：Ctrl+O 单次 Yoga
+   从 214 ms 降到 3–4 ms。
+2. 构建产物复测同一 fixture：4 ms；`dsh-tui-remote-verify` 对活宿主 22/22。
+3. 既有回归：`verify-scroll-anchor-invalidation`、`verify-scroll-anchor-remeasurement`、
+   `verify-scroll-fold-anchor`、`verify-message-measure-depth`、`verify-scroll-jumps`
+   全部通过。
+
+### 41.5 边界
+
+1. 视口外行的展开高度在挂载前用上次实测值估计：滚动条/跳转在未访问区域仍是近似值，
+   行挂载后校正。这是窗口化列表的常规取舍，换来切换只做视口级工作。
+2. reasoning 的 400 行窗口与工具卡一致；全文仍在会话日志与 `thinking` 字段里，不是
+   截断存储。流式中的思考块保持全文（它是当前回合的主内容）。

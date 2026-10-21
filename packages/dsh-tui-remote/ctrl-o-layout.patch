@@ -1,0 +1,322 @@
+diff --git a/src/components/MessageList.tsx b/src/components/MessageList.tsx
+index 75fc8b3..dec54e4 100644
+--- a/src/components/MessageList.tsx
++++ b/src/components/MessageList.tsx
+@@ -213,14 +213,12 @@ function jobStatusCode(status: string): number {
+ function signatureParts(
+   row: ChatRow,
+   columns: number,
+-  expanded: boolean,
+   expandedRows: ReadonlySet<number>,
+   streamViewToggledRows: ReadonlySet<number>,
+   thinkingVisible: boolean,
+   thinkingFold: string,
+   diffLayout: string,
+   foldTerminalCommand: boolean,
+-  model: string,
+   failureHintRowId: number | null | undefined,
+   failureHint: string | undefined,
+   displayTextLen: number,
+@@ -240,20 +238,22 @@ function signatureParts(
+   }
+   switch (row.kind) {
+     case 'assistant':
+-      // Streaming vs settled swaps renderers; Ctrl+O/per-row expand adds the
+-      // metadata row (model only renders expanded — keeps an idle /model
+-      // switch from touching settled rows).
+-      signatureScratch.push(row.streaming === true, expanded, expandedRows.has(row.id), expanded ? model : '')
++      // Streaming vs settled swaps renderers; a per-row expand adds the
++      // metadata row. The global Ctrl+O metadata row is a LAYOUT-MODE
++      // overlay, not a content change: folding it into the signature made
++      // every toggle invalidate every settled assistant row at once (the
++      // long-session Ctrl+O stall). Mounted rows re-render and re-measure;
++      // offscreen rows keep their last height as the lazy estimate.
++      signatureScratch.push(row.streaming === true, expandedRows.has(row.id))
+       break
+     case 'reasoning':
+       // thinkingFold (preview vs full), its per-row live override, and the
+       // visibility filter all change the card's height.
+-      signatureScratch.push(row.streaming === true, row.thinkingOpen === true, expanded, expandedRows.has(row.id), streamViewToggledRows.has(row.id), thinkingVisible, thinkingFold)
++      signatureScratch.push(row.streaming === true, row.thinkingOpen === true, expandedRows.has(row.id), streamViewToggledRows.has(row.id), thinkingVisible, thinkingFold)
+       break
+     case 'tool': {
+       const tool = row.tool
+       signatureScratch.push(
+-        expanded,
+         expandedRows.has(row.id),
+         diffLayout,
+         // Terminal header folding changes the header's height the same way
+@@ -274,7 +274,7 @@ function signatureParts(
+         // count saturates once the tail fills the card's window, so a
+         // steady stream stops invalidating the cached height.
+         tool?.status === 'running'
+-          ? liveOutputRows(tool.liveOutput, tool.liveOutputDropped ?? 0, liveOutputMaxLines(expanded || expandedRows.has(row.id), fullscreen))
++          ? liveOutputRows(tool.liveOutput, tool.liveOutputDropped ?? 0, liveOutputMaxLines(expandedRows.has(row.id), fullscreen))
+           : 0,
+       )
+       break
+@@ -295,7 +295,6 @@ function signatureParts(
+       // stays within a fixed two-row tail, independent of command expansion.
+       const group = row.jobGroup
+       signatureScratch.push(
+-        expanded,
+         expandedRows.has(row.id),
+         row.job?.status ?? '',
+         // Script text, including blank-line changes, determines expanded height.
+@@ -317,7 +316,7 @@ function signatureParts(
+     }
+     case 'compact':
+       // Folded one-liner vs full summary text.
+-      signatureScratch.push(expanded, expandedRows.has(row.id))
++      signatureScratch.push(expandedRows.has(row.id))
+       break
+     case 'turn-summary':
+       // Immutable payload, single truncate-end line: the kind switch alone
+@@ -345,7 +344,7 @@ function signatureParts(
+       // Long-line fold: expanding a folded row swaps the folded preview for
+       // the raw line (thousands of rows), so both expansion switches are
+       // height inputs on user rows too — same rationale as the default arm.
+-      signatureScratch.push(expanded, expandedRows.has(row.id))
++      signatureScratch.push(expandedRows.has(row.id))
+       break
+     default:
+       // notice / interrupt / local / local-output: height follows
+@@ -355,7 +354,7 @@ function signatureParts(
+       // are height inputs here too. Without them the stale cached height
+       // feeds topPad/bottomPad and the offsets scan, and the expanded tail
+       // can end up unreachable behind a wrong scroll range.
+-      signatureScratch.push(expanded, expandedRows.has(row.id))
++      signatureScratch.push(expandedRows.has(row.id))
+       break
+   }
+   return signatureScratch
+@@ -794,6 +793,13 @@ export function MessageList({
+   // DEFAULT_ROW_HEIGHT, which only perturbs deep scrollback estimates.
+   const HEIGHTS_CACHE_MAX = 5000
+   const heightsRef = React.useRef(new Map<number, number>())
++  /** Rows whose height this render invalidated because their CONTENT
++   *  signature changed. Rebuilt every render: only a change in THIS commit
++   *  may widen the window to re-measure. The old `!heightsRef.has(id)` test
++   *  could not tell "changed now" from "mounted during a fast scroll before
++   *  the measure landed", so an unrelated Ctrl+O re-mounted that backlog
++   *  (121 rows / 823ms of Yoga in the 400-row repro). */
++  const changedRowsRef = React.useRef(new Set<number>())
+   /** Geometry version: bumped at EVERY heightsRef mutation so downstream
+    *  memos (timeline tops) can key on it instead of re-deriving offsets. */
+   const heightsVersionRef = React.useRef(0)
+@@ -863,8 +869,8 @@ export function MessageList({
+ 
+   // --- layout signature: stale-height invalidation ------------------------
+   // heightsRef entries outlive the commits that measured them, but many
+-  // state changes rewrite a row's height WITHOUT a columns change: Ctrl+O
+-  // (expanded), single-row expand (expandedRows), reasoning stream→fold,
++  // state changes rewrite a row's height WITHOUT a columns change:
++  // single-row expand (expandedRows), reasoning stream→fold,
+   // a tool result/error/footnote arriving, diff layout switch, assistant
+   // text growth, thinking visibility. A cached height from before such a
+   // change feeds topPad/bottomPad spacers, the offsets scan, and the
+@@ -884,6 +890,8 @@ export function MessageList({
+   // render was O(rows) garbage per tick (3200-row session ⇒ several MB/s
+   // into minor GC; the GC share of the scroll profile).
+   const sigRef = React.useRef(new Map<number, Array<string | number | boolean>>())
++  const changedRows = changedRowsRef.current
++  changedRows.clear()
+   let growingStreamNeedsMeasure = false
+   {
+     const sigs = sigRef.current
+@@ -898,14 +906,12 @@ export function MessageList({
+       const parts = signatureParts(
+         row,
+         columns,
+-        expanded,
+         expandedRows,
+         streamViewToggledRows,
+         thinkingVisible,
+         thinkingFold,
+         diffLayout,
+         foldTerminalCommand,
+-        model,
+         failureHintRowId,
+         failureHint,
+         revealDisplayLen(row, smoothStreaming),
+@@ -938,8 +944,16 @@ export function MessageList({
+       // here could eject still-visible rows from this render's mount window.
+       // An unmounted row really paints the fallback spacer until it remounts.
+       // Retaining an estimate must never skip the next fresh measurement.
+-      if (localRefs.current.has(row.id)) growingStreamNeedsMeasure = true
+-      else if (!growingStream) heightsRef.current.delete(row.id)
++      if (localRefs.current.has(row.id)) {
++        // The mounted row re-measures this commit; dropping its height here
++        // would eject it from the window for one frame.
++        growingStreamNeedsMeasure = true
++      } else if (!growingStream) {
++        heightsRef.current.delete(row.id)
++        // A row's FIRST signature is not a change: it has no old height to
++        // invalidate, and adding it would mount the whole transcript on open.
++        if (cachedParts !== undefined) changedRows.add(row.id)
++      }
+       heightsVersionRef.current++
+     }
+   }
+@@ -1112,9 +1126,12 @@ export function MessageList({
+     // cached height was just INVALIDATED must remount to re-measure even
+     // when it sits outside the window — its spacer otherwise falls back to
+     // DEFAULT_ROW_HEIGHT until the row scrolls back into view, leaving the
+-    // content geometry wrong for exactly that long (blank band after
+-    // Ctrl+O, unreachable scroll bottom after a tool result lands). One
++    // content geometry wrong for exactly that long (blank band after a tool
++    // result lands, unreachable scroll bottom after a stream settles). One
+     // remount per change; the measure tick + hold then tighten again.
++    // Ctrl+O no longer invalidates heights (the mode is not in the
++    // signature), so this loop no longer mounts every painted row on a
++    // toggle — the long-session stall.
+     // Guard 1: only rows that have actually MOUNTED here once qualify
+     // (paintedOnce fills from localRefs post-commit) — a brand-new
+     // streaming row has never been measured, and extending over it would
+@@ -1132,7 +1149,7 @@ export function MessageList({
+     for (let i = 0; i < start; i++) {
+       if (visibleRows[i]!.streaming === true) continue
+       const rowId = visibleRows[i]!.id
+-      if (!heightsRef.current.has(rowId) && paintedOnceRef.current.has(rowId)) {
++      if (changedRows.has(rowId) && paintedOnceRef.current.has(rowId)) {
+         start = i
+         break
+       }
+@@ -1166,7 +1183,7 @@ export function MessageList({
+   for (let i = end; i < visibleRows.length; i++) {
+     if (visibleRows[i]!.streaming === true) continue
+     const rowId = visibleRows[i]!.id
+-    if (!heightsRef.current.has(rowId) && paintedOnceRef.current.has(rowId)) end = i + 1
++    if (changedRows.has(rowId) && paintedOnceRef.current.has(rowId)) end = i + 1
+   }
+   if (forceMountRowId !== undefined && forceMountRowId !== null) {
+     const idx = visibleRows.findIndex(row => row.id === forceMountRowId)
+diff --git a/src/components/messages/AssistantThinkingMessage.tsx b/src/components/messages/AssistantThinkingMessage.tsx
+index 4ce37af..2d2437e 100644
+--- a/src/components/messages/AssistantThinkingMessage.tsx
++++ b/src/components/messages/AssistantThinkingMessage.tsx
+@@ -14,6 +14,7 @@ import { interpolateColor } from '../Spinner/spinnerUtils.js'
+ import { isMinimalUiMode } from '../../minimalUiMode.js'
+ import type { ClickEvent } from '../../ink/events/click-event.js'
+ import { primaryComboString } from '../../utils/keymap.js'
++import { VERBOSE_BODY_WINDOW } from './bodyWindow.js'
+ 
+ /** Preview body rows — a FIXED row count (kimicode-style constant-height
+  *  ticker). Ink's truncate slices the whole string across newlines as one
+@@ -89,6 +90,22 @@ export function AssistantThinkingMessage({
+     )
+   }
+ 
++  // Verbose settled reasoning is windowed exactly like a tool body: a long
++  // thinking block is the tallest single row in a mature session, and laying
++  // out all of it in one commit is what made Ctrl+O stall. The full text
++  // stays in `thinking`; the marker names what the window hides. Live
++  // streaming keeps painting everything (the block is the point of the
++  // turn, and its text grows incrementally).
++  const verboseBody = React.useMemo(() => {
++    if (!verbose || streaming) return undefined
++    const lines = thinking.split('\n')
++    if (lines.length <= VERBOSE_BODY_WINDOW) return { text: thinking, hidden: 0, total: lines.length }
++    return {
++      text: lines.slice(0, VERBOSE_BODY_WINDOW).join('\n'),
++      hidden: lines.length - VERBOSE_BODY_WINDOW,
++      total: lines.length,
++    }
++  }, [thinking, verbose, streaming])
+   // The preview ticker tracks the newest ARRIVED line (smooth streaming must
+   // not lag it behind the reveal); the expanded body below paints `thinking`
+   // — the revealed slice under smooth streaming, the full text otherwise.
+@@ -217,7 +234,10 @@ export function AssistantThinkingMessage({
+         {/* StreamingMarkdown: the live thinking text grows per token — the
+           incremental stable-prefix + tail budget keeps the per-frame layout
+           cost at O(new content) instead of re-laying out the whole block. */}
+-        <StreamingMarkdown dimColor>{thinking}</StreamingMarkdown>
++        <StreamingMarkdown dimColor>{verboseBody?.text ?? thinking}</StreamingMarkdown>
++        {verboseBody !== undefined && verboseBody.hidden > 0 && (
++          <Text dimColor>{t('thinking-window-shown', { shown: VERBOSE_BODY_WINDOW, total: verboseBody.total })}</Text>
++        )}
+       </Box>
+     </Box>
+   )
+diff --git a/src/components/messages/AssistantToolUseMessage.tsx b/src/components/messages/AssistantToolUseMessage.tsx
+index 02c40fc..e61228e 100644
+--- a/src/components/messages/AssistantToolUseMessage.tsx
++++ b/src/components/messages/AssistantToolUseMessage.tsx
+@@ -18,6 +18,7 @@ import type { ClickEvent } from '../../ink/events/click-event.js'
+ import { revealLinesOf, snapReveal } from '../smoothReveal.js'
+ import { useRevealVersion } from '../../hooks/useRevealVersion.js'
+ import { primaryComboString } from '../../utils/keymap.js'
++import { COLLAPSED_BODY_MAX_LINES, DIFF_BODY_MAX_LINES, VERBOSE_BODY_WINDOW } from './bodyWindow.js'
+ import { agentMessageStateColor, agentMessageStateText } from './TranscriptLeaves.js'
+ import type { AgentMessageState } from './agentTeam.js'
+ import { liveOutputMaxLines, liveOutputView } from './liveOutputLines.js'
+@@ -246,20 +247,9 @@ type BodyLine = {
+   readonly suffix?: string
+ }
+ 
+-/** The collapsed text body keeps three lines. */
+-const TEXT_BODY_MAX_LINES = 3
+-/** Diff bodies cap at the upstream chat row's 8 (dsh-client-ui-tool's
+- *  CHAT_DIFF_MAX_LINES) — denser information than log output. */
+-const DIFF_BODY_MAX_LINES = 8
+ /** Minimum terminal width for the two-pane diff: below this the panes
+  *  would squeeze under ~50 columns each and the unified view reads better. */
+ const SPLIT_DIFF_MIN_COLS = 110
+-/** Verbose (Ctrl+O / expanded) bodies render through a bounded line window:
+- *  a full result can be tens of thousands of lines, and laying that out in
+- *  one render builds a Yoga tree the frame budget cannot pay. The window
+- *  keeps the head readable and says exactly how much of the retained source
+- *  it is showing — the source itself keeps every line. */
+-const VERBOSE_BODY_WINDOW = 400
+ 
+ const GUTTER_FIRST = ' ⎿ '
+ const GUTTER_REST = '   '
+@@ -838,7 +828,7 @@ export function AssistantToolUseMessage({
+       body = [dim(t('tool-running-elapsed', { duration: formatDuration(Math.max(0, Date.now() - (tool.startedAt ?? Date.now()))) }))]
+     }
+   }
+-  const cap = view?.card === 'diff' ? DIFF_BODY_MAX_LINES : TEXT_BODY_MAX_LINES
++  const cap = view?.card === 'diff' ? DIFF_BODY_MAX_LINES : COLLAPSED_BODY_MAX_LINES
+   // 展开态（点击/verbose）的 SendMessage 卡不截断——raw 层就是「全量」。
+   const bodyUncapped = verbose || sendMessageRawOpen
+   // Long-line clip before anything downstream reads the body: the syntax
+diff --git a/src/components/messages/bodyWindow.ts b/src/components/messages/bodyWindow.ts
+new file mode 100644
+index 0000000..edce04c
+--- /dev/null
++++ b/src/components/messages/bodyWindow.ts
+@@ -0,0 +1,22 @@
++/**
++ * Shared body-line budgets for transcript cards.
++ *
++ * The renderer (AssistantToolUseMessage / AssistantThinkingMessage) and the
++ * virtualizer's height estimator (MessageList) must agree on these numbers:
++ * an estimate that disagrees with the real card height is a scroll jump, and
++ * two copies of the same constant drift the first time one of them changes.
++ */
++
++/** Collapsed text body: three lines, then the fold marker. */
++export const COLLAPSED_BODY_MAX_LINES = 3
++
++/** Diff bodies cap at the upstream chat row's 8 (dsh-client-ui-tool's
++ *  CHAT_DIFF_MAX_LINES) — denser information than log output. */
++export const DIFF_BODY_MAX_LINES = 8
++
++/** Verbose (Ctrl+O / expanded) bodies render through a bounded line window:
++ *  a full result can be tens of thousands of lines, and laying that out in
++ *  one render builds a Yoga tree the frame budget cannot pay. The window
++ *  keeps the head readable and says exactly how much of the retained source
++ *  it is showing — the source itself keeps every line. */
++export const VERBOSE_BODY_WINDOW = 400
+diff --git a/src/i18n.ts b/src/i18n.ts
+index 4ce6ad9..6128c5c 100644
+--- a/src/i18n.ts
++++ b/src/i18n.ts
+@@ -1100,6 +1100,7 @@ const dict = {
+   'tool-card-source-truncated': { zh: '原始数据已折叠：以上是预览，全文保留在会话日志里', en: 'Source folded: the above is a preview; the session log keeps the full text' },
+   'tool-card-full-unavailable': { zh: '以上是整理后的视图，没有保留可展开的原始全文', en: 'Formatted view above; no raw full text was kept to expand' },
+   'tool-card-window-shown': { zh: '… 只显示前 {{shown}}/{{total}} 行（全文仍保留）', en: '… showing the first {{shown}}/{{total}} lines (the full text is kept)' },
++  'thinking-window-shown': { zh: '… 只显示前 {{shown}}/{{total}} 行（全文仍保留）', en: '… showing the first {{shown}}/{{total}} lines (the full text is kept)' },
+   // 单回合用量行（/tokens、/cost、底栏 hover）。缓存段只在后端上报了缓存
+   // token 时显示，未上报不当作 0。
+   'usage-turn-summary': { zh: '本轮', en: 'turn' },

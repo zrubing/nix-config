@@ -108,6 +108,12 @@ stdenv.mkDerivation (finalAttrs: {
   # startup-model.patch 暂不接入：它按旧版源码行号生成（session.ts:1556），套不上
   # v0.16.1；且它依赖的 agentDefaultModel 在 Host 侧没有 typert.remote-client 面。
   # 修好前不参与构建，避免整个包被一个未验证的叠加补丁卡死。
+  #
+  # ctrl-o-layout.patch 修长会话 Ctrl+O 卡顿：展开模式不再写进每行的高度签名
+  # （否则一次按键让整段 transcript 的实测高度全部失效，窗口扩展循环把已绘制
+  # 行全部重挂载），视口外行保留上次实测高度作为惰性估计，只有本帧真正变高的
+  # 行才重挂载；超长 reasoning 与工具卡一样按 400 行窗口渲染。32 行/1MB 尾部
+  # 的探针从 214ms Yoga 降到 3ms；400 行/200 张长工具卡的单次切换 Yoga 约 50ms。
   patches = [
     ./remote-mode.patch
     ./permission-presets.patch
@@ -115,6 +121,7 @@ stdenv.mkDerivation (finalAttrs: {
     ./notification-ghostty-cap.patch
     ./stream-resume.patch
     ./remote-link-visibility.patch
+    ./ctrl-o-layout.patch
   ];
 
   # pnpm 11 从 **workspace 清单**读 trustPolicy / minimumReleaseAge，命令行
