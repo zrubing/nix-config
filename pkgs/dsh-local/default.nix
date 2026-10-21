@@ -684,6 +684,10 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
               api: openai-completions
               apiKeyEnv: DEEPSEEK_RELAY_API_KEY
               intervalMs: 43200000
+              # 只报告，不写 profile 层：这条路由的清单归 routes.nix，运行期写入会被
+              # 下一次 rebuild 抹掉，留着写者只会让设置页与声明不一致。漂移由
+              # `dsh-models-sync --check` 报出来（同一个 reconcile 实现）。
+              reportOnly: true
               # 只管 deepseek-* id：relay 目录还有大量非 DeepSeek 模型，本路由是手工
               # curated，不该被 reconcile 塞满（scope 外的条目原样保留）。
               includePrefixes: [deepseek-]
@@ -1091,6 +1095,8 @@ in
     mkDsh
     mkDshHostPackage
     acpBundles
+    # CLI 消费者要拿它的 lib/cli.js：这条依赖不走 hostBundles 的装配，直接引用包路径。
+    autosync
     ;
 
   # 三条 profile 共用的 host 插件（与前端形态无关）。

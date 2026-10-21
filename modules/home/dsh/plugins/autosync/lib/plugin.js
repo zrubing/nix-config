@@ -492,6 +492,12 @@ export function reconcile(existing, live, opts, catalogIds, capabilities) {
 
 /** One full sync pass. Never throws; returns a plain report for the log. */
 export async function syncOnce(ctx, opts) {
+	// 端点必须由行提供，描述符不给兜底（见 deepseek-relay 的 spec 注释）。缺了就在
+	// 取清单之前失败：带着 undefined 去拼 URL 会打到 "undefined/models"，报错点
+	// 离原因很远。
+	if (typeof opts.baseURL !== "string" || opts.baseURL.length === 0) {
+		return { ok: false, reason: `route "${opts.route}" has no baseURL; its row must supply one` };
+	}
 	let live;
 	try {
 		live = typeof opts.discover === "function" ? await opts.discover(ctx, opts) : await discoverLive(ctx, opts);
@@ -544,6 +550,25 @@ export async function syncOnce(ctx, opts) {
 				...(unresolved.length > 0 ? { unresolvedCount: unresolved.length, unresolved } : {}),
 				route: opts.route,
 				...await publishOnce(opts, live, merged),
+			};
+		}
+		// 只读模式：把差异报出来，不落盘、也不 publish。
+		//
+		// nix 拥有 profile 层之后，运行期写入的每一条都会在下一次 rebuild 被抹掉，
+		// 于是插件的价值只剩「告诉人 drifted 了」。写者身份留着反而是噪声：它会让
+		// 设置页看到的清单与 routes.nix 不一致，而这份不一致活不过一次 switch。
+		if (opts.reportOnly === true) {
+			return {
+				ok: true,
+				dryRun: true,
+				addedCount: added.length,
+				added,
+				droppedCount: dropped.length,
+				dropped,
+				repairedCount: repaired.length,
+				repaired,
+				...(unresolved.length > 0 ? { unresolvedCount: unresolved.length, unresolved } : {}),
+				route: opts.route,
 			};
 		}
 		if (services.writable === false) return { ok: false, reason: "settings provider is read-only" };
@@ -621,7 +646,9 @@ export function resolveOptions(config, spec) {
 		intervalMs: Number.isFinite(config?.intervalMs) ? config.intervalMs : DEFAULT_INTERVAL_MS,
 		mode: spec.mode,
 		deferToCatalog: spec.deferToCatalog === true,
-		reportOnly: spec.reportOnly === true,
+		// 行可覆盖：nix 拥有 profile 层之后，把写者降级成报告者是每行一个开关，
+		// 不需要改描述符（描述符的默认值就是上游那一行的身份）。
+		reportOnly: typeof config?.reportOnly === "boolean" ? config.reportOnly : spec.reportOnly === true,
 		includePrefixes: prefixes,
 		includeSuffixes: suffixes,
 		...(efforts === undefined || efforts === null ? {} : { defaultReasoningEfforts: { ...efforts } }),

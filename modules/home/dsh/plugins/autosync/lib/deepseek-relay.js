@@ -38,13 +38,18 @@
  */
 import { createAutoSyncPlugin } from "./plugin.js";
 
-export const { name, inject, apply } = createAutoSyncPlugin({
+/** 路由事实：既构造运行期插件，也供 lib/cli.js 复用同一份（不复制一份）。 */
+export const spec = {
 	name: "deepseek-relay-autosync",
 	mode: "reconcile",
 	route: "deepseek-relay",
-	baseURL: "https://enterprise.hallucodex.chat/v1",
+	// 端点由行配置提供（clan secret，`!!js process.env.DEEPSEEK_RELAY_BASE_URL`）。
+	// 这里**不放兜底**：兜底会把地址固化进 git，并让「这次请求打到哪」无法从
+	// 配置判断——2026-10-21 实测就是它让 CLI 在 env 缺失时静默打到了那个地址。
 	api: "openai-completions",
 	apiKeyEnv: "DEEPSEEK_RELAY_API_KEY",
 	includePrefixes: ["deepseek-"],
-});
+};
+
+export const { name, inject, apply } = createAutoSyncPlugin(spec);
 //#endregion

@@ -68,7 +68,8 @@ export async function capabilitySource(live) {
 	return known;
 }
 
-export const { name, inject, apply } = createAutoSyncPlugin({
+/** 路由事实：既构造运行期插件，也供 lib/cli.js 复用同一份（不复制一份）。 */
+export const spec = {
 	name: "opencode-autosync",
 	mode: "add-only",
 	deferToCatalog: true,
@@ -81,5 +82,7 @@ export const { name, inject, apply } = createAutoSyncPlugin({
 	api: "openai-completions",
 	apiKeyEnv: "OPENCODE_API_KEY",
 	capabilitySource,
-});
+};
+
+export const { name, inject, apply } = createAutoSyncPlugin(spec);
 //#endregion

@@ -504,6 +504,37 @@ let
     lib.concatStringsSep "\n" (lib.concatMap yamlScalarModel relayRoute.models)
   );
 
+  # ── 模型清单的声明式化：离线对账 ─────────────────────────────────────────
+  # nix 求值期拿不到带凭据的 /v1/models，所以「网关现在有什么」只能由一次人工
+  # 动作带进仓库。`dsh-models-sync` 就是那个动作：它读这里渲染的声明清单，拿
+  # 在线清单和它做同一套 reconcile，把差异打出来。运行期的 autosync 只剩
+  # reportOnly（见 pkgs/dsh-local 里 deepseek-relay-autosync 那行）。
+  #
+  # 只列**已经在 routes.nix 里声明过**的路由。runinfra / opencode-free 的清单
+  # 仍是运行期状态（它们的 seed 在本文件与 catalog 里），等它们的数据搬进
+  # routes.nix 再加进来——半迁移的条目在这里列出来只会制造第二个事实源。
+  dshModelsRoutesJson = pkgs.writeText "dsh-models-routes.json" (builtins.toJSON {
+    routes."deepseek-relay" = {
+      inherit (relayRoute) api apiKeyEnv models;
+      baseURLEnv = relayRoute.baseURLEnv;
+      mode = "reconcile";
+      # 与 bundle 行（pkgs/dsh-local 的 deepseek-relay-autosync）逐字一致的
+      # 收窄与默认档：两处不一致时 CLI 会把「运行期其实不会修」的条目报成
+      # repaired，人就会去改一个不需要改的地方。
+      includePrefixes = [ "deepseek-" ];
+      defaultReasoningEfforts = {
+        high = "high";
+        max = "max";
+      };
+    };
+  });
+
+  dshModelsSync = pkgs.writeShellScriptBin "dsh-models-sync" ''
+    exec ${lib.getExe' pkgs.nodejs "node"} \
+      ${dshLocal.autosync}/lib/node_modules/dsh-autosync/lib/cli.js \
+      --routes ${dshModelsRoutesJson} "$@"
+  '';
+
 
 
   # ---- YAML emitter（dsh patch 层专用）------------------------------------
@@ -1022,6 +1053,7 @@ in
         [
           dshPackage
           dshWebUrl
+          dshModelsSync
         ]
         ++ lib.optional cfg.plugins.tui.enable dshTui
         ++ lib.optional cfg.plugins.tui.enable dshTuiRemote
