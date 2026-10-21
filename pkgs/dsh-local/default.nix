@@ -664,6 +664,8 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
               apiKeyEnv: OPENCODE_API_KEY
               intervalMs: 43200000
               includeSuffixes: ["-free"]
+              # 同上：清单归 models.lock.json，运行期只核对不写。
+              reportOnly: true
 
           - id: runinfra-autosync
             name: dsh-autosync/runinfra
@@ -673,6 +675,8 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
               api: openai-completions
               apiKeyEnv: RUNINFRA_GATEWAY_KEY
               intervalMs: 43200000
+              # 清单归 models.lock.json，运行期只核对不写。
+              reportOnly: true
 
           # baseURL 走运行时 env：与 llm-pi-ai 的 deepseek-relay.baseURL 同一变量
           # （clan vars openai-relay/base-url，单一来源）。

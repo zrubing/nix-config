@@ -267,7 +267,7 @@ function renderUpdate(report, before, lockPath) {
 	}
 	if (report.orphanMeta.length > 0) {
 		lines.push(
-			`  · 以下 id 的元数据已无引用，可以删：`,
+			`  · 以下 id 有元数据但不在锁里（不再服务；来自上游 catalog 的会随 flake 更新回来）：`,
 			...report.orphanMeta.map((id) => `      ${id}`)
 		);
 	}
