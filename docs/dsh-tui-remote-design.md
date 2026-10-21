@@ -1224,3 +1224,41 @@ Nix 产物上重跑 `verify.js --no-live`：8/8；在 tmux 真 pty 里用
    `turn.start → user.message → assistant.message → turn.end`）。
 3. 尚未覆盖：断线时间超过宿主回放窗口（200 条 message）时的缺口——现在是**报告**而不是
    补页；要补齐需要 `session/page` 反向翻页，按 KISS 留作后置兜底。
+
+## 40. 断线可见性与中断归属（2026-10-21）
+
+### 40.1 现场
+
+用户反馈：`dsh-tui-remote` 在 `dsh-web` 重启后"直接显示 interrupted"，怀疑没有网页端
+那样的自动重连。核对结果分两半：
+
+1. 重连本身是好的。§39 的续传已在构建里；实测（socat 代理掐断 20 s 再放开）画面继续
+   流式推进，没有任何报错行。用户机器上 11:05 起的 TUI 进程经历 11:17:02 / 11:18:24 /
+   11:27:46 三次 systemd 重启后仍连在 `:3080`。
+2. "interrupted" 不是重连失败，是宿主自己的记录：宿主进程死在半路，`dsh-agent-loop`
+   在 resume 时用 `dsh-session` 的 `interruptedTurnClosers` 补写
+   `turn/end { reason: { kind: 'interrupted' } }`（closer 的时间戳取自最后一条事件，
+   所以看起来比重启早几秒）。turn 的执行体在宿主进程里，这一条谁也救不回来——网页端
+   拿到的是同一个事件。
+
+真正的问题是"说不清楚"：断线、重连、恢复全程无提示（窗口像死的），而 `aborted`
+（用户 Esc）与 `interrupted`（宿主崩溃/重启）共用一句「已打断 · 接下来想让 DeepSeek
+做什么？」，把宿主的事故读成了用户的动作。
+
+### 40.2 改法（`remote-link-visibility.patch`）
+
+1. `remote/connection.ts`：`observeLink(ctx)` 从 `ctx.connection.generation` 派生
+   `RemoteLink { state, subscribe }`。选 generation 而不是流失败：逻辑流会在新一代之上
+   重开，短抖动根本不会冒成流错误，只有 generation 知道"此刻其实没连上"。
+2. `dsh-adapter/plugin.ts`：订阅它驱动 `channel.notify`——断线超过 1.5 s 弹常驻提示
+   （`timeoutMs: 0`，恢复时手动释放），恢复后换成 2.5 s 的「已重新连上宿主」。1.5 s
+   以内不吭声：没丢东西，留一行是噪音。
+3. `channel/projection.ts`：`aborted` 保持原文案；`interrupted` 改走
+   `interrupted-by-host`——「宿主重启，这一轮没有跑完 · 需要的话再发一次」。
+
+### 40.3 边界
+
+1. 提示只描述**传输**，不承诺 turn 能活过宿主重启——协议里 turn 归宿主所有。
+2. 恢复提示是 2.5 s 的一次性通知，不是常驻徽标；状态栏段（`statusBar.*` 那一套四处
+   同步点）留作后置，避免为一个瞬态事实加一个永久配置项。
+3. 传送层彻底判死（`remote-stream-lost`）仍走 §39 的 notice，两条路径互不覆盖。

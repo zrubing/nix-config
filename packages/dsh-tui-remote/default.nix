@@ -77,6 +77,8 @@ stdenv.mkDerivation (finalAttrs: {
   # （title 63 B / body 255 B）截断 OSC 777/9，避免其盲截 255 B 时切开 UTF-8。
   # stream-resume.patch 把 `session/follow` 与 `session/control` 换成跨连接代可
   # 恢复的流：宿主重启/断线后自动续传，而不是让窗口继续能发消息却收不到任何帧。
+  # remote-link-visibility.patch 让这条重连在界面上可见（断线常驻提示 / 恢复提示），
+  # 并把宿主重启造成的 `turn.end interrupted` 与用户 Esc 的 `aborted` 分成两种文案。
   #
   # startup-model.patch 暂不接入：它按旧版源码行号生成（session.ts:1556），套不上
   # v0.16.1；且它依赖的 agentDefaultModel 在 Host 侧没有 typert.remote-client 面。
@@ -87,6 +89,7 @@ stdenv.mkDerivation (finalAttrs: {
     ./preset-support.patch
     ./notification-ghostty-cap.patch
     ./stream-resume.patch
+    ./remote-link-visibility.patch
   ];
 
   # pnpm 11 从 **workspace 清单**读 trustPolicy / minimumReleaseAge，命令行
@@ -108,7 +111,7 @@ stdenv.mkDerivation (finalAttrs: {
     nativeBuildInputs = [ nodejs-slim pnpm cacert ];
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-vaw3UcM1ULwkF4wLL8xec1zJXHF0VCkE96doLQYIOM0="; # ROOT_HASH
+    outputHash = "sha256-RV/UP+Pv4DGVCjqjng2XH9yZXy3fj22NA3ATvapFOQE="; # ROOT_HASH
     buildCommand = ''
       export HOME=/build/home
       export npm_config_cache=/build/cache
@@ -138,7 +141,7 @@ stdenv.mkDerivation (finalAttrs: {
     nativeBuildInputs = [ nodejs-slim pnpm cacert ];
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-4xTj2jKhhQtluTbTdpbXTT01xhm735m3o5Mzd4qzt20="; # VENDOR_HASH
+    outputHash = "sha256-6H9CHHfcBSLudWFnea28QcWn9VydDs6n0ZmYfUFZg3o="; # VENDOR_HASH
     buildCommand = ''
       export HOME=/build/home
       export npm_config_cache=/build/cache

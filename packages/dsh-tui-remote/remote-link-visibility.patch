@@ -1,0 +1,236 @@
+diff --git a/src/channel/projection.ts b/src/channel/projection.ts
+index 2e350ec..4187eb8 100644
+--- a/src/channel/projection.ts
++++ b/src/channel/projection.ts
+@@ -1071,17 +1071,20 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
+       return
+     }
+     if (reason.kind === 'aborted' || reason.kind === 'interrupted') {
+-      // A user cancel closes the turn as `aborted`; `interrupted` only
+-      // appears for crash-orphaned turns. Both user-interruption paths
+-      // render as a distinct dim row.
++      // Two very different facts share this branch. `aborted` is a user
++      // cancel (Esc) and the row speaks to the user. `interrupted` is the
++      // HOST closing a turn it could not finish — its process died or was
++      // restarted mid-turn — so that row must not read as "you stopped this".
+       const backend = deps.backendLabel?.()
+       appendRow({
+         id: deps.rowIds.value,
+         kind: 'interrupt',
+         ...(backend ? { interruptBackend: backend } : {}),
+-        text: t('interrupted-by-user') + (backend
+-          ? t('interrupted-ask-backend', { name: backend })
+-          : t('interrupted-ask-next')),
++        text: reason.kind === 'interrupted'
++          ? t('interrupted-by-host')
++          : t('interrupted-by-user') + (backend
++            ? t('interrupted-ask-backend', { name: backend })
++            : t('interrupted-ask-next')),
+       })
+       deps.rowIds.value += 1
+       emitTurnSummary()
+diff --git a/src/dsh-adapter/plugin.ts b/src/dsh-adapter/plugin.ts
+index 9d6ed47..d95526d 100644
+--- a/src/dsh-adapter/plugin.ts
++++ b/src/dsh-adapter/plugin.ts
+@@ -49,6 +49,7 @@ import { readEffortPref } from '../effortPrefs.js'
+ import { composePreset, filterMinimalPresetTools, resolvePersistedPreset, resolvePersistedRoute, runningPresetOf } from './presets.js'
+ import { createFreshAgent, isUnstoredFreshSession } from './fresh-agent.js'
+ import { openRemoteStartup } from './remote/startup.js'
++import type { RemoteConnection } from './remote/connection.js'
+ import { ensurePackagedPresets } from './packaged-presets.js'
+ import { registerBundledPresets } from './bundled-presets.js'
+ import { ensureLegacySessionEventTypes, snapshotLiveSessionEvents } from './compat/index.js'
+@@ -732,6 +733,8 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+      *  backend reports one with `system/init` instead. */
+     readonly route?: { readonly provider: string; readonly model: string }
+     readonly agentPreset?: string
++    /** Remote boots only: the live transport, for the link readout below. */
++    readonly connection?: RemoteConnection
+   }) | undefined
+   /** The startup session still opening (`deferBackendOpen`); the channel adopts it. */
+   let backendStartup: Promise<{ readonly session: AgentSession; readonly history: readonly AgentEvent[] }> | undefined
+@@ -1044,6 +1047,51 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+     brand: config.brand,
+   })
+   backendStartupAdopted = backendStartup !== undefined
++  // Remote link readout: the client connection reconnects on its own (and the
++  // session streams reopen on top of it), but a window that is deaf for a
++  // while used to look exactly like a dead one. The web UI answers that with a
++  // connection banner; here the same two facts ride the channel's own notice
++  // line, which is the one surface every screen already draws: a persistent
++  // notice while the transport is down, a short one when it is back. A blip
++  // shorter than the grace period says nothing — nothing was lost, and a row
++  // that outlives it would be noise.
++  const remoteLink = backendStart?.connection?.link
++  if (remoteLink !== undefined) {
++    const graceMs = 1500
++    let pendingDrop: ReturnType<typeof setTimeout> | undefined
++    let notice: (() => void) | undefined
++    const clearPendingDrop = (): void => {
++      if (pendingDrop === undefined) return
++      clearTimeout(pendingDrop)
++      pendingDrop = undefined
++    }
++    const releaseNotice = (): void => {
++      const release = notice
++      notice = undefined
++      release?.()
++    }
++    const unsubscribe = remoteLink.subscribe(state => {
++      if (state === 'reconnecting') {
++        clearPendingDrop()
++        releaseNotice()
++        pendingDrop = setTimeout(() => {
++          pendingDrop = undefined
++          notice = rawChannel.notify(t('remote-link-lost'), { color: 'warning', timeoutMs: 0 })
++        }, graceMs)
++        pendingDrop.unref()
++        return
++      }
++      clearPendingDrop()
++      if (notice === undefined) return
++      releaseNotice()
++      rawChannel.notify(t('remote-link-restored'), { timeoutMs: 2500 })
++    })
++    ctx.effect(() => () => {
++      unsubscribe()
++      clearPendingDrop()
++      releaseNotice()
++    })
++  }
+   // Register the live Channel for the adapter Kernel. The Channel driver
+   // resolves it lazily from the composition root, so this can be called after
+   // the plugin-host Kernel started without requiring a re-mount.
+diff --git a/src/dsh-adapter/remote/connection.ts b/src/dsh-adapter/remote/connection.ts
+index 012a6f8..16832c1 100644
+--- a/src/dsh-adapter/remote/connection.ts
++++ b/src/dsh-adapter/remote/connection.ts
+@@ -36,6 +36,12 @@ export interface ClientContext {
+   connection?: {
+     readonly generation: {
+       getSnapshot(): { readonly host?: { readonly home?: string } } | undefined
++      /**
++       * Fires whenever the transport opens, loses, or replaces a generation.
++       * The client connection installs this; an older one may not, and the
++       * link then stays whatever its opening snapshot said.
++       */
++      subscribe?(listener: () => void): () => void
+     }
+   }
+ }
+@@ -61,6 +67,18 @@ export interface RemoteStreamRequest<T> {
+   readonly carrierFailed?: (error: unknown) => void
+ }
+ 
++/** What the transport is doing between a carrier loss and the next generation. */
++export interface RemoteLink {
++  /**
++   * `reconnecting` covers the whole gap: the client connection retries with
++   * backoff and no attempt cap, so this is the window the user is in until a
++   * generation lands again (a logical stream may reopen on top of it).
++   */
++  readonly state: 'connected' | 'reconnecting'
++  /** Notified on every transition; the disposer unsubscribes. */
++  subscribe(listener: (state: RemoteLink['state']) => void): () => void
++}
++
+ /** The typed Remote service installed by `@deepseek-ai/dsh-api-gateway/client`. */
+ export interface RemoteApi {
+   /**
+@@ -117,6 +135,8 @@ export interface RemoteConnection {
+   readonly remote: RemoteApi
+   /** Everything one live stream needs: the service and its protocol classes. */
+   readonly live: LiveStreamHost
++  /** Transport state as this client can name it (see {@link RemoteLink}). */
++  readonly link: RemoteLink
+   /** Host package directory the client half was loaded from. */
+   readonly hostPackageDir: string
+   /** The connection's live-control projection fold (`session/control`). */
+@@ -178,6 +198,41 @@ async function waitFor<T>(read: () => T | undefined, label: string, timeoutMilli
+   }
+ }
+ 
++/**
++ * Follow the client connection's generation: the connection drops it on a
++ * carrier loss and publishes the next one once a socket is back. That gap is
++ * the only honest source for "reconnecting" — the logical streams reopen on
++ * top of it, so a short blip never surfaces as a stream failure.
++ * @param ctx - the client root the connection mounted on.
++ * @returns the observable link plus the disposer of its subscription.
++ */
++function observeLink(ctx: ClientContext): { readonly link: RemoteLink; dispose(): void } {
++  const generation = ctx.connection?.generation
++  const read = (): RemoteLink['state'] => (generation?.getSnapshot() === undefined ? 'reconnecting' : 'connected')
++  let state = read()
++  const listeners = new Set<(state: RemoteLink['state']) => void>()
++  const publish = (): void => {
++    const next = read()
++    if (next === state) return
++    state = next
++    for (const listener of [...listeners]) listener(state)
++  }
++  const off = generation?.subscribe?.(publish)
++  return {
++    link: {
++      get state() { return state },
++      subscribe(listener) {
++        listeners.add(listener)
++        return () => { listeners.delete(listener) }
++      },
++    },
++    dispose() {
++      off?.()
++      listeners.clear()
++    },
++  }
++}
++
+ /**
+  * Connect to a running host and mount the client Remote namespaces.
+  * @param baseUrl - host base URL, e.g. `http://127.0.0.1:3080`.
+@@ -262,6 +317,7 @@ export async function connectRemote(baseUrl: string, root?: ClientContext): Prom
+   note('connection generation ready')
+ 
+   const live: LiveStreamHost = { remote, gateway: gatewayModule }
++  const linkWatch = observeLink(ctx)
+   const projections = openProjections(live)
+   await projections.ready
+   note('projections baseline ready')
+@@ -276,6 +332,7 @@ export async function connectRemote(baseUrl: string, root?: ClientContext): Prom
+     ctx,
+     remote,
+     live,
++    link: linkWatch.link,
+     hostPackageDir: location.packageDir,
+     projections,
+     catalog,
+@@ -283,6 +340,7 @@ export async function connectRemote(baseUrl: string, root?: ClientContext): Prom
+     approvals,
+     async close() {
+       approvals.dispose()
++      linkWatch.dispose()
+       for (const dispose of mounted.reverse()) await dispose().catch(() => {})
+       await projections.close()
+       if (ownsRoot) await ctx.stop?.()
+diff --git a/src/i18n.ts b/src/i18n.ts
+index de86f68..4ce6ad9 100644
+--- a/src/i18n.ts
++++ b/src/i18n.ts
+@@ -1192,6 +1192,7 @@ const dict = {
+ 
+   // ── components/TurnInterruptedRow.tsx ────────────────────────────────
+   'interrupted-by-user': { zh: '已打断 ', en: 'Interrupted ' },
++  'interrupted-by-host': { zh: '宿主重启，这一轮没有跑完 · 需要的话再发一次', en: 'The host restarted before this turn finished · send it again if you still need it' },
+   'interrupted-ask-next': { zh: '· 接下来想让 DeepSeek 做什么？', en: '· What should DeepSeek do instead?' },
+   'interrupted-ask-backend': { zh: '· 接下来想让 {{name}} 做什么？', en: '· What should {{name}} do instead?' },
+ 
+@@ -1704,6 +1705,8 @@ const dict = {
+   'question-unanswerable-hint': { zh: '请到收到该提问的客户端（通常是 Web）回答；在本端按 Esc 可取消这一回合。', en: 'Answer it in the client that received it (usually the web UI); press Esc here to cancel this turn.' },
+   'remote-stream-lost': { zh: '与宿主的事件流已断开且不再重试：本会话不会再刷新。重新打开（或 /resume）以恢复。', en: 'The event stream to the host is gone and will not be retried: this session will not refresh again. Reopen it (or /resume) to recover.' },
+   'remote-stream-gap': { zh: '重连期间有 {{count}} 条记录超出宿主回放窗口，未能补回。', en: 'While reconnecting, {{count}} record(s) fell outside the host\'s replay window and could not be recovered.' },
++  'remote-link-lost': { zh: '与宿主的连接断开，正在自动重连…', en: 'Connection to the host lost — reconnecting…' },
++  'remote-link-restored': { zh: '已重新连上宿主', en: 'Reconnected to the host' },
+   'question-select-or-answer': { zh: '至少选择一个选项，或在最后一行输入回答', en: 'Select at least one option, or type an answer on the last line' },
+   'question-answer-or-check': { zh: '输入回答或勾选选项后再提交', en: 'Type an answer or check options before submitting' },
+   'question-type-answer-first': { zh: '先输入回答内容再提交', en: 'Type your answer before submitting' },
