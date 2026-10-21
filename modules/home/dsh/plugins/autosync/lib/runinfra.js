@@ -243,7 +243,8 @@ export function publishCatalog({ live, merged }) {
 	fs.renameSync(temporary, file);
 }
 
-export const { name, inject, apply } = createAutoSyncPlugin({
+/** 路由事实：既构造运行期插件，也供 lib/cli.js 复用同一份（不复制一份）。 */
+export const spec = {
 	name: "runinfra-autosync",
 	mode: "reconcile",
 	route: "runinfra",
@@ -252,5 +253,7 @@ export const { name, inject, apply } = createAutoSyncPlugin({
 	apiKeyEnv: "RUNINFRA_GATEWAY_KEY",
 	discover: discoverLiveListing,
 	publish: publishCatalog,
-});
+};
+
+export const { name, inject, apply } = createAutoSyncPlugin(spec);
 //#endregion

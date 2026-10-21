@@ -76,7 +76,8 @@ export async function capabilitySource(live) {
 	return known;
 }
 
-export const { name, inject, apply } = createAutoSyncPlugin({
+/** 路由事实：既构造运行期插件，也供 lib/cli.js 复用同一份（不复制一份）。 */
+export const spec = {
 	name: "opencode-free-autosync",
 	mode: "reconcile",
 	route: "opencode-free",
@@ -87,5 +88,7 @@ export const { name, inject, apply } = createAutoSyncPlugin({
 	apiKeyEnv: "OPENCODE_API_KEY",
 	includeSuffixes: ["-free"],
 	capabilitySource,
-});
+};
+
+export const { name, inject, apply } = createAutoSyncPlugin(spec);
 //#endregion
