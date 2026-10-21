@@ -3,16 +3,14 @@
 # ## 这一层存在的理由
 #
 # 上游打包仓库（Moraxyc/deepseek-harness.nix）提供 kernel、workspace、官方 bundle
-# 以及把插件组织成 bundle 的组合模型。本仓库在此之上还需要四样它没有的东西：
+# 以及把插件组织成 bundle 的组合模型。本仓库在此之上还需要三样它没有的东西：
 #
 #   1. 本地补丁 —— web-auth-bypass（内网免浏览器 token，Host/Origin fence 保留）；
 #   2. 本地插件 —— 7 个自研插件 + 4 个 agent preset；
-#   3. dsh-tap —— 上游没有这个 bundle，且它自带的 llm-pi-ai 行必须与本仓库的路由表
-#      在构建期合成同一行（见 dshTap.nix）；
-#   4. MCP 条目 —— 由 modules/home/mcp-servers 的统一源渲染，随部署变化。
+#   3. MCP 条目 —— 由 modules/home/mcp-servers 的统一源渲染，随部署变化。
 #
-# 后两项的内容来自 modules/（routes.nix、servers.nix 是它们的单一事实来源），
-# 所以由调用方以文本传入 —— pkgs/ 不反向依赖 modules/。
+# 第三项的内容来自 modules/（servers.nix 是它的单一事实来源），所以由调用方以
+# 文本传入 —— pkgs/ 不反向依赖 modules/。
 #
 # ## 两条 nixpkgs
 #
@@ -24,10 +22,6 @@
   lib,
   inputs,
   system,
-  # llm-pi-ai 的 providers 映射（YAML 文本，含 !!js 标量），来自 routes.nix。
-  # **不给兜底值**：传空映射会让 dsh-tap 悄悄只剩自带的 codebuddy 一条路由，
-  # 本仓库那 7 条凭空消失，是最难查的一类退化。
-  llmPiAiProviders,
   # MCP 条目的 cordis insert 行（YAML 文本），来自 modules/home/mcp-servers。
   mcpEntries,
 }:
@@ -96,37 +90,15 @@ let
   #             `internal/plugin` 监听器）也会失去继承的归因；这类回调本就不是写配置的
   #             主体，且插件与宿主同进程，守卫是纪律边界而非沙箱，接受。
   #
-  #   3. dsh-llm-pi-ai 的 internal/config 监听器：`Config()` 校验前先求值 `!!js`。
-  #      上游 = pi-ai 在 `internal/config` waterfall 里注册
-  #               const raw = next(); ... const candidate = Config(raw);
-  #             loader 的全局 interpolate 监听器在 chain 的**外层**（它把下游结果变换
-  #             后再返回），所以下游的 pi-ai 拿到的是 bundle 层原样的
-  #             `{__jsExpr:"process.env.DEEPSEEK_RELAY_BASE_URL"}` 对象，而
-  #             `dsh-llm-pi-ai` 的 `profile.baseURL` 是 `z.string()`（lib/index.js:1017）
-  #             → 抛
-  #               $.providers.deepseek-relay.baseURL expected string but got [object Object]
-  #             （该消息格式已用 schemastery 单独复现确认，`$` 路径前缀就是它自带的）。
-  #             pi-ai 的监听器只在 apply 里注册，而 fiber 的首次配置解析发生在 apply
-  #             **之前** → 启动不炸、此后任何一次 reload 必炸。settings 的每次写入都会
-  #             触发 reload，所以宿主插件的写入、dsh-tap 的宿主镜像、设置页写入全部
-  #             失败，且失败发生在 pre-write reconcile 处，文件一个字节不改
-  #             （2026-09-30 01:08 实测 dsh-web 日志：dsh-tap 只写
-  #             `providers.codebuddy.models`，报的却是 deepseek-relay 的 baseURL ——
-  #             校验覆盖整个命名空间）。
-  #      本地 = `Config(interpolate(ctx, raw))`，与 loader 在 `_commitVolatile` 里
-  #             "先跑 waterfall、再 resolveConfig" 的既定做法一致。
-  #             （曾误判为 config-editor 的 resolveConfig 少了求值；实测那条路径的
-  #             waterfall 已经插值，真正看到未插值值的是下游的 pi-ai 监听器。）
+  #   3. dsh-llm-pi-ai 的 OpenCode Go 会话头（见下）。
   #
-  # 补丁 2 / 3 / 4 都是上游 bug 的本地兜法，上游修好后删除即可；`--replace-fail` 会在
+  # 补丁 2 / 3 都是上游 bug 的本地兜法，上游修好后删除即可；`--replace-fail` 会在
   # 上游改写这些行时先炸构建，不会静默退回旧行为。
   #
-  # 补丁 3 为什么不能靠「把端点渲染成字面量」绕过（2026-10-21 评估）：端点来自 clan
-  # vars，store 里不能有，所以 bundle 层只能写 `!!js process.env.*`。只要还有不带
-  # profile 覆盖层的 profile（`--from-default-profile`、手敲 `dsh plugin` 建的目录、
-  # 早先遗留的 `profiles/web` 等），pi-ai 就会看到未求值的 jsExpr —— 删掉本补丁
-  # 等于让那些 profile 的每次设置写入都炸。profile 层那份字面量只能救被 nix 物化的
-  # 那几个，覆盖面不闭合，所以补丁留着。
+  # 曾有的「补丁 3 = 在 Config() 前先求值 `!!js`」已删除（2026-10-21）：它救的是
+  # bundle 层里的 `!!js` 标量（端点走 env）。现在端点只存在于 activation 渲染出的
+  # profile 行里、是字面量，bundle 层一个 `!!js` 都没有，pi-ai 的 Config() 永远看到
+  # 字符串，那个顺序问题不再有触发面。
   kernelPatched =
     let
       version = upstreamPkgs.dsh.dsh-kernel.version;
@@ -203,25 +175,13 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
           'await (hmr === void 0 ? run() : hmr.runExclusive(run));' \
           'await (hmr === void 0 ? DSH_CONFIG_EDIT_SCOPE.runInAsyncScope(run) : hmr.runExclusive(() => DSH_CONFIG_EDIT_SCOPE.runInAsyncScope(run)));'
 
-        # ── 补丁 3：dsh-llm-pi-ai 校验前先求值 !!js ─────────────────────────
+        # ── 补丁 3：dsh-llm-pi-ai 按会话补 OpenCode Go 的 x-opencode-session ──
         pa="$out/${piAiRel}"
         [ -f "$pa" ] || {
           printf 'dsh-local: kernel layout changed, missing %s\n' ${piAiRel} >&2
           exit 1
         }
 
-        substituteInPlace "$pa" \
-          --replace-fail \
-          'import z from "@deepseek-ai/schemastery";' \
-          'import z from "@deepseek-ai/schemastery";
-import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
-
-        substituteInPlace "$pa" \
-          --replace-fail \
-          'const candidate = Config(raw);' \
-          'const candidate = Config(interpolate(ctx, raw));'
-
-        # ── 补丁 4：dsh-llm-pi-ai 按会话补 OpenCode Go 的 x-opencode-session ──
         # 为什么必须补在适配器里：buildProvider 只在路由**没有**声明 api 时才复用
         # pi-ai 的 catalog provider（opencodeGoProvider 上包着
         # withOpenCodeSessionHeader）；路由一旦声明 api（手写模型清单必须声明，
@@ -237,7 +197,7 @@ import { interpolate } from "@deepseek-ai/cordis-plugin-loader";'
           '/** Merge deployment headers while removing case-insensitive attribution collisions. */' \
           '/**
  * LOCAL PATCH (nix-config)：OpenCode Go 网关强制 x-opencode-session，而显式声明
- * api 的路由不经过 pi-ai 的 withOpenCodeSessionHeader。见补丁 4。
+ * api 的路由不经过 pi-ai 的 withOpenCodeSessionHeader。见补丁 3。
  */
 function opencodeSessionHeaders(provider, baseURL, sessionId) {
     if (typeof sessionId !== "string" || sessionId.length === 0) return {};
@@ -856,12 +816,11 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
   # managedFiles 指纹集，于是只剩两个都错的选项（两个失败模式都在本机实测过）：
   #
   #   mode = "managed"（默认）—— 每次 dsh 启动都按指纹把三个文件从模板还原。
-  #     `cordis.patch.yml` 正是 dsh 运行时的写盘目标（Settings 表单、config-editor、
-  #     dsh-tap 的 llm-pi-ai 启停都写它），于是**每一次启动都抹掉上一次的运行时设置**。
-  #     实测：往 profile patch 追加一行后跑 `dsh --help`，stderr 出现
+  #     `cordis.patch.yml` 正是 dsh 运行时的写盘目标（Settings 表单、config-editor
+  #     都写它），于是**每一次启动都抹掉上一次的运行时设置**。实测：往 profile patch
+  #     追加一行后跑 `dsh --help`，stderr 出现
   #     "dsh: updating managed profile: nix-web"，追加的行消失。受影响的是模型选择、
-  #     欢迎页版本、TUI 的 /settings（全屏、图片、思考强度）、dsh-tap 的模型启停 ——
-  #     全是「设了下次就没了」。
+  #     欢迎页版本、TUI 的 /settings（全屏、图片、思考强度）—— 全是「设了下次就没了」。
   #   mode = "mutable" —— 只在目录不存在时播种一次，之后 package.json 也不再更新。
   #     于是往 hostBundles 里加一个 bundle 不会生效，且没有任何提示（静默退化）。
   #
@@ -1088,13 +1047,6 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
         chmod +x $out/dsh
       '';
 
-  # dsh-tap：上游没有这个 bundle，且它自带的 llm-pi-ai 行必须与本仓库的路由表在
-  # 构建期合成同一行（理由见该文件头部）。
-  dshTap = import ./dsh-tap.nix {
-    inherit lib llmPiAiProviders;
-    inherit (upstreamPkgs) pkgs;
-    inherit buildDshBundle kernelPatched;
-  };
 in
 {
   inherit
@@ -1126,7 +1078,6 @@ in
     presetRouterStandard
     presetMyRouterStandard
     blackhole
-    dshTap
   ];
 
   # web profile 专属（浏览器半区）。
