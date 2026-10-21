@@ -40,6 +40,43 @@ in
 
   imports = [ ./hardware.nix ];
 
+  # CachyOS 7.3.0（server 变体）+ BBR 作为默认拥塞控制。这段与 nix-config-vps 的
+  # 服务端配置逐字相同：同一个 nix-cachyos-kernel rev + 同一套 override 才得到
+  # 同一个内核派生（= 已构建并推送到 zrubing.cachix.org 的那份），zen14 直接
+  # 替代、不用重编整颗内核。改这里就必须两边同步改。
+  #
+  # 上游 flake 的 version.json 稳定线还停在 7.2.11、7.3 只有 rc，而 CachyOS 自己
+  # 的 7.3 分支已是 7.3.0 正式版，所以覆盖版本三件套（源码 tarball / config /
+  # patch 集）。等上游 stable 提到 7.3 后，两边一起删掉 override、改回
+  # `pkgs.cachyosKernels.linuxPackages-cachyos-server`。
+  #
+  # bbr3 = true → CONFIG_TCP_CONG_BBR=y、CONFIG_DEFAULT_TCP_CONG="bbr"：BBR 编进
+  # 内核并作为默认拥塞控制。桌面侧不再加 net.* sysctl，队列规则用内核默认值。
+  boot.kernelPackages = pkgs.linuxKernel.packagesFor (
+    pkgs.cachyosKernels.linux-cachyos-server.override {
+      version = "7.3.0";
+
+      src = pkgs.fetchurl {
+        url = "https://github.com/CachyOS/linux/releases/download/cachyos-7.3.0-2/cachyos-7.3.0-2.tar.gz";
+        hash = "sha256-y3CpbBP0kSMDZlltcmmPUZL5B+bEV+8lsD0o6syZojo=";
+      };
+
+      cachyosConfigFile = pkgs.fetchurl {
+        url = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/e76369fe53901040b306fe813497277750e13f78/linux-cachyos-server/config";
+        hash = "sha256-gftW/jJmEqDcRwX8XsMJ0EvP/7SH2wy1hDkY/pKVGSc=";
+      };
+
+      cachyosPatchesSrc = pkgs.fetchgit {
+        url = "https://github.com/CachyOS/kernel-patches.git";
+        rev = "6266b5f33f4e8caaa452174f0132c8c82f919267";
+        rootDir = "7.3/";
+        hash = "sha256-ofHoJDLnuwjt7LMLlYzLDoKt1wwTD+YQhiY1j9hQWuE=";
+      };
+
+      bbr3 = true;
+    }
+  );
+
   system.stateVersion = "25.11";
 
   users.mutableUsers = true;

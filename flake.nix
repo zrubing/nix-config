@@ -10,6 +10,13 @@
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
 
+    # CachyOS 内核（xddxdd/nix-cachyos-kernel）。rev 显式钉死、与 nix-config-vps
+    # 的 flake.lock 相同：内核派生由这份 flake 自带的 nixpkgs 决定（见下方
+    # overlays 里的 overlays.pinned），rev 不同 = 派生不同 = zrubing.cachix.org
+    # 里已推的那份用不上，zen14 得重编整颗内核。
+    # 升级内核时改这里的 rev，并同步两边的 override。
+    nix-cachyos-kernel.url = "github:xddxdd/nix-cachyos-kernel/dbae8dc454556968710401643aa2c6867d166440";
+
     clan-core.url = "github:clan-lol/clan-core";
 
     claude-code.url = "github:sadjow/claude-code-nix";
@@ -263,6 +270,11 @@
         overlays = [
           inputs.k0s-nix.overlays.default
           inputs.process-compose.overlays.default
+          # cachyosKernels：必须用 pinned 变体。它把内核派生固定在
+          # nix-cachyos-kernel 自带的 nixpkgs 上，本仓库 nixpkgs 升版不会改变
+          # 内核派生；default 变体用本仓库 nixpkgs，会让内核随 nixpkgs 漂移、
+          # 每升一次 nixpkgs 就 cache miss 一次。
+          inputs.nix-cachyos-kernel.overlays.pinned
           # 复用 snowfall 已构造好的 nixpkgs-unstable channel（其 allowUnfree 等
           # nixpkgs 配置已由下方 channels-config 自动应用），注入为 pkgs.unstable，
           # 模块内可直接 pkgs.unstable.<pkg>。
