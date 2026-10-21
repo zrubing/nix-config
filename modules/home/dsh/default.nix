@@ -12,7 +12,7 @@
 # ## 分层：nix 拥有代码与默认值，dsh 拥有状态
 #
 #   bundle 层（nix 独占，dsh 只读）   插件、MCP 条目、llm-pi-ai 路由、preset 声明
-#   profile 层（dsh 独占）            运行时状态：设置卡写入、逐模型启停、onboarding
+#   profile 层（nix 渲染 + dsh 写）   nix：provider 表；dsh：其余运行时状态
 #   home 层（不使用）                 patch 的 config 整块替换，会锁死运行时写入
 #
 # 本模块不再托管任何 patch 文件、不再在 activation 里跑 `dsh plugin add`、不再需要
@@ -20,41 +20,41 @@
 # 装配进 dsh 安装目录 —— bundle 从**安装锚点**解析（dsh 的 resolveBundleDir），
 # 所以 profile 目录零依赖（无 node_modules、无 pnpm-workspace、无 lockfile）。
 #
-# ## profile 的 cordis.patch.yml：整份给 dsh，但按**键**划权属
+# ## profile 的 cordis.patch.yml：provider 那一行由 activation 渲染
 #
-# 它同时是 dsh 运行时的写入目标（dsh-tap 设置卡、Settings UI 都写它），所以不能用
+# 它是 dsh 运行时的写入目标（Settings 表单、config-editor 都写它），所以不能用
 # home.file 托管：实测被 dsh 写回成普通文件后互相覆盖，下次 switch 抹掉运行时状态。
+# 反过来也不能完全不管：profile 层排在 bundle 层之后、且 config 是**整块替换**，
+# profile 里只要还留着一行 llm-pi-ai，bundle 层声明的那张表就永远被它盖住
+# （2026-10-21 实测：nix-dsh-tui 停在 runinfra 7 个模型、nix-headless 6 个，而锁里
+# 是 8 个 —— autosync 改成 reportOnly 之后没有任何东西再修这份快照）。
 #
-# 但也不能完全不管：profile 层排在 bundle 层之后、且 config 是**整块替换**，所以
-# profile 里只要还留着一行 llm-pi-ai，nix 在 bundle 层声明的那张 provider 表就永远
-# 被它盖住。2026-10-21 实测：`nix-dsh-tui` 停在 runinfra 7 个模型、`nix-headless`
-# 6 个，而锁里是 8 个 —— autosync 改成 reportOnly 之后没有任何东西再修这份快照。
+# 所以 llm-pi-ai 这一行由 nix 渲染（home.activation.dshProfileProviders）：
 #
-# 于是只把 nix 真正声明的那几条 provider 在每次 switch 覆盖回去
-# （home.activation.dshProfileProviders）：行内其余内容（codebuddy 的网关模型列表、
-# Trae/Qoder 注册、逐模型启停）以及其它行一个字节不动，它们是 dsh-tap 的运行期
-# 数据，nix 无从声明。语义 = rebuild 回到声明态，运行时改动活到下次 rebuild。
+#   1. 端点不落 store —— 模板里是占位符 `@DEEPSEEK_RELAY_BASE_URL@`，activation 时
+#      从 dsh.env 取真值替换，写进 profile（0600）。与 sops template 同一形态。
+#   2. bundle 层一个 `!!js` 都没有（deepseek-relay / openai 两条整条从 bundle 移出，
+#      端点只在这份渲染结果里），所以 pi-ai 的 `Config()` 永远看到字符串 —— kernel
+#      侧「校验前先求值 !!js」那个补丁因此不再需要，已删。
+#   3. 只有 llm-pi-ai 这一行归 nix；其它行（agent-default-model、ui-settings-general、
+#      dsh-tui 偏好）仍是 dsh 的运行期状态，逐字节不动。
 #
-# ## llm-pi-ai 为什么在 bundle 层
+# 语义 = rebuild 回到声明态，运行时改动活到下次 rebuild；真改过才重启 dsh-web。
 #
-# dsh-tap 的运行时把 `llm-pi-ai` 整行当成自己的数据库（目录同步、逐模型启停、
-# Trae/Qoder 注册都写这一行）。patch 的 config 是整块替换，所以只要 home 层或
-# profile 层还留着一行 llm-pi-ai，它自带的 codebuddy 路由就被覆盖、且此后每次写入
-# 都被 config-editor 以 "overridden by a home patch" 拒绝。现在本仓库的路由表在
-# **构建期**并进 dsh-tap 自己的 cordis.patch.yml（pkgs/dsh-local/dsh-tap.nix），
-# 两边合成同一行、同一层，inherited 里同时有我们的 7 条与它的 codebuddy。
+# 代价（明确接受）：没被渲染过的 profile（`--from-default-profile`、手敲
+# `dsh plugin` 建的目录）里没有 relay / openai 这两条路由 —— 选中时 pi-ai 报
+# "needs a baseURL"，是响的失败，不会静默走错端点。
 let
   cfg = config.${namespace}.modules.dsh;
 
   # dsh 包 = 上游 kernel + 本地补丁 + 本地 bundle 装配，全部在 pkgs/dsh-local 里。
-  # 传入的两份文本由 modules/ 渲染 —— pkgs/ 不反向依赖 modules/：
-  #   llmPiAiProviders —— llm-pi-ai 的 providers 映射（本文件下方由 routes.nix 渲染），
-  #                       与 dsh-tap 自带的 codebuddy 行在构建期合并；
-  #   mcpEntries       —— MCP 条目的 cordis insert 行（servers.nix 的统一源）。
+  # 传入的那份文本由 modules/ 渲染 —— pkgs/ 不反向依赖 modules/：
+  #   mcpEntries —— MCP 条目的 cordis insert 行（servers.nix 的统一源）。
+  # llm-pi-ai 的 provider 表不从这里下去：它在本模块里 own 自己的 bundle
+  # （llmRoutesBundle），外加一份 activation 渲染的 profile 行。
   dshLocal = import ../../../pkgs/dsh-local {
     inherit lib inputs;
     system = pkgs.stdenv.hostPlatform.system;
-    inherit llmPiAiProviders;
     mcpEntries = mcpServers.dshPatchEntries;
   };
 
@@ -130,27 +130,6 @@ let
     description = "dsh-tui display preferences (whale / whaleIdle off, minimal off)";
   };
 
-  # headless 关掉 dsh-tap 的 loopback 流桥。
-  #
-  # 为什么必须关：那个桥是给 web 主聊天用的 localhost HTTP 服务，一旦 bind 成功就会
-  # 把一个监听句柄挂进事件循环 —— 而 headless profile 的语义是「回答一个任务然后
-  # 退出」。2026-09-29 实测：在没有别的进程占 3901 的环境里
-  #   dsh --profile nix-headless --help
-  # 永不退出（unshare -rn 隔离网络下 30s 超时；本机因为 dsh-web 已占 3901 拿到
-  # EADDRINUSE 才掩盖了这个问题）。
-  #
-  # 这不是只在构建期出现的问题：dshBundleCheckHook 只是第一个踩到的消费者。
-  # 关掉后 headless 的 codebuddy 路由仍可通过 api-key 直连使用，只是不走桥。
-  headlessBundle = mkRowBundle {
-    name = "dsh-headless-tap";
-    patch = dshLocal.patchText "dsh-headless-tap" ''
-      - id: dsh-tap
-        config:
-          bridgeEnabled: false
-    '';
-    description = "Disable the dsh-tap loopback stream bridge in the headless profile";
-  };
-
   # profile 声明。这里写的是**短名**（web / headless / dsh-tui），上游把它物化成
   # `$DSH_HOME/profiles/nix-<短名>` —— 加前缀是为了永不与手敲 `dsh plugin` 建的
   # profile 撞名。defaultProfile 要用物化后的全名（上游会断言它在 managed 列表里）。
@@ -177,7 +156,7 @@ let
   #
   # 权限是**用户打算覆盖**的字段（两处 config 都有 volatile 字段），所以补丁行只做
   # seed：设置页写入 profile 的 cordis.patch.yml 后以 profile 层为准，本行不与之争。
-  # 两个 bundle 不碰同一行（dsh-tap 只写 llm-pi-ai），顺序因此不影响结果。
+  # 两个 bundle 不碰同一行，顺序因此不影响结果。
   webPermissionBundle = mkRowBundle {
     name = "dsh-web-permission";
     patch = dshLocal.patchText "dsh-web-permission" ''
@@ -219,6 +198,9 @@ let
   # 不声明 requiresWeb 的后果是 web profile 变成 headless 组合（没有前端）；
   # 不声明 requiresTui 的后果是 dsh-tui 在 installCheck 里被当成 headless 跑 `--help`，
   # 而 TUI 会接管终端 → 检查超时失败。
+  # 三条 profile 共用的本地 bundle 再叠上 llm-pi-ai 的 provider 表。
+  hostBundles = dshLocal.hostBundles ++ [ llmRoutesBundle ];
+
   dshPackage = dshLocal.mkDsh {
     # 不设 `mode`：本仓库用自定义播种器（pkgs/dsh-local 的 mkProfileSeeder）替换了
     # 上游的 dsh-sync-profiles。上游的 managed 会在每次启动抹掉运行时设置，mutable
@@ -226,13 +208,13 @@ let
     profiles = {
       web = {
         requiresWeb = true;
-        bundles = dshLocal.hostBundles ++ dshLocal.webBundles ++ [ webPermissionBundle webConnectionBundle ];
+        bundles = hostBundles ++ dshLocal.webBundles ++ [ webPermissionBundle webConnectionBundle ];
       };
-      headless.bundles = dshLocal.hostBundles ++ [ headlessBundle ];
+      headless.bundles = hostBundles;
     } // lib.optionalAttrs cfg.plugins.tui.enable {
       dsh-tui = {
         requiresTui = true;
-        bundles = dshLocal.hostBundles ++ [ tuiDisplayBundle ];
+        bundles = hostBundles ++ [ tuiDisplayBundle ];
       };
     } // lib.optionalAttrs cfg.plugins.acp.enable {
       # ACP 服务端 profile：编辑器（Emacs agent-shell / Zed 等）通过 stdio 驱动它。
@@ -248,7 +230,7 @@ let
       # 导出。远程客户端不在此列 —— 它的权限由常驻的 web profile 决定
       # （见 webPermissionBundle）。
       acp = {
-        bundles = dshLocal.hostBundles ++ dshLocal.acpBundles;
+        bundles = hostBundles ++ dshLocal.acpBundles;
         patch = [
           {
             id = "headless-startup";
@@ -903,24 +885,21 @@ let
   nimModelsYaml = yamlIndent10 (lib.concatStringsSep "\n" (lib.concatMap nimModelYaml nimModelsRaw));
 
   # ── llm-pi-ai 的 providers 映射（本仓库的静态路由表）────────────────────
-  # 它曾经是 providerPatch（home 层）里的一行，2026-09-29 迁到这里。原因是
-  # dsh-tap 的运行时把 llm-pi-ai 整行当成自己的数据库（目录同步、逐模型启停、
-  # Trae/Qoder 与额外 key 型服务商的注册都写这一行）。home 层的 patch 排在
-  # profile 层之后且 config 是整块替换，只要它还在 home 层，dsh-tap 的每一次
-  # 写入都会被 config-editor 以 "overridden by a home patch" 拒绝，而它自带的
-  # codebuddy 路由也会被我们覆盖掉（Trae/Qoder 没有静态路由，它们由
-  # host-config.js 在运行期往 profile 层铺，所以更依赖这条写入通路能用）。
+  # 单一事实来源是 modules/home/llm-routes/routes.nix 与 models.lock.json；这里只做
+  # YAML 传输。同一份文本派生两个产物：
   #
-  # 现在这份映射在**构建期**被并进 dsh-tap 自己的 cordis.patch.yml
-  # （pkgs/dsh-local/dsh-tap.nix 的 postInstall），两边合成同一行、同一层，
-  # 于是 inherited 里同时有我们的 7 条与它的 codebuddy，设置卡写回后
-  # effective == next，守卫通过，双方都不丢。
+  #   bundleProviders  —— 进 bundle 层（llmRoutesBundle）。**不含** deepseek-relay 与
+  #                       openai：这两条的 baseURL 是运行时才有的端点，store 里不能
+  #                       有，所以它们只活在下面那份 profile 渲染结果里。于是 bundle
+  #                       层零 `!!js`，pi-ai 的 Config() 永远看到字符串。
+  #   profilePatch     —— activation 渲染进 profile 层：完整表，端点写占位符
+  #                       （relayBaseUrlPlaceholder），activation 时从 dsh.env 换成
+  #                       字面量。occupies 整行 llm-pi-ai（config 整块替换）。
   #
-  # 单一事实来源不变：路由事实仍来自 modules/home/llm-routes/routes.nix，
-  # 这里只做 YAML 传输（含 !!js process.env.* 标量，yq 合并会原样保留）。
-  # 三条 profile（web / dsh-tui / headless）都装 dsh-tap，所以这份表在任何
-  # profile 都生效——与它当年在 home 层"对所有 profile 生效"的语义等价。
-  llmPiAiProviders = pkgs.writeText "dsh-llm-pi-ai-providers.yml" ''
+  # 端点占位符只出现在上面这两条的 baseURL 上；其余字段全是字面量。
+  relayBaseUrlPlaceholder = "@DEEPSEEK_RELAY_BASE_URL@";
+
+  llmPiAiProvidersFull = pkgs.writeText "dsh-llm-pi-ai-providers-full.yml" ''
       providers:
         # 官方 api.deepseek.com 不在此声明：web profile 内置第一方 llm-deepseek
         # 插件已注册 deepseek-official（显示名 DeepSeek，同样读 DEEPSEEK_API_KEY，
@@ -944,9 +923,9 @@ let
           apiKeyEnv: ${relayRoute.apiKeyEnv}
           displayName: ${relayRoute.displayName}
           api: ${relayRoute.api}
-          # baseURL 走运行时 env：pi 的 baseUrl 不支持 env 插值（只能留在 age
-          # 密文），dsh 侧则可以，故这里保持 env 引用而非写死端点。
-          baseURL: !!js process.env.${relayRoute.baseURLEnv}
+          # baseURL 由 activation 从 dsh.env 替换（占位符 → 字面量）。写成 quoted：
+          # 替换后是 https://... 形态，引号让 YAML 侧不必依赖字符集。
+          baseURL: "${relayBaseUrlPlaceholder}"
   ${relayCompatYaml}
           # 路由级默认思考档。dsh 的 llm-pi-ai 把 profile.reasoning 交给每个
           # 模型当默认值（describableReasoningLevel → defaultEffort），模型
@@ -969,7 +948,7 @@ let
         # MissingSessionID（先于鉴权判断）。pi-ai 的 withOpenCodeSessionHeader 只包
         # 在它自己的 catalog provider 上，而本路由**必须**声明 api（见下条），走的是
         # buildProvider 的裸协议工厂，那层包装到不了这里 —— 头由 pkgs/dsh-local
-        # 补丁 4 在 streamSimple 调用点按会话 id 补，本文件不写静态头。
+        # 补丁 3 在 streamSimple 调用点按会话 id 补，本文件不写静态头。
         # 静态头的代价：所有会话共用一个亲和桶，实测缓存命中 99.7%→79%、中位延迟
         # 8s→13.5s（DSH discussion #5495），所以不要退回去。
         # 2026-08-29 实测：网关 /go/v1/chat/completions 对 catalog 判定为
@@ -1002,13 +981,9 @@ let
           baseURL: https://opencode.ai/inference/go/v1
           models:
   ${opencodeFreeModelsYaml}
-        # 本表是**声明式的那一份**：profile 层那份同名快照会在每次 switch 被
-        # home.activation.dshProfileProviders 覆盖回这里声明的值（否则 profile 层
-        # 排在 bundle 之后、config 又整块替换，本表永远看不生效 —— 2026-10-14 在
-        # 一次性 DSH_HOME 上用 marker 值实测确认过）。
-        # 所以改 route 字段/模型只改本表 + rebuild，不需要手工同步 profile。
-        # 运行期 dsh-tap 仍可往同一行写它自己的东西（codebuddy、额外 provider），
-        # 那些不在本表里，覆盖时原样保留。
+        # 本表只做 YAML 传输，产出两个文件（见上方 llmRoutesBundle / profilePatch）：
+        # bundle 层那份减掉 deepseek-relay 与 openai（端点属于 profile 渲染），
+        # profile 层那份是完整表 + 端点占位符。改 route/模型只改这里 + rebuild。
         # openrouter 是 pi-ai 内置 catalog 路由（https://openrouter.ai/api/v1，
         # openai-completions），catalog 内置 276 个模型，无需手工声明 models。
         openrouter:
@@ -1080,11 +1055,40 @@ let
         # 注意：modelOverrides 只允许出现在未声明 models 列表的 catalog 路由上，
         # 两者同配会被 dsh 拒载。
         openai:
-          baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
+          baseURL: "${relayBaseUrlPlaceholder}"
           modelOverrides:
             gpt-5.6-sol:
               contextWindow: 272000
   '';
+
+  # bundle 层那份：整表减去两条带端点的路由。减掉而不是留空 baseURL 的原因：
+  # resolveProfiles 在 apply 期就会为「声明了 models 却没有 baseURL、catalog 又描述
+  # 不了」的路由抛错，整根 llm-pi-ai 纤维跟着挂 —— 新 profile 直接起不来。
+  # 减掉则是「没有这条路由」，请求不到等于选择器里不出现，不会误伤启动。
+  bundleProviders = pkgs.runCommand "dsh-llm-pi-ai-providers-bundle.yml" {
+    nativeBuildInputs = [ pkgs.yq-go ];
+  } ''
+    SRC=${llmPiAiProvidersFull} yq -n '
+      load(strenv(SRC)).providers as $p
+      | [ { "id": "llm-pi-ai", "config": { "providers": ($p | del(.deepseek-relay, .openai)) } } ]
+    ' > $out
+  '';
+
+  # profile 层那份：整表（含占位符），外面套成一行 patch。
+  profilePatch = pkgs.runCommand "dsh-profile-llm-pi-ai.yml" {
+    nativeBuildInputs = [ pkgs.yq-go ];
+  } ''
+    # comments="" 去掉模板里的解释性注释：它进的是 $HOME 的运行期文件，不是 nix 源码。
+    SRC=${llmPiAiProvidersFull} yq -n '[ { "id": "llm-pi-ai", "config": { "providers": load(strenv(SRC)).providers } } ] | ... comments=""' > $out
+  '';
+
+  # llm-pi-ai 的 bundle。三条 profile 都列它 —— 与它当年在 home 层「对所有 profile
+  # 生效」的语义等价，只是现在端点在 profile 渲染行里、bundle 里没有。
+  llmRoutesBundle = mkRowBundle {
+    name = "dsh-llm-routes";
+    patch = bundleProviders;
+    description = "llm-pi-ai provider table (endpoint-free; relay/openai are rendered per profile)";
+  };
 
 in
 {
@@ -1273,8 +1277,8 @@ in
           # 于是 `dsh web --no-open ...` 被解读成「profile 名叫 web」，同步的是
           # `$DSH_HOME/profiles/web` 这个**未被 nix 物化**的目录，nix 的补丁与本地
           # bundle 一个都不加载。2026-09-28 实测：`dsh web --no-open --port 0`
-          # 落地 `profiles/web`，package.json 的 bundles 只有 base + web-app，
-          # dsh-tap 加载 0 次。这与旧 wrapper 不同（旧版只有配置文件无 profile 播种，
+          # 落地 `profiles/web`，package.json 的 bundles 只有 base + web-app ——
+          # 本地扩展一个都不在。这与旧 wrapper 不同（旧版只有配置文件无 profile 播种，
           # 所以 `web` 位置参数在旧版是合法子命令写法）。
           #
           # 现在统一走 `--profile <物化全名>` 显式指定：wrapper 见到 --profile 就
@@ -1299,44 +1303,59 @@ in
       };
     })
 
-    # ── profile 层的 nix 声明行：每次 switch 覆盖回去 ────────────────────────
+    # ── profile 层：llm-pi-ai 那一行由 nix 渲染（端点在这里才落成字面量）──────
     (lib.mkIf cfg.enable {
-      # 为什么只覆盖「provider 的键」而不是整份文件：见文件头那段。这一行同时是
-      # dsh-tap 的数据库，codebuddy 的模型列表与 Trae/Qoder 注册都在同一行里，
-      # 整份渲染会把它们一起抹掉（dsh-tap 只在 boot 时重铺 codebuddy，注册不重铺）。
+      # 见文件头那段。三条约束：
+      #   1. 模板里的 @DEEPSEEK_RELAY_BASE_URL@ 在 activation 时从 dsh.env 换成真值，
+      #      store 里永远只有占位符 —— 端点不进 store、不进 git。
+      #   2. 整行替换（config 整块替换）。行内不需要保留运行期字段：那半边原来是
+      #      dsh-tap 的 codebuddy 数据库，dsh-tap 已移除。
+      #   3. 其它行（agent-default-model / ui-settings-general / dsh-tui）原样保留。
       #
-      # 用 `+`（shallow merge）而不是 `*`（deep merge）：provider 条目整条替换，
-      # 声明里删掉的模型才会真的消失；`*` 会把 profile 侧的旧键留下来。
-      #
-      # 只在「该 profile 已经有 llm-pi-ai 行且非空」时动手：没有这行时 bundle 层
-      # 就是生效值，没什么可覆盖的。
+      # 端点读不到时只 WARN 不写：宁可保留上一次渲染好的文件，也不要写一份没有
+      # 端点的表（那会让 relay/openai 两条路由在运行期凭空消失）。
       home.activation.dshProfileProviders = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        ours=${llmPiAiProviders}
+        template=${profilePatch}
+        env_file=${lib.escapeShellArg (if cfg.envFile != null then cfg.envFile else "")}
+        relay=""
+        if [ -n "$env_file" ] && [ -f "$env_file" ]; then
+          relay="$(${pkgs.bash}/bin/bash -c 'set -a; . "$1" >/dev/null 2>&1; printf %s "''${DEEPSEEK_RELAY_BASE_URL-}"' _ "$env_file")"
+        fi
+        if [ -z "$relay" ]; then
+          echo "WARN: 读不到 DEEPSEEK_RELAY_BASE_URL（''${env_file:-未配置 envFile}），跳过 profile 渲染" >&2
+          exit 0
+        fi
+
+        # 一行：模板取第 0 行 → 换成真端点 → 顶掉 profile 里同 id 的行（没有就追加）。
+        # 顺序会变（llm-pi-ai 落到末尾），不影响：patch 按 id 生效，本文件没有 insert 行。
+        render='load(strenv(TPL))[0] as $t | ($t | .config.providers["deepseek-relay"].baseURL = strenv(RELAY) | .config.providers.openai.baseURL = strenv(RELAY)) as $row | [.[] | select(.id != "llm-pi-ai")] + [$row]'
+
         changed=
         for target in ${lib.concatMapStringsSep " " (name: lib.escapeShellArg name) (builtins.attrValues profileNames)}; do
-          patch="$HOME/.dsh/profiles/$target/cordis.patch.yml"
-          [ -f "$patch" ] && [ ! -L "$patch" ] || continue
-          OUR="$ours" ${lib.getExe pkgs.yq-go} -e \
-            '[.[] | select(.id == "llm-pi-ai" and ((.config.providers // {}) | length > 0))] | length > 0' \
-            "$patch" >/dev/null 2>&1 || continue
+          dir="$HOME/.dsh/profiles/$target"
+          patch="$dir/cordis.patch.yml"
+          # 目录由 dsh 的播种器创建；还没播种过就没有可渲染的东西。
+          [ -d "$dir" ] || continue
+          [ ! -L "$patch" ] || {
+            echo "WARN: $patch 是符号链接，跳过渲染" >&2
+            continue
+          }
+          [ -f "$patch" ] || printf '[]\n' > "$patch"
 
           staged="$(${pkgs.coreutils}/bin/mktemp "$patch.XXXXXX")"
-          if OUR="$ours" ${lib.getExe pkgs.yq-go} \
-            'load(strenv(OUR)).providers as $o
-             | (.[] | select(.id == "llm-pi-ai") | .config.providers) |= (. + $o)' \
-            "$patch" >"$staged" 2>/dev/null && [ -s "$staged" ]; then
+          if TPL="$template" RELAY="$relay" ${lib.getExe pkgs.yq-go} "$render" "$patch" >"$staged" 2>/dev/null && [ -s "$staged" ]; then
             # cmp 在 diffutils 里，不在 coreutils（踩过一次：127 当成了「有差异」）。
             if ${pkgs.diffutils}/bin/cmp -s "$staged" "$patch"; then
               ${pkgs.coreutils}/bin/rm -f "$staged"
             else
               ${pkgs.coreutils}/bin/chmod --reference="$patch" "$staged"
               ${pkgs.coreutils}/bin/mv -f "$staged" "$patch"
-              echo "dsh: $target 的 llm-pi-ai provider 已按 nix 声明复位"
+              echo "dsh: $target 的 llm-pi-ai 行已渲染（端点来自 dsh.env）"
               changed=1
             fi
           else
             ${pkgs.coreutils}/bin/rm -f "$staged"
-            echo "WARN: 无法把 $patch 的 llm-pi-ai provider 复位成 nix 声明" >&2
+            echo "WARN: $patch 的 llm-pi-ai 行渲染失败" >&2
           fi
         done
 
@@ -1348,7 +1367,7 @@ in
       '';
     })
 
-    # ── dsh.env 变更守卫 + dsh-tap 状态可观测性 ──────────────────────────────
+    # ── dsh.env 变更守卫 ────────────────────────────────────────────────────
     (lib.mkIf cfg.enable {
       # dsh-web 只在启动时读一次 envFile（systemd 的 EnvironmentFile），运行期间不重读。
       # sops-nix 每次 switch 都重渲染 dsh.env（并切换 secrets.d/<gen> 目录），但
@@ -1378,39 +1397,6 @@ in
         ''
       );
 
-      # dsh-tap 的三条上游里，CodeBuddy 的模型清单由网关目录决定、凭据是它自己那份
-      # ~/.dsh/codebuddy-plugin-auth.json，Trae/Qoder 是订阅额度 OAuth —— 三者都无法
-      # 声明式管理（插件即真源，nix 侧只有 rev）。代价是这套状态对 nix 不可见：
-      # 登录态过期、桥没起来、目录没同步，全都静默。
-      #
-      # 本步骤只做可观测性（不写任何配置）：激活末尾查插件自己的状态路由
-      # GET /dsh-tap/settings（凭据已脱敏），把桥、登录态、有效模型数打进激活日志。
-      # 服务未起 / 插件未装 / 未登录一律只 WARN，不阻塞激活。
-      home.activation.checkDshTapStatus = lib.mkIf (cfg.enable && cfg.web.enable) (
-        inputs.home-manager.lib.hm.dag.entryAfter [ "dshEnvGuard" ] ''
-          url="http://${cfg.web.host}:${toString cfg.web.port}/dsh-tap/settings"
-          view="$(${pkgs.curl}/bin/curl -fsS --max-time 10 "$url" 2>/dev/null || true)"
-          if [ -z "$view" ]; then
-            echo "WARN: dsh-tap 状态不可达（dsh-web 未起或插件未装）：$url"
-          else
-            ${pkgs.jq}/bin/jq -r '
-              "dsh-tap: bridge=\(if .bridge.running then "up:\(.bridge.port)" else "down" end)"
-              + " codebuddy=\(if .oauth.signedIn then (if .oauth.needsRelogin then "需重新登录" else "signed-in" end) else "未登录" end)"
-              + " models=\(.models.effectiveCount) 目录=\(.models.sync.count // "静态兜底")"
-              + " trae=\(if .trae.oauth.signedIn then "signed-in" else "未登录" end)"
-              + " qoder=\(if .qoder.oauth.signedIn then "signed-in" else "未登录" end)"
-            ' <<<"$view"
-            # 主聊天走桥：桥不跑 = 模型选择器里 CodeBuddy/Trae/Qoder 三条上游全不可用
-            # （deepseek-relay / opencode-go / runinfra 等不受影响）。
-            if [ "$(${pkgs.jq}/bin/jq -r '.bridge.running' <<<"$view")" != "true" ]; then
-              echo "WARN: dsh-tap 本地桥未运行（.bridge.lastError = $(${pkgs.jq}/bin/jq -r '.bridge.lastError // "—"' <<<"$view")）；CodeBuddy/Trae/Qoder 主聊天不可用"
-            fi
-            if [ "$(${pkgs.jq}/bin/jq -r '.oauth.signedIn' <<<"$view")" != "true" ]; then
-              echo "WARN: CodeBuddy 未登录；在 dsh Web 的插件设置卡里完成登录后 provider 才可用（dsh-tui 里没有设置卡）"
-            fi
-          fi
-        ''
-      );
     })
   ];
 }
