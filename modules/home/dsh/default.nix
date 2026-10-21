@@ -530,6 +530,21 @@ let
         max = "max";
       };
     };
+    routes."opencode-free" = {
+      inherit (llmRoutes.opencodeFree) api apiKeyEnv models name;
+      metaIds = builtins.attrNames llmRoutes.opencodeFreeModelMeta;
+      baseURL = llmRoutes.opencodeFree.baseURL;
+      mode = "reconcile";
+      # 只接管 `-free` 后缀：同一份 /v1/models 里还有 30 多条付费 id，它们在
+      # opencode-go（catalog 路由）名下，不该进这条清单。
+      includeSuffixes = [ "-free" ];
+    };
+    routes.runinfra = {
+      inherit (runinfraRoute) api apiKeyEnv baseURL name;
+      models = runinfraModels;
+      metaIds = runinfraBundle.metaIds;
+      mode = "reconcile";
+    };
   });
 
   # 一条命令、零前置：wrapper 自己 source dsh.env，所以交互 shell 里不需要先
@@ -600,15 +615,16 @@ let
   # custom-models.json（覆盖同 id）。deprecated-models.json 是 pi 运行时的
   # grace-period 概念，不进静态清单。
   #
-  # 这份清单只是 seed：权威是网关 /v1/models，dsh-autosync/runinfra 首轮
-  # reconcile 就会删掉网关不再广告的 id、补上新增 id（容量/价格一律取 listing）。
-  # snapshot 之后 pi 不再自己同步——pi 的 provider 扩展读 autosync 发布的
-  # ~/.cache/llm/runinfra-models.json，两侧因此只有一份模型清单。
+  # 生效清单由 models.lock.json 决定（`dsh-models-sync --update` 按网关
+  # /v1/models 重写）：锁里的 id 在这里取元数据，缺条目时求值期报错。列表本身
+  # 不再由运行期 reconcile 改写 —— dsh-autosync/runinfra 已降级为 reportOnly。
+  # pi 侧仍读 autosync 发布的 ~/.cache/llm/runinfra-models.json（那是运行期产物，
+  # 内容来自锁驱动的清单与 live payload），两侧因此只有一份模型清单。
   #
   # 字段映射：thinkingLevelMap → reasoningEfforts（级别枚举一致）；compat 只保留
   # 两侧交集的键；cost 不在 dsh patch schema，丢弃。
   runinfraSrc = inputs.pi-runinfra-provider-src;
-  runinfraModels =
+  runinfraBundle =
     let
       base = lib.importJSON (runinfraSrc + "/models.json");
       patch = lib.importJSON (runinfraSrc + "/patch.json");
@@ -677,6 +693,90 @@ let
             supportsStore = false;
           };
         }
+        # 网关在扩展 catalog 之外新上线的 id（2026-10-21 抓 /v1/models 实测）。
+        # 元数据全部取自该次 payload：context_window / max_output_tokens /
+        # input_modalities / reasoning_efforts。compat 用运行期 reconcile 采纳
+        # 新 id 时的同一套默认值（NEW_MODEL_COMPAT）—— 也就是说这里记下的是
+        # 「此前由 autosync 在运行期采纳后实际生效的那份」，不是新猜的策略。
+        {
+          id = "deepseek-v4-1-flash";
+          name = "DeepSeek V4.1 Flash";
+          contextWindow = 1048576;
+          maxTokens = 1048576;
+          input = [ "text" ];
+          thinkingLevelMap = {
+            off = "none";
+            low = "low";
+            high = "high";
+            xhigh = "xhigh";
+            max = "max";
+          };
+          compat = {
+            supportsDeveloperRole = false;
+            supportsStore = false;
+            maxTokensField = "max_tokens";
+          };
+        }
+        {
+          id = "deepseek-v4-1-flash-1017";
+          name = "DeepSeek V4.1 Flash 1017";
+          contextWindow = 1048576;
+          maxTokens = 1048576;
+          input = [ "text" "image" ];
+          thinkingLevelMap = {
+            off = "none";
+            low = "low";
+            high = "high";
+            xhigh = "xhigh";
+            max = "max";
+          };
+          compat = {
+            supportsDeveloperRole = false;
+            supportsStore = false;
+            maxTokensField = "max_tokens";
+          };
+        }
+        {
+          id = "glm-5-3";
+          name = "GLM 5.3";
+          contextWindow = 1048576;
+          maxTokens = 1048576;
+          input = [ "text" ];
+          thinkingLevelMap = {
+            low = "low";
+            high = "high";
+            max = "max";
+          };
+          compat = {
+            supportsDeveloperRole = false;
+            supportsStore = false;
+            maxTokensField = "max_tokens";
+          };
+        }
+        {
+          id = "ornith-1-5-122b";
+          name = "Ornith 1.5 122B";
+          contextWindow = 262144;
+          maxTokens = 262144;
+          input = [ "text" "image" ];
+          compat = {
+            supportsDeveloperRole = false;
+            supportsStore = false;
+            maxTokensField = "max_tokens";
+          };
+        }
+        {
+          id = "ornith-1-5-35b";
+          name = "Ornith 1.5 35B";
+          contextWindow = 262144;
+          maxTokens = 262144;
+          input = [ "text" "image" ];
+          compat = {
+            supportsDeveloperRole = false;
+            supportsStore = false;
+            maxTokensField = "max_tokens";
+          };
+        }
       ];
 
       orderedBase = lib.map applyTo base;
@@ -707,10 +807,34 @@ let
         // lib.optionalAttrs (compat != { }) { inherit compat; };
     in
     assert lib.assertMsg (lib.length orderedIds > 0) "runinfra: 扩展模型清单为空";
-    lib.map (id: toDshModel idMap.${id}) orderedIds;
+    {
+      inherit idMap toDshModel;
+      # 扩展 + extraModels 能描述的 id 全集：`dsh-models-sync --update` 用它判断
+      # 「网关新增的 id 有没有元数据」，从而把提醒提前到提交之前。
+      metaIds = orderedIds;
+    };
+
+  # 生效清单 = 锁文件里的 id（= 网关现在广告的那些）。锁里出现的 id 必须在扩展
+  # catalog 或 extraModels 里有条目，否则求值期报错 —— 与 relay / opencode-free
+  # 同一条规矩：容量与档位不能猜。
+  runinfraModels = map (
+    id:
+    runinfraBundle.toDshModel (
+      runinfraBundle.idMap.${id} or (
+        throw "llm-routes: models.lock.json 里有 runinfra/${id}，但 pi 扩展 catalog 与 extraModels 都没描述它（容量/档位不能猜，请手工补一条）"
+      )
+    )
+  ) llmRoutes.modelLock.runinfra;
 
   runinfraModelsYaml = yamlIndent10 (
     lib.concatStringsSep "\n" (lib.concatMap yamlScalarModel runinfraModels)
+  );
+
+  # opencode-free 的清单：id 来自锁文件，元数据来自 routes.nix（同一套 emitter）。
+  # 与 runinfra 不同的只是数据来源位置，渲染路径完全一样 —— 不要在这里再写一份
+  # 字面量，否则锁文件就成了摆设。
+  opencodeFreeModelsYaml = yamlIndent10 (
+    lib.concatStringsSep "\n" (lib.concatMap yamlScalarModel llmRoutes.opencodeFree.models)
   );
 
   # runinfra 路由的接入事实。pi 侧不读这些（provider 由扩展运行时注册），
@@ -853,12 +977,14 @@ let
           baseURL: https://opencode.ai/inference/go/v1
         # opencode-free：同一个 Go 网关上的免费档（`-free` 后缀）。单独成路由，
         # 因为 opencode-go 由 pi-ai 静态 catalog 驱动、写 `models` 会整体替换
-        # catalog；这条路由没有 catalog，models 列表就是唯一 owner，由
-        # dsh-autosync/opencode-free 按网关 /v1/models 的 `-free` 子集 reconcile
-        # （下架自动消失、新增自动进来，本表只是首发 seed）。
+        # catalog；这条路由没有 catalog，models 列表就是唯一 owner。
+        # id 集合来自 models.lock.json（`dsh-models-sync --update` 按网关的
+        # `-free` 子集重写），元数据在 routes.nix（opencodeFreeModelMeta）。
+        # 运行期的 dsh-autosync/opencode-free 已降级为 reportOnly：它只核对，
+        # 不再写 profile 层。
         # 2026-10-20 实测：zen 档的免费模型（deepseek-v4.1-flash-free 等）对非
         # OpenCode 客户端返回 403 FreeTierError，Go 端对它们返回 400 Model is
-        # unavailable —— 只有这里列出的这几个在 Go 档真的能跑通。
+        # unavailable —— 只有锁里这几个在 Go 档真的能跑通。
         # 容量/模态/思考档取自 models.dev 的 opencode slice，不填默认值。
         opencode-free:
           apiKeyEnv: OPENCODE_API_KEY
@@ -866,38 +992,7 @@ let
           api: openai-completions
           baseURL: https://opencode.ai/inference/go/v1
           models:
-            - id: minimax-m3.1-flash-free
-              name: MiniMax M3.1 Flash Free
-              contextWindow: 1000000
-              maxTokens: 512000
-              input:
-                - text
-                - image
-              reasoningEfforts:
-                low: low
-                medium: medium
-                high: high
-                xhigh: xhigh
-                max: max
-            - id: longcat-2.5-preview-free
-              name: LongCat 2.5 Preview Free
-              contextWindow: 1000000
-              maxTokens: 131072
-              input:
-                - text
-                - image
-            - id: beam-free
-              name: Beam Free
-              contextWindow: 1048576
-              maxTokens: 131072
-              input:
-                - text
-              reasoningEfforts:
-                low: low
-                medium: medium
-                high: high
-                xhigh: xhigh
-                max: max
+  ${opencodeFreeModelsYaml}
         # 改本表 route 字段（baseURL/api）时注意：这里只是 seed。运行时生效值是
         # profile 自己的 cordis.patch.yml（Settings 缝的落盘目标），而它排在 bundle
         # 之后应用、且 config 是**整体替换**，所以已存在 profile 的 providers 表会

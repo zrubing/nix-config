@@ -99,9 +99,69 @@ let
       };
     };
   };
+  opencodeFreeModelMeta = {
+    "minimax-m3.1-flash-free" = {
+      name = "MiniMax M3.1 Flash Free";
+      contextWindow = 1000000;
+      maxTokens = 512000;
+      input = [ "text" "image" ];
+      reasoningEfforts = {
+        low = "low";
+        medium = "medium";
+        high = "high";
+        xhigh = "xhigh";
+        max = "max";
+      };
+    };
+    "longcat-2.5-preview-free" = {
+      name = "LongCat 2.5 Preview Free";
+      contextWindow = 1000000;
+      maxTokens = 131072;
+      input = [ "text" "image" ];
+    };
+    "beam-free" = {
+      name = "Beam Free";
+      contextWindow = 1048576;
+      maxTokens = 131072;
+      input = [ "text" ];
+      reasoningEfforts = {
+        low = "low";
+        medium = "medium";
+        high = "high";
+        xhigh = "xhigh";
+        max = "max";
+      };
+    };
+  };
 in
 {
-  inherit thinkingLevels compatKeys relayModelMeta;
+  inherit thinkingLevels compatKeys relayModelMeta opencodeFreeModelMeta modelLock;
+
+  # opencode-go 的免费档：同一网关、同一把 key，`-free` 后缀单独成路由。
+  # 清单同样由锁文件给 id，元数据在这里（取自 models.dev 的 opencode slice，
+  # 不填默认值 —— 容量填错在后续每一层都与真值无法区分）。
+  #
+  # 为什么没有 `-free` 之外的模型：2026-10-20 实测，zen 档的免费模型对非
+  # OpenCode 客户端返回 403 FreeTierError，Go 端对它们返回 400 Model is
+  # unavailable —— 只有本表这几个在 Go 档真的能跑通。
+  opencodeFree = {
+    name = "opencode-free";
+    displayName = "OpenCode Free";
+    api = "openai-completions";
+    baseURL = "https://opencode.ai/inference/go/v1";
+    apiKeyEnv = "OPENCODE_API_KEY";
+    models = validate "opencode-free" (
+      map (
+        id:
+        (opencodeFreeModelMeta.${id} or (
+          throw "llm-routes: models.lock.json 里有 opencode-free/${id}，但 routes.nix 没有它的元数据（容量/档位不能猜，请手工补一条）"
+        ))
+        // {
+          inherit id;
+        }
+      ) modelLock."opencode-free"
+    );
+  };
 
   # 企业 relay 网关（与官方 api.deepseek.com 分开：官方由内置 llm-deepseek
   # 插件的 deepseek-official 路由服务）。
