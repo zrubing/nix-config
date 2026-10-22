@@ -8,18 +8,46 @@
 let
   cfg = config.${namespace}.console;
 
-  # 合盖熄屏：轮询 ACPI lid 状态，关盖把背光关掉，开盖恢复原来的亮度。
-  # 机器上没有桌面环境，logind 的 HandleLidSwitch 只有
-  # ignore/suspend/poweroff 几种动作，做不了「只关屏」，所以自己做。
-  # 目标机器是 k0s worker + 中转节点：合盖必须继续跑，不能 suspend。
-  lidBlankScript = pkgs.writeShellScript "lid-backlight" ''
+  # 面板管理与合盖熄屏，一个进程搞定。机器上没有桌面环境，logind 的
+  # HandleLidSwitch 只有 ignore/suspend/poweroff 几种动作，做不了「只关屏」，
+  # 所以自己轮询。/etc/systemd/logind.conf 里三条 lid 动作都是 ignore：这台是
+  # k0s worker + 中转节点，合盖必须继续跑。
+  #
+  # 两个实测过的坑，都在这段里做掉：
+  #
+  #   1. 开机后 amdgpu 的背光值默认是 655/65535（约 1%，几乎全黑）。不主动设，
+  #      每次重启屏幕都是黑的 —— 所以先按配置的百分比设置初始亮度。
+  #   2. 背光节点不是开机即有：本机实测 02:49:50 服务启动、02:49:55 设备才出现，
+  #      差 5 秒。旧版直接 ls 一次、失败就 sleep infinity，于是合盖熄屏从未生效。
+  #      改成有上限的等待。
+  backlightScript = pkgs.writeShellScript "backlight" ''
     set -eu
 
-    bl=$(ls -d /sys/class/backlight/* 2>/dev/null | head -1 || true)
-    lid=$(ls /proc/acpi/button/lid/*/state 2>/dev/null | head -1 || true)
-    if [ -z "$bl" ] || [ -z "$lid" ]; then
-      echo "no backlight or no lid switch on this machine" >&2
-      exec sleep infinity
+    bl=
+    lid=
+    i=0
+    while [ "$i" -lt 60 ]; do
+      bl=$(ls -d /sys/class/backlight/* 2>/dev/null | head -1 || true)
+      lid=$(ls /proc/acpi/button/lid/*/state 2>/dev/null | head -1 || true)
+      [ -n "$bl" ] && break
+      i=$((i + 1))
+      sleep 1
+    done
+
+    # 没有背光的机器（台式机/无面板）到这里就结束，不算失败。
+    if [ -z "$bl" ]; then
+      echo "no backlight device after 60s; nothing to manage" >&2
+      exit 0
+    fi
+
+    echo 0 > "$bl/bl_power" 2>/dev/null || true
+    max=$(cat "$bl/max_brightness")
+    echo $(( max * ${toString cfg.initialBrightnessPercent} / 100 )) > "$bl/brightness"
+
+    # 没有 lid 开关就不必进轮询。
+    if [ -z "$lid" ]; then
+      echo "no lid switch; initial brightness set, exiting" >&2
+      exit 0
     fi
 
     saved=
@@ -33,7 +61,8 @@ let
           ;;
         open:?*)
           echo 0 > "$bl/bl_power" 2>/dev/null || true
-          echo "$saved" > "$bl/brightness"
+          # 面板被外部改过就尊重外部值，不覆盖回去。
+          [ "$(cat "$bl/brightness")" = 0 ] && echo "$saved" > "$bl/brightness"
           saved=
           ;;
       esac
@@ -51,12 +80,14 @@ in
       description = "控制台字号（像素）。";
     };
 
-    lidBlank = mkOption {
-      type = types.bool;
-      default = true;
+    initialBrightnessPercent = mkOption {
+      type = types.ints.between 1 100;
+      default = 50;
       description = ''
-        合盖关背光、开盖恢复。机器不会 suspend —— 适合无桌面环境但需要常驻的节点。
-        没有 ACPI lid 设备时本服务空转，不影响启动。
+        开机时把背光设成最大值的百分之多少。
+
+        必须显式设置：amdgpu 开机给的默认值约 1%（实测 655/65535），不设就是黑屏。
+        之后用 brightnessctl 临时调，重启回到这个值。
       '';
     };
   };
@@ -96,12 +127,15 @@ in
 
     environment.systemPackages = [ pkgs.brightnessctl ];
 
-    systemd.services.lid-backlight = lib.mkIf cfg.lidBlank {
-      description = "Turn the panel backlight off while the lid is closed";
+    systemd.services.backlight = {
+      description = "Set initial panel brightness and blank it while the lid is closed";
       wantedBy = [ "multi-user.target" ];
+      # 背光由 amdgpu 在 modeset 之后创建，服务必须晚于它；否则只能靠脚本里的
+      # 等待兜住。两个都写上：能等就等，等不到再自己轮询。
+      after = [ "systemd-udev-settle.service" ];
       serviceConfig = {
         Type = "simple";
-        ExecStart = lidBlankScript;
+        ExecStart = backlightScript;
         Restart = "always";
         RestartSec = 3;
       };
