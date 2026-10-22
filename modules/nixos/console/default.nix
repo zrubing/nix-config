@@ -8,6 +8,33 @@
 let
   cfg = config.${namespace}.console;
 
+  # kmscon 只认固定这几组键（源码 src/kmscon_conf.c 的 CONF_OPTION_COLOR）。
+  # 值格式是三个 0-255 的十进制数，逗号分隔，不是十六进制。
+  paletteNames = [
+    "black"
+    "dark-grey"
+    "light-grey"
+    "white"
+    "red"
+    "light-red"
+    "green"
+    "light-green"
+    "yellow"
+    "light-yellow"
+    "blue"
+    "light-blue"
+    "magenta"
+    "light-magenta"
+    "cyan"
+    "light-cyan"
+    "foreground"
+    "background"
+  ];
+
+  paletteLines = lib.concatMapStringsSep "\n" (
+    name: "palette-${name}=${lib.concatMapStringsSep "," toString cfg.palette.${name}}"
+  ) (lib.attrNames cfg.palette);
+
   # 面板管理与合盖熄屏，一个进程搞定。机器上没有桌面环境，logind 的
   # HandleLidSwitch 只有 ignore/suspend/poweroff 几种动作，做不了「只关屏」，
   # 所以自己轮询。/etc/systemd/logind.conf 里三条 lid 动作都是 ignore：这台是
@@ -80,6 +107,37 @@ in
       description = "控制台字号（像素）。";
     };
 
+    palette = mkOption {
+      type = types.attrsOf (types.listOf (types.ints.between 0 255));
+      default = {
+        # Gruvbox Dark。kmscon 默认是纯白/纯黑，4096 级灰阶下刺眼且对比过强；
+        # 这套在 26px 字号下久看不累。
+        black = [ 40 40 40 ];
+        dark-grey = [ 146 131 116 ];
+        light-grey = [ 168 153 132 ];
+        white = [ 235 219 178 ];
+        red = [ 204 36 29 ];
+        light-red = [ 251 73 52 ];
+        green = [ 152 151 26 ];
+        light-green = [ 184 187 38 ];
+        yellow = [ 215 153 33 ];
+        light-yellow = [ 250 189 47 ];
+        blue = [ 69 133 136 ];
+        light-blue = [ 131 165 152 ];
+        magenta = [ 177 98 134 ];
+        light-magenta = [ 211 134 155 ];
+        cyan = [ 104 157 106 ];
+        light-cyan = [ 142 192 124 ];
+        foreground = [ 235 219 178 ];
+        background = [ 40 40 40 ];
+      };
+      description = ''
+        控制台配色。键必须是 kmscon 认识的那组（见 paletteNames），值是三个
+        0-255 的整数，逗号分隔后写进 kmscon.conf（kmscon 不认十六进制）。
+        换主题就是整体替换这个 attrset；只写一部分时缺的键保持 kmscon 默认。
+      '';
+    };
+
     initialBrightnessPercent = mkOption {
       type = types.ints.between 1 100;
       default = 50;
@@ -93,6 +151,17 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = lib.all (n: lib.elem n paletteNames) (lib.attrNames cfg.palette);
+        message = "console.palette 里有 kmscon 不认识的键；合法键见 paletteNames。";
+      }
+      {
+        assertion = lib.all (n: cfg.palette ? ${n}) paletteNames;
+        message = "console.palette 缺键；kmscon 会退回它自己的默认色，混搭会很丑。";
+      }
+    ];
+
     # 内核 VT 换成就地渲染的用户态终端：真字体、24 位色、中文、可配色。
     # 仍然保留 6 个 VT，logind 切 VT 时通过 autovt@.service 别名拉起。
     services.kmscon = {
@@ -115,6 +184,7 @@ in
       useXkbConfig = true;
       extraConfig = ''
         font-size=${toString cfg.fontSize}
+        ${paletteLines}
       '';
     };
 
