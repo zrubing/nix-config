@@ -29,7 +29,8 @@ in
 
     # 中转凭据与配置分离：加密的 miho-conf 里只留占位符，真实值在激活时注入。
     # 轮换密码只需要换 nix-secrets 里的 relay/*.age，不用重写整份 YAML。
-    age.secrets."relay/tuic-password".file = "${mysecrets}/relay/tuic-password.age";
+    # tuic 的凭据不在这里：mihomo 已经没有 tuic 节点，它连的是本机 tuic-client
+    # 开的 socks5（见 modules/nixos/tuic-client），uuid/password 由那边读。
     age.secrets."relay/hysteria-password".file = "${mysecrets}/relay/hysteria-password.age";
 
     services.mihomo = {
@@ -61,8 +62,8 @@ in
       script = ''
         set -euo pipefail
 
-        # 三个输入都要就绪：主配置 + 两个 relay 密码
-        for f in miho-conf relay/tuic-password relay/hysteria-password; do
+        # 两个输入都要就绪：主配置 + hysteria2 密码
+        for f in miho-conf relay/hysteria-password; do
           i=0
           while [ "$i" -lt 60 ]; do
             [ -s "/run/agenix/$f" ] && break
@@ -89,10 +90,8 @@ in
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，
         # sed 的替换串里不会出现需要转义的字符。
-        tuic_pw="$(tr -d '\n' < ${config.age.secrets."relay/tuic-password".path})"
         hy2_pw="$(tr -d '\n' < ${config.age.secrets."relay/hysteria-password".path})"
         sed -i \
-          -e "s|__RELAY_TUIC_PASSWORD__|$tuic_pw|g" \
           -e "s|__RELAY_HYSTERIA_PASSWORD__|$hy2_pw|g" \
           /run/mihomo/config.yaml
 
