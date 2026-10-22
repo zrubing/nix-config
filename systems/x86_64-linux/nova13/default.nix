@@ -79,6 +79,12 @@ in
 
   system.stateVersion = "25.11";
 
+  # CapsLock 当 Ctrl 用，和 zen14 的 niri（ctrl:nocaps）一致。
+  # 这是「CapsLock 也变 Ctrl」，左边那个 Ctrl 仍在原位；真要两者对调是 ctrl:swapcaps。
+  # mkForce 是因为 modules/nixos/locale 全局设了 caps:escape。
+  # 同一份值也会被 kmscon 读走（console 模块开了 useXkbConfig）。
+  services.xserver.xkb.options = lib.mkForce "ctrl:nocaps,compose:rctrl,terminate:ctrl_alt_bksp";
+
   users.mutableUsers = true;
   users.users = {
 
@@ -176,7 +182,12 @@ in
 
     # 这台机器没有桌面环境，只有 tty。控制台换 kmscon（真字体/24 位色/中文），
     # 合盖只关背光不挂起（它是 k0s worker + 中转节点，必须常驻）。
-    console.enable = true;
+    # 2560x1600 面板上 18px 太小，26px 约 160 列 x 50 行。
+    console = {
+      enable = true;
+      fontSize = 26;
+    };
+
 
     home.extraOptions = {
       ${namespace} = {
