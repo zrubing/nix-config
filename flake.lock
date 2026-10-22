@@ -836,11 +836,11 @@
     "mysecrets": {
       "flake": false,
       "locked": {
-        "lastModified": 1792686276,
-        "narHash": "sha256-jkzSFw7v9H+W4zqR5m64wYIWZki54JJVpv9duSmwkx0=",
+        "lastModified": 1792687455,
+        "narHash": "sha256-qV0lKJFvtp2gKL3WZv8ElH6ygkVx+PnyLk/jkEVRBmc=",
         "ref": "main",
-        "rev": "3877c01845ec3b77486c03383a19546f6f3c2c26",
-        "revCount": 379,
+        "rev": "641403188e28b893c67d98b908db3b0c5034af57",
+        "revCount": 380,
         "type": "git",
         "url": "ssh://git@github.com/zrubing/nix-secrets.git"
       },
