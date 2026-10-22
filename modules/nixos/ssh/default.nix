@@ -26,7 +26,13 @@ in
     extraConfig = ''
       # 只对 root 生效：/run/agenix/* 是 0400 root，jojo 的交互式 ssh 读不到，
       # 挂全局会让每次 git push 先报一次 Permission denied 再回落。
-      Match host github.com user root
+      #
+      # ⚠️ 不能用 `Match user root`：ssh_config 里 Match 的 user 判据比的是
+      # **远端用户名**（这里是 git），不是本地用户，写 user root 永远不命中。
+      # 2026-10-22 实测：root 那次只加载了 /root/.ssh/id_* 默认身份，
+      # /run/agenix/nix-secrets-deploy 根本没出现在 debug 输出里。
+      # 判本地用户只能用 exec + %u（%u 展开为本地用户名）。
+      Match host github.com exec "test %u = root"
         IdentityFile /run/agenix/nix-secrets-deploy
         IdentitiesOnly yes
     '';
