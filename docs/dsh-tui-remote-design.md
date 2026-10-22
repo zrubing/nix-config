@@ -350,6 +350,9 @@ tmux send-keys -t rt 'hello' Enter; tmux capture-pane -p -t rt
 
 1. **`session/modelCatalog` 是 0 参数、进程级**的（不是 per-session）。`groups[].id` **就是** provider 路由：实测 2 组，与 `routableProviders` 完全一致，`selectModel({provider: group.id, model})` 被接受。
 2. **`session/follow` 的 snapshot 不带 projections**（只有 header/cursor/records）。此前从 snapshot 读 `modelSelection` 恒为 undefined，是错的——现改由 `session/control` 提供。
+
+   > 2026-10-22 修正：rc.2 的 snapshot **已经带** `projections`（实测字段齐全）；这条
+   > 只对旧宿主成立。客户端不折叠快照投影导致恢复冷会话时模型与 ctx 都丢，见 §42。
 3. 没有跑过 turn 的会话不记录 `modelSelection`，Host 此时用部署默认；`catalog.default` 就是这条事实，所以 `current()` 在无记录时解析到它（不是兜底值）。
 4. `session/selectModel` 返回 `{ selected }`，不是 `{ accepted }`；`reasoningEffort` 可省略（= 该路由默认）。
 5. `session/updateQueue` 在 TUI 里**没有消费者**：TUI 的 pending 队列是客户端 FIFO（`PendingMessage`，含中断后的 docked 语义），不是 Host inbox 的编辑器。**从范围里去掉**，不做死代码。
@@ -1304,3 +1307,58 @@ Nix 产物上重跑 `verify.js --no-live`：8/8；在 tmux 真 pty 里用
    行挂载后校正。这是窗口化列表的常规取舍，换来切换只做视口级工作。
 2. reasoning 的 400 行窗口与工具卡一致；全文仍在会话日志与 `thinking` 字段里，不是
    截断存储。流式中的思考块保持全文（它是当前回合的主内容）。
+
+## 42. 恢复会话的模型与上下文（2026-10-22）
+
+### 42.1 现场
+
+`/resume` 到另一个会话后，状态栏的模型名不变（或退回部署默认），ctx 条直接消失；
+`/context` 报「宿主还没有为这个会话记录请求」。同一个宿主里 Web 端打开同一个会话，
+模型与 ctx 都正确。
+
+### 42.2 根因
+
+两个独立的事实叠在一起：
+
+1. **per-session 投影只信了半条路。** 客户端把 `session/control` 当作 `modelSelection`
+   / `contextPressure` 的唯一来源；但那条流的 baseline 只含连接时已经 live 的会话，
+   之后的帧只报变化。rc.2 的 `session/follow` opening snapshot **本来就带**
+   `projections`（实测字段齐全），客户端的 `FollowSnapshot` 却没声明、也没折叠它。
+   于是 `/resume` 打开一个冷会话时，`selection()` 落到 `deploymentDefault`（不是该
+   会话日志里的路由），`context.usage()` 直接抛错 → `state.contextWindow` 永远不写，
+   ctx 条与 `/context` 一起消失。
+2. **adoption 不写 route/window。** DSH 本地的 `session-resume` 会从日志里取
+   `recordedModelRoute` 写进 state；远程/其他后端走的 `createBackendOpener.adoptWith`
+   只写 preset，`controls.seed` 也只读 mode/effort/commands/MCP，不读
+   `models.current()`，更不重置上一个会话的 `contextWindow` / `loadedContext`。
+   所以即使投影存在，状态栏也会停在上一个会话的模型上。
+
+### 42.3 改法（`session-route-context.patch`）
+
+1. `RemoteProjections.seed(sessionId, { asOfSeq, values })`：把 follow snapshot 的
+   投影块并进折叠，并按切点排序 —— 快照不比折叠旧就整体替换，比折叠旧时只补缺 key
+   （`session/control` 的 live replacement 帧是那个 key 更新的事实）。
+2. `openRemoteSession`：`FollowSnapshot` 声明 `projections`，`applyOpening` / `resync`
+   先 seed 再算 `selection()`；重连快照同样补一次。
+3. `channel/core/session-controls.seed`：每次绑定会话都从该会话自己的
+   `models.current()` 写 `provider` / `model`，重置 `modelDisplay` / `loadedContext` /
+   `contextWindow` / effort，再用 `context.usage()` 重新填窗口。旧会话的值不再跨
+   adoption 残留。
+
+### 42.4 验证
+
+1. 冷会话 `session-42a45320…`（日志路由 `deepseek-relay/deepseek-flash`，部署默认
+   `opencode-go/deepseek-v4.1-flash`）：修复前 `models.current()` 返回部署默认、
+   `context.usage()` 抛错；修复后返回 `deepseek-relay/deepseek-flash`，
+   `usage = { used: 379072, max: 1000000 }`。
+2. `probe-seed-route`：绑定后 route / window / effort 全部来自新会话，旧的 display 与
+   loadedContext 被清掉。
+3. `tsc -p tsconfig.json --noEmit` 通过；`verify-backend-channel` 200/200；
+   `verify-context-occupancy`、`verify-context-bar-alignment` 通过。
+
+### 42.5 边界
+
+1. 快照投影按 `asOfSeq` 与折叠的切点比较：更新的块整体替换，更旧的只补缺口；
+   重连时 `session/control` 的新 baseline 会整体替换折叠。
+2. 从未跑过请求的会话仍然没有 `contextPressure`：`/context` 继续报错，不编造 0。
+3. 状态栏在绑定那一刻取会话自己的路由；其他客户端之后的切换仍由投影 feed 送达。

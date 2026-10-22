@@ -1,0 +1,155 @@
+diff --git a/src/dsh-adapter/channel/core/session-controls.ts b/src/dsh-adapter/channel/core/session-controls.ts
+index 5386cc9..6c898b7 100644
+--- a/src/dsh-adapter/channel/core/session-controls.ts
++++ b/src/dsh-adapter/channel/core/session-controls.ts
+@@ -145,6 +145,23 @@ export function createSessionControls(deps: {
+     backendCommands = []
+     mcpLines = undefined
+     mcpNames = undefined
++    const state = deps.state()
++    // Every fact read here belongs to the Session being bound, the route and
++    // the context capacity most of all: a resumed Session runs its own
++    // recorded model against its own window, so carrying the previous
++    // Session's values across an adoption is how the footer named a model
++    // nothing was running and the context bar kept a dead capacity.
++    const route = session.capabilities.models?.current()
++    if (route !== undefined) {
++      state.provider = route.provider ?? state.provider
++      state.model = route.model
++    }
++    state.modelDisplay = undefined
++    state.loadedContext = undefined
++    state.contextWindow = undefined
++    state.effortLevels = undefined
++    state.reasoningEffort = undefined
++    refreshModelDisplay(session)
+     const modes = session.capabilities.modes
+     if (modes !== undefined) applyMode(session, modes.current())
+     if (session.capabilities.effort !== undefined) applyEffort(session, session.capabilities.effort.current())
+diff --git a/src/dsh-adapter/remote/approval-check.ts b/src/dsh-adapter/remote/approval-check.ts
+index 2886e2a..914d313 100644
+--- a/src/dsh-adapter/remote/approval-check.ts
++++ b/src/dsh-adapter/remote/approval-check.ts
+@@ -94,6 +94,7 @@ const projections = {
+   values: () => undefined,
+   get: () => undefined,
+   subscribe: () => () => {},
++  seed: () => {},
+   close: async () => {},
+ }
+ 
+diff --git a/src/dsh-adapter/remote/projections.ts b/src/dsh-adapter/remote/projections.ts
+index d06a0db..b86d926 100644
+--- a/src/dsh-adapter/remote/projections.ts
++++ b/src/dsh-adapter/remote/projections.ts
+@@ -56,6 +56,18 @@ export interface RemoteProjections {
+   values(sessionId: string): ProjectionValues | undefined
+   /** One projection value of one Session. */
+   get<T>(sessionId: string, key: string): T | undefined
++  /**
++   * Fold one Session's own opening baseline. `session/follow`'s snapshot
++   * carries the block (`projections` on the wire) for the Session it opens;
++   * the host-wide control stream only has the Sessions that were live when it
++   * was cut, so a resumed Session's values — its recorded model route, its
++   * context pressure — arrive here and nowhere else. A block newer than the
++   * fold replaces it whole; an older one only fills the keys the fold lacks
++   * (a live replacement frame is the newer fact for the key it names).
++   * @param sessionId - Session the block belongs to.
++   * @param block - The snapshot's whole projection block and its cut.
++   */
++  seed(sessionId: string, block: { readonly asOfSeq: number; readonly values: ProjectionValues }): void
+   /** Listen for any change to one Session; the disposer stops listening. */
+   subscribe(sessionId: string, listener: () => void): () => void
+   close(): Promise<void>
+@@ -69,6 +81,9 @@ export interface RemoteProjections {
+ export function openProjections(host: LiveStreamHost): RemoteProjections {
+   const control = (host.remote as unknown as { readonly session: ControlRemote }).session
+   const fold = new Map<string, Map<string, unknown>>()
++  /** Each block's cut: a follow snapshot older than the fold must not replace
++   *  the newer live frame a key already received. */
++  const seqs = new Map<string, number>()
+   const listeners = new Map<string, Set<() => void>>()
+   let closed = false
+   let settleReady: () => void = () => {}
+@@ -89,8 +104,10 @@ export function openProjections(host: LiveStreamHost): RemoteProjections {
+       // dead cut is how the status line ends up naming a model nothing runs.
+       const stale = [...fold.keys()]
+       fold.clear()
++      seqs.clear()
+       for (const [sessionId, block] of Object.entries(baseline.value.projections)) {
+         fold.set(sessionId, new Map(Object.entries(block.values)))
++        seqs.set(sessionId, block.asOfSeq)
+         notify(sessionId)
+       }
+       for (const sessionId of stale) notify(sessionId)
+@@ -100,6 +117,7 @@ export function openProjections(host: LiveStreamHost): RemoteProjections {
+       const values = fold.get(frame.sessionId) ?? new Map<string, unknown>()
+       values.set(frame.key, frame.value)
+       fold.set(frame.sessionId, values)
++      seqs.set(frame.sessionId, frame.seq)
+       notify(frame.sessionId)
+     },
+     failed: (error) => {
+@@ -123,6 +141,23 @@ export function openProjections(host: LiveStreamHost): RemoteProjections {
+     get<T>(sessionId: string, key: string): T | undefined {
+       return fold.get(sessionId)?.get(key) as T | undefined
+     },
++    seed(sessionId, baseline) {
++      const known = seqs.get(sessionId)
++      const fresh = known === undefined || baseline.asOfSeq >= known
++      let values = fold.get(sessionId)
++      if (values === undefined) {
++        values = new Map<string, unknown>()
++        fold.set(sessionId, values)
++      }
++      let changed = false
++      for (const [key, value] of Object.entries(baseline.values)) {
++        if (!fresh && values.has(key)) continue
++        values.set(key, value)
++        changed = true
++      }
++      if (fresh) seqs.set(sessionId, baseline.asOfSeq)
++      if (changed) notify(sessionId)
++    },
+     subscribe(sessionId, listener) {
+       const set = listeners.get(sessionId) ?? new Set<() => void>()
+       set.add(listener)
+diff --git a/src/dsh-adapter/remote/session.ts b/src/dsh-adapter/remote/session.ts
+index 5436c9c..00f28f5 100644
+--- a/src/dsh-adapter/remote/session.ts
++++ b/src/dsh-adapter/remote/session.ts
+@@ -101,6 +101,11 @@ interface FollowSnapshot {
+   readonly cursor: number
+   readonly records: ReadonlyArray<{ readonly type: 'event'; readonly event: unknown }>
+   readonly hasMore: boolean
++  /** The Session's whole projection block at this cut. The host-wide control
++   *  stream only knows the Sessions that were live when it opened, so a
++   *  resumed Session's recorded route and context pressure arrive here; the
++   *  fold takes them (see `RemoteProjections.seed`). */
++  readonly projections?: { readonly asOfSeq: number; readonly values: Readonly<Record<string, unknown>> }
+   /** The live assistant stream's state at this cut. Its `revision` is the
+    *  fence later `assistant-stream` frames are numbered against. */
+   readonly assistantStream?: { readonly revision: number }
+@@ -259,8 +264,14 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+     emit(translated, { replay: false })
+   }
+ 
++  /** Fold the per-Session projection block the snapshot carries. */
++  const seedSnapshotProjections = (snapshot: FollowSnapshot): void => {
++    if (snapshot.projections !== undefined) projections.seed(sessionId, snapshot.projections)
++  }
++
+   /** Apply one generation's opening window as the view's whole history. */
+   const applyOpening = (snapshot: FollowSnapshot): void => {
++    seedSnapshotProjections(snapshot)
+     cwd = snapshot.header.cwd ?? ''
+     cursor = snapshot.cursor
+     history = translator.translateReplay(snapshot.records.map((record) => record.event as SessionEvent))
+@@ -274,6 +285,7 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+    * the projector keys assistant rows and tool calls by their durable seq.
+    */
+   const resync = (snapshot: FollowSnapshot): void => {
++    seedSnapshotProjections(snapshot)
+     const records = snapshot.records.map((record) => record.event as SessionEvent)
+     const firstSeq = records[0]?.seq
+     if (firstSeq !== undefined && firstSeq > cursor + 1) {
