@@ -53,18 +53,22 @@
       flake = false;
     };
 
-    # 社区 Nix 打包层（Moraxyc/deepseek-harness.nix）：kernel + workspace +
-    # web/headless/tui bundle 的构建，含官方 cachix substituter。
+    # 社区 Nix 打包层（Moraxyc/deepseek-harness.nix）。
     #
-    # 为什么引它而不是继续 vendored（2026-09-29 决策）：本仓库此前把它的
+    # 2026-10-22 起**只用作装配层的 Nix 代码**，不再从它构建 dsh 本体：
+    #   · kernel 换成 llm-agents 打包的 npm 产物（见 pkgs/dsh-local 顶部注释）；
+    #   · base/headless/web-app/tui 与 12 个 experimental bundle 改为
+    #     「npm 包目录 → bundle 布局」的搬运，同样零编译。
+    # 仍然依赖它的是三样纯 Nix 的东西：
+    #   1. pkgs/dsh 的装配逻辑（symlinkJoin + profile 播种 + launcher）；
+    #   2. lib/resolve-dsh-bundles.mjs（dshBundleResolver，生成 bundle 清单）；
+    #   3. pkgs/dsh-workspace/optional-bundles.json（可选 bundle 的 attr 名映射）。
+    #
+    # 为什么当初引它而不是 vendored（2026-09-29 决策）：本仓库此前把它的
     # pkgs/ + lib/ 复制进 pkgs/dsh-moraxyc*（26 个文件），只能手工跟上游。
-    # 实测替换代价：本仓库只用了它的两处本地补丁（web-auth-bypass-trusted、
-    # DEFAULT_BASH_SHELL），两者都已在 pkgs/dsh-local 里以 overrideAttrs 重新
-    # 表达，不再需要 fork 整条构建链。
-    #
-    # 不 follows 本仓库 nixpkgs：它的 bundle 哈希按自带 nixpkgs rev 计算，
-    # follows 会让 kernel 全部 cache miss（本地实测：76 个 derivation 需重建）。
-    # 消费方式见 modules/home/dsh：overlay 只注入 pkgs.dsh scope，不打扰主 pkgs。
+    # 它的官方 cachix 实测是空的（kernel/bundle/pnpm-deps/src 全 404），
+    # 所以「不 follows 本仓库 nixpkgs」这条约束已无意义 —— 反正也不构建了。
+    # 消费方式见 modules/home/dsh 与 pkgs/dsh-local。
     deepseek-harness = {
       url = "github:Moraxyc/deepseek-harness.nix";
     };
