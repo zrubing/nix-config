@@ -43,8 +43,13 @@ in
       description = "Prepare merged mihomo config";
       before = [ "mihomo.service" ];
       after = [ "run-agenix.d.mount" ];
-      # 两个 relay 密码要在占位符替换前就绪
-      requires = [ "run-agenix.d.mount" "agenix.service" ];
+      # 注意：agenix 在本仓库是 activation script 安装的（/run/agenix 指向
+      # /run/agenix.d/<generation>），并没有 agenix.service 这个单元。
+      # 写成 Requires=agenix.service 会让 mihomo 直接起不来：
+      #   Failed to restart mihomo.service: Unit agenix.service not found.
+      requires = [ "run-agenix.d.mount" ];
+      # 重启 mihomo 时连带重跑本单元，这样换完密钥只需 systemctl restart mihomo
+      partOf = [ "mihomo.service" ];
       path = with pkgs; [
         coreutils
         iproute2
@@ -56,20 +61,20 @@ in
       script = ''
         set -euo pipefail
 
-        i=0
-        while [ "$i" -lt 60 ]; do
-          if [ -s /run/agenix/miho-conf ]; then
-            break
+        # 三个输入都要就绪：主配置 + 两个 relay 密码
+        for f in miho-conf relay/tuic-password relay/hysteria-password; do
+          i=0
+          while [ "$i" -lt 60 ]; do
+            [ -s "/run/agenix/$f" ] && break
+            i=$((i + 1))
+            sleep 1
+          done
+          if [ ! -s "/run/agenix/$f" ]; then
+            echo "/run/agenix/$f is missing or empty after 60s" >&2
+            ls -la /run/agenix /run/agenix.d 2>/dev/null || true
+            exit 1
           fi
-          i=$((i + 1))
-          sleep 1
         done
-
-        if [ ! -s /run/agenix/miho-conf ]; then
-          echo "/run/agenix/miho-conf is missing or empty after 60s" >&2
-          ls -la /run/agenix /run/agenix.d 2>/dev/null || true
-          exit 1
-        fi
 
         ip -4 addr show dev lo | grep -q '169.254.53.53/32' || ip addr add 169.254.53.53/32 dev lo
 
