@@ -83,7 +83,9 @@ in
 
     logLevel = mkOption {
       type = types.str;
-      default = "info";
+      # info 会把每个 UDP 包都写一行：实测 2 分钟 2670 行，一天上百 MB。
+      # 排障时临时设成 info，平时 warn。
+      default = "warn";
       description = "tuic-client 日志级别。";
     };
 
