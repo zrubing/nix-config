@@ -149,6 +149,10 @@ in
 
   ${namespace} = {
     user.name = "jojo";
+
+    # 与 zen14 同一个 CachyOS 内核派生（同 rev + 同 override ⇒ 同 store 路径），
+    # 换上来不需要重编内核，直接 nix copy 即可。BBR 作为默认拥塞控制。
+    kernel.cachyos.enable = true;
     # 复用 zen14 同一套 tcp-forward 定义：loopback IP / .local 名字跨机器一致。
     # prod 写库默认不自启，需要时 systemctl start tcp-forward-prod-mysql。
     tcp-forward = {
