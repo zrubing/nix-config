@@ -114,6 +114,14 @@ stdenv.mkDerivation (finalAttrs: {
   # 行全部重挂载），视口外行保留上次实测高度作为惰性估计，只有本帧真正变高的
   # 行才重挂载；超长 reasoning 与工具卡一样按 400 行窗口渲染。32 行/1MB 尾部
   # 的探针从 214ms Yoga 降到 3ms；400 行/200 张长工具卡的单次切换 Yoga 约 50ms。
+  #
+  # session-route-context.patch 让恢复的会话带上它自己的模型与上下文：
+  # `session/follow` 的 opening snapshot 本来就带该会话的 projection 块（rc.2
+  # 实测），客户端却只信 host 级 `session/control` —— 那条流只有连接时已经 live
+  # 的会话。于是 `/resume` 打开一个冷会话时 `modelSelection` / `contextPressure`
+  # 全为空：状态栏停在旧模型（或部署默认），ctx 条因为不知道窗口直接消失。补丁
+  # 把 snapshot 的块并进投影折叠，并让 channel 在每次绑定会话时用该会话自己的
+  # route/window 重建状态栏事实（旧会话的值不再跨 adoption 残留）。
   patches = [
     ./remote-mode.patch
     ./permission-presets.patch
@@ -122,6 +130,7 @@ stdenv.mkDerivation (finalAttrs: {
     ./stream-resume.patch
     ./remote-link-visibility.patch
     ./ctrl-o-layout.patch
+    ./session-route-context.patch
   ];
 
   # pnpm 11 从 **workspace 清单**读 trustPolicy / minimumReleaseAge，命令行
