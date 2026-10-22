@@ -90,6 +90,8 @@ in
         "networkmanager"
         "docker"
         "podman"
+        # console 模块把背光节点交给 video 组写，否则改亮度要 root。
+        "video"
       ];
       initialPassword = "test";
       openssh.authorizedKeys.keys = [
@@ -171,6 +173,10 @@ in
     noctalia.enable = lib.mkForce false;
     #builder.enable = true;
     desktop.niri.enable = lib.mkForce false;
+
+    # 这台机器没有桌面环境，只有 tty。控制台换 kmscon（真字体/24 位色/中文），
+    # 合盖只关背光不挂起（它是 k0s worker + 中转节点，必须常驻）。
+    console.enable = true;
 
     home.extraOptions = {
       ${namespace} = {
