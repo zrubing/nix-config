@@ -155,9 +155,13 @@ in
         # 密钥走 sops.templates 生成 env 文件（激活时解密），dsh-web 服务用 EnvironmentFile 读入。
         # 不能用 Environment=placeholder：那是求值期占位符，写入单元后不会被解密。
         envFile = config.sops.templates."dsh.env".path;
-        # TUI 前端（ccch1mneyyy/dsh-TUI）：独立 profile `dsh-tui`，与 web 的客户端半区
-        # 互斥，所以单列一个 profile。开了它 dsh 的默认 profile 也随之变成 dsh-tui。
-        plugins.tui.enable = true;
+        # 本地 TUI（ccch1mneyyy/dsh-TUI）**关闭**：npm 发布的 tarball 里没有任何
+        # 运行期依赖（emoji-regex / react / chalk … 全在 dependencies 但不在包里），
+        # 而在 nix 侧补齐依赖要跑一次固定输出的 `npm install`（沙箱里无 lockfile，
+        # 实测十几分钟不收尾）。改用它自己的远程客户端：
+        #   dsh-tui-remote —— 只画界面、把 RPC 转发给常驻的 dsh-web
+        # 该客户端不依赖这个开关（见 modules/home/dsh 的 home.packages 注释）。
+        plugins.tui.enable = false;
         # ACP 服务端（Emacs agent-shell / Zed 等）：代码在 modules/home/dsh 与
         # pkgs/dsh-local 里备着，但**默认不开** —— 开启会给 dsh 组合加两个 bundle，
         # 进而要求重新装配 dsh 安装树（rebound 后的 base/headless/web-app 本地无
