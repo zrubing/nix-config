@@ -1165,17 +1165,21 @@ in
 
   config = lib.mkMerge [
     (lib.mkIf cfg.enable {
-      # TUI 启动器只在启用 dsh-tui profile 时投递 —— 它引用的 profile 必须存在，
+      # 本地 TUI 启动器只在启用 dsh-tui profile 时投递 —— 它引用的 profile 必须存在，
       # 否则 dsh 会以 "profile does not exist" 失败。
+      #
+      # 远程客户端（dsh-tui-remote / -verify）不受这个开关约束：它只画界面、把 RPC
+      # 转发给常驻的 dsh-web，**不需要**本地装配 dsh-tui profile，也不需要 tui bundle。
+      # 过去两者一起被 tui 开关挡住，等于「不装本地 TUI 就用不了远程」，与实际依赖相反。
       home.packages =
         [
           dshPackage
           dshWebUrl
           dshModelsSync
+          dshTuiRemote
+          dshTuiRemoteVerify
         ]
         ++ lib.optional cfg.plugins.tui.enable dshTui
-        ++ lib.optional cfg.plugins.tui.enable dshTuiRemote
-        ++ lib.optional cfg.plugins.tui.enable dshTuiRemoteVerify
         ++ lib.optional cfg.plugins.acp.enable dshAcp;
 
       # 文本/源码文件默认用 emacs（用户默认 editor）打开。dsh-web 服务现带
