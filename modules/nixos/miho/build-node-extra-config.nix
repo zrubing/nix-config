@@ -9,7 +9,7 @@
 #         `${namespace}.miho.extraConfig = import <本文件>;`
 {
   dns = {
-    # resolved 上游配置为 127.0.0.1:53（networking/default.nix），基础配置里
+    # resolved 上游配置为 127.0.0.1:53（由 miho 模块声明），基础配置里
     # listen 0.0.0.0:1053 与之错配导致 DNS 链路断裂（mihomo 收不到 resolved 查询）。
     # 此处覆盖回 127.0.0.1:53。
     listen = "127.0.0.1:53";

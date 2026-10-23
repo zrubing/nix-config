@@ -29,15 +29,16 @@
       openFirewall = true;
     };
 
-    # 启用 systemd-resolved
+    # 启用 systemd-resolved。
+    # 上游 DNS 不在这里写死：它取决于当前用哪个代理，由 miho/sib/dae 三个模块
+    # 各自声明（miho/sib 指向自己的 127.0.0.1:53；dae 指向外网地址，因为 dae
+    # 不监听 :53，只能靠截获出网查询）。写死在这里既会和代理模块的声明打架，
+    # 也会在没启用任何代理时留下一个没人监听的 127.0.0.1。
     services.resolved = {
       enable = true;
-      settings = {
-        Resolve = {
-          DNSSEC = false;
-          DNS = [ "127.0.0.1" ];
-          FallbackDNS = [ "8.8.8.8" ];
-        };
+      settings.Resolve = {
+        DNSSEC = false;
+        FallbackDNS = [ "8.8.8.8" ];
       };
     };
 
@@ -46,10 +47,7 @@
     networking.networkmanager.dns = lib.mkForce "none";
     networking.dhcpcd.enable = false;
 
-    # 2. 系统 DNS 指向 systemd-resolved
-    networking.nameservers = [ "127.0.0.1" ];
-
-    # 3. wlp1s0 继续 DHCP 拿地址，但 DNS 不走 DHCP
+    # 2. wlp1s0 继续 DHCP 拿地址，但 DNS 不走 DHCP
     networking.useDHCP = false;
     networking.interfaces.wlp1s0.useDHCP = true;
   };
