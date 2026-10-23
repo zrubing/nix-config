@@ -327,12 +327,18 @@ in
       niri.enable = true;
     };
 
-    #dae.enable = true;
+    # 代理客户端三选一：miho (mihomo) / sib (sing-box) / dae (eBPF)。
+    # 三者都要接管全机流量（miho/sib 抢 TUN、127.0.0.1:53 和 nftables；
+    # dae 抢 tc eBPF 和出网 :53），同时开会被断言拦下。
+    # 切 mihomo：miho.enable = true;  sib.enable = false; dae.enable = false;
+    # 切 dae   ：miho.enable = false; sib.enable = false; dae.enable = true;
     miho = {
-      enable = true;
+      enable = false;
       # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
       extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
+    sib.enable = true;
+    dae.enable = false;
     # vps-a 上的 TUIC 是 Itsusinn fork（v2 协议），mihomo 自带的 tuic 客户端
     # （v5）在认证阶段被拒（Invalid authentication）。这里跑同源客户端，
     # mihomo 只把它当成一个本地 socks5 节点。

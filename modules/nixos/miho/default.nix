@@ -23,6 +23,11 @@ in
 
   config = lib.mkIf cfg.enable {
 
+    # resolved 的上游就是本机的 mihomo DNS（listen 127.0.0.1:53，见
+    # build-node-extra-config.nix 里那条 listen 覆盖）。这个值属于「当前用哪个
+    # 代理」，所以由代理模块声明，不放在 modules/nixos/networking。
+    services.resolved.settings.Resolve.DNS = [ "127.0.0.1" ];
+
     environment.systemPackages = [ pkgs.${namespace}.mihomo ];
 
     age.secrets.miho-conf.file = "${mysecrets}/miho-conf/zen14-test.age";
@@ -107,6 +112,14 @@ in
     systemd.services.mihomo = {
       after = [ "mihomo-prepare-config.service" ];
       requires = [ "mihomo-prepare-config.service" ];
+      # 密文 / extraConfig 内容变了要重启。agenix 路径是稳定的 /run/agenix/...，
+      # unit 文本不变时 nixos-rebuild 不会动服务；用内容哈希做触发器，避免
+      # 换无关 secrets 时被连带重启。
+      restartTriggers = [
+        (builtins.hashFile "sha256" "${mysecrets}/miho-conf/zen14-test.age")
+        (builtins.hashFile "sha256" "${mysecrets}/relay/hysteria-password.age")
+        mihomoExtraConfigFile
+      ];
       serviceConfig = {
         AmbientCapabilities = lib.mkForce "CAP_NET_ADMIN CAP_NET_BIND_SERVICE";
         CapabilityBoundingSet = lib.mkForce "CAP_NET_ADMIN CAP_NET_BIND_SERVICE";

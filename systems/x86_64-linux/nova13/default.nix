@@ -225,6 +225,10 @@ in
         modules.dsh.web.trustedHosts = [ "dsh.local" ];
         modules.dsh.web.host = lib.mkForce "127.0.0.1";
 
+        # 这台机器只有 tty：提示符与 tmux 状态栏各刷一行电量/负载/内存
+        # （modules/home/sys-status，默认关闭）。zen14 有桌面，不启用以免重复。
+        modules."sys-status".enable = true;
+
         # nova13 无桌面（无 dconf 服务），devconf 的 virt-manager dconf 设置会让
         # home-manager 激活在 dconfSettings 步骤失败（D-Bus 连不上 ca.desrt.dconf），
         # 进而连带 dsh-web 等 user service 都无法生成。这里显式关闭。
@@ -241,12 +245,14 @@ in
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
     };
 
-    #dae.enable = true;
+    # 代理客户端三选一：miho / sib / dae（互斥见各模块的断言）。
     miho = {
       enable = true;
       # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
       extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
+    sib.enable = false;
+    dae.enable = false;
     # 同一个 miho-conf 两台机器共用，里面的中转节点指向本机 socks5，
     # 所以 nova13 也得起这个客户端，否则那个节点在 nova13 上是死的。
     tuic-client = {
