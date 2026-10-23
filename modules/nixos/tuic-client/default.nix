@@ -12,12 +12,14 @@ let
 
   uuidSecret = config.age.secrets."relay/tuic-uuid".path;
   passwordSecret = config.age.secrets."relay/tuic-password".path;
+  serverSecret = config.age.secrets."relay/tuic-server".path;
 
   runtimeDir = "/run/tuic-client";
   configPath = "${runtimeDir}/config.toml";
 
-  # 配置在启动时渲染：age 密文里的 uuid/password 只以文件形式出现，
+  # 配置在启动时渲染：age 密文里的 server/uuid/password 只以文件形式出现，
   # 明文配置只落在 tmpfs（/run）上，权限 0400、属主是服务用户。
+  # 服务端地址也是密文：本仓库是公开的，节点域名不进 git 历史。
   renderConfig = pkgs.writeShellScript "tuic-client-render-config" ''
     set -euo pipefail
 
@@ -25,19 +27,14 @@ let
 
     umask 077
     {
-      printf 'server = "%s"\n' ${lib.escapeShellArg cfg.server}
+      printf 'server = "%s"\n' "$(tr -d '\n' < ${serverSecret})"
       printf 'uuid = "%s"\n' "$(tr -d '\n' < ${uuidSecret})"
       printf 'password = "%s"\n' "$(tr -d '\n' < ${passwordSecret})"
       printf 'log_level = "%s"\n' ${lib.escapeShellArg cfg.logLevel}
       printf 'udp_relay_mode = "native"\n'
       printf 'reconnect = true\n'
-      ${lib.optionalString (cfg.sni != null || cfg.skipCertVerify) ''
-        printf '\n[tls]\n'
-      ''}
-      ${lib.optionalString (cfg.sni != null) ''
-        printf 'sni = "%s"\n' ${lib.escapeShellArg cfg.sni}
-      ''}
       ${lib.optionalString cfg.skipCertVerify ''
+        printf '\n[tls]\n'
         printf 'skip_cert_verify = true\n'
       ''}
       printf '\n[local]\n'
@@ -58,21 +55,6 @@ in
       default = pkgs.callPackage ../../../packages/tuic-client-bin { };
       defaultText = lib.literalExpression "pkgs.callPackage ../../../packages/tuic-client-bin { }";
       description = "tuic-client package to run.";
-    };
-
-    server = mkOption {
-      type = types.str;
-      example = "relay.invalid:PORT";
-      description = ''
-        TUIC 服务端地址，`host:port` 形式。必须是字符串而不是数组：
-        上游 `deserialize_server` 只接受 `"host:port"`。
-      '';
-    };
-
-    sni = mkOption {
-      type = types.nullOr types.str;
-      default = null;
-      description = "TLS SNI。null 表示用 server 里的主机名。";
     };
 
     listen = mkOption {
@@ -111,6 +93,9 @@ in
   config = lib.mkIf cfg.enable {
     age.secrets."relay/tuic-uuid".file = "${mysecrets}/relay/tuic-uuid.age";
     age.secrets."relay/tuic-password".file = "${mysecrets}/relay/tuic-password.age";
+    # 服务端地址不写进公开仓库的 nix 文件，和 uuid/password 一样走密文。
+    # 内容就一行 "host:port"，SNI 由客户端从 host 推导。
+    age.secrets."relay/tuic-server".file = "${mysecrets}/relay/tuic-server.age";
 
     users.groups.${cfg.group} = { };
     users.users.${cfg.user} = {
@@ -119,7 +104,7 @@ in
     };
 
     systemd.services.tuic-client = {
-      description = "TUIC v2 client (SOCKS5 ${cfg.listen} -> ${cfg.server})";
+      description = "TUIC v2 client (SOCKS5 ${cfg.listen})";
       after = [
         "network-online.target"
         "run-agenix.d.mount"
@@ -129,6 +114,12 @@ in
       # /run/agenix.d/<generation>），没有 agenix.service 这个单元。
       requires = [ "run-agenix.d.mount" ];
       wantedBy = [ "multi-user.target" ];
+      # 密文内容变了就重启（agenix 路径稳定，unit 文本不变，不写这条不会动）。
+      restartTriggers = [
+        (builtins.hashFile "sha256" "${mysecrets}/relay/tuic-server.age")
+        (builtins.hashFile "sha256" "${mysecrets}/relay/tuic-uuid.age")
+        (builtins.hashFile "sha256" "${mysecrets}/relay/tuic-password.age")
+      ];
 
       serviceConfig = {
         Type = "simple";

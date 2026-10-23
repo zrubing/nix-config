@@ -337,16 +337,12 @@ in
       # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
       extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
-    sib.enable = false;
-    dae.enable = true;
+    sib.enable = true;
+    dae.enable = false;
     # vps-a 上的 TUIC 是 Itsusinn fork（v2 协议），mihomo 自带的 tuic 客户端
     # （v5）在认证阶段被拒（Invalid authentication）。这里跑同源客户端，
     # mihomo 只把它当成一个本地 socks5 节点。
-    tuic-client = {
-      enable = true;
-      server = "relay.invalid:PORT";
-      sni = "relay.invalid";
-    };
+    tuic-client.enable = true;
     xray-client = {
       enable = true;
       configSecretFile = "xray-client-conf.json.age";
