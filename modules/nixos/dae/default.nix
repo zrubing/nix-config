@@ -11,6 +11,12 @@
 #   2. 本机代理客户端（xray-client / tuic-client）的出站必须 must_direct，
 #      否则 dae 会把它们连节点的流量再代理一遍，形成自环。
 #
+# !! 2026-10 实测：dae 与 cilium 在本机不能共存。cilium 用 tcx 挂
+# cil_to_netdev/cil_from_netdev，内核对带 tcx 的设备把 clsact 标记为独占，
+# dae 的 tc filter 能挂上但永不执行（bpftool 里 tproxy_wan_egress 的
+# run_cnt 恒为 0）。修法：cilium 的 bpf.enableTCX=false 退回 legacy tc，
+# 或 dae 换用不依赖 WAN egress 的方案。完整证据见 docs/dae-cilium-tcx.md。
+#
 # 配置来源：nix-secrets 里的加密 .dae（dae-conf/<host>.dae.age），
 # 中转 hy2 密码是 __RELAY_HYSTERIA_PASSWORD__ 占位符，激活时从
 # relay/hysteria-password 注入，轮换密码不用重加密整份配置。

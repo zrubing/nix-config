@@ -416,8 +416,11 @@ in
         # bash 非交互启动时 source BASH_ENV，把 shell-env 注入的 DSH_WOODPECKER_*
         # 转回 WOODPECKER_*，woodpecker-cli 无需 agent 手动转换即可直接使用。
         BASH_ENV=/home/${username}/.dsh/dsh-bash-env.sh
-        # dsh-web-fetch-http 走本地 gost HTTP->SOCKS5 桥接代理，绕过 fake-ip 导致的
-        # "resolves to a non-public IP address" SSRF 误拦。gost 转发的上游是
+        # dsh-web-fetch-http 走本地 sing-box http inbound（10086），绕过 fake-ip
+        # 导致的 "resolves to a non-public IP address" SSRF 误拦：sib 的 DNS 是
+        # fake-ip，本地解析必得 198.18.x，所以这组变量是必需的（见 2026-09-05
+        # eb196d6）。切到 dae 时必须删掉这两行——dae 是透明代理、DNS 返回真实
+        # IP，也没有本地代理端口。切换前提和验证步骤见 docs/dae-cilium-tcx.md。
         HTTP_PROXY=http://127.0.0.1:10086
         HTTPS_PROXY=http://127.0.0.1:10086
       '';
