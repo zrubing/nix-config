@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 公开仓库约束（最重要）
+
+本仓库公开在 GitHub，任何提交永久留痕，会泄露的内容不可撤回。
+
+1. `docs/`、代码注释、commit message 只写**机制、路径、命令**，不写**标识符**：Cloudflare account id、R2 bucket 名与 endpoint、内网/公网 IP、各类 token、密钥指纹、主机名与账号的对应关系。
+2. 具体值放 clan vars（`vars/per-machine/<host>/<generator>/<file>`，sops 加密）或 `pass`，文档里用 `<bucket>`、`<account-id>` 这类占位符。
+3. 写任何文档前先问：这条信息被陌生人看到，能用来做什么？如果答案是「能定位、能冒充、能免密访问」，就不能写。
+4. 加密后的 secrets（`vars/**/secret`、`.age`、sops 文件）可以入库；解密用的 key、passphrase、凭据一律不入库。
+
+完整说明见 `docs/secrets-recovery.md`。
+
 ## Repository Overview
 
 This is a Nix flake-based configuration repository using Snowfall Lib for managing NixOS and Home Manager configurations. The repository follows a modular structure with separate configurations for different systems and users.
