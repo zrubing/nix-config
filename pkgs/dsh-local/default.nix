@@ -1123,9 +1123,17 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
       artifactSource = upstreamPkgs.dsh.dsh.override args;
       artifacts = artifactSource.passthru.mkProfileArtifacts { inherit profiles; };
     in
-    upstreamPkgs.dsh.dsh.override (
+    # 构建期 bundle 自检会起一次 nix-web profile，它默认固定监听 3080；
+    # 本机 GUI（dsh-web）常年占着 3080 → 自检必然 EADDRINUSE，随后 60s 超时
+    # 被 SIGKILL，整个 rebuild 挂在 installCheckPhase（实测 2026-10-23）。
+    # hook 是从环境变量读 web 检查参数的，上游 package.nix 没把它做成入参，
+    # 所以只能用 overrideAttrs 塞 env。--port 0 = 内核分配临时端口。
+    (upstreamPkgs.dsh.dsh.override (
       args // { profileSeeder = mkProfileSeeder { inherit profiles artifacts; }; }
-    );
+    )).overrideAttrs
+      (_: {
+        dshBundleCheckWebArgs = "--port 0 --no-open";
+      });
 
   # ── 宿主包 shim：让 dsh-tui 自己的入口能"托管"这次启动 ──────────────────────
   #
