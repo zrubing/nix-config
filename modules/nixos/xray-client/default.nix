@@ -10,7 +10,11 @@ let
   cfg = config.${namespace}.xray-client;
   mysecrets = inputs.mysecrets;
   secretPath = config.age.secrets."xray-client-conf.json".path;
+  uuidSecretPath = config.age.secrets."relay/xray-uuid".path;
   generatedConfigPath = "/run/xray-client/config.json";
+  # 临时文件必须以 .json 结尾：xray 按扩展名判断配置格式，
+  # config.json.tmp 会被拒（core: Failed to get format），退出码 23。
+  generatedConfigTmpPath = "/run/xray-client/config.next.json";
   upstreamXray = pkgs.callPackage ../../../packages/xray-core-bin { };
   markNumber = 102; # 0x66, intentionally outside mihomo's 0x200/0xf00 mark mask
   ensureRoutingScript = pkgs.writeShellScript "xray-client-ensure-routing" ''
@@ -33,6 +37,17 @@ let
 
     install -d -m 0750 -o xray-client -g xray-client /run/xray-client
 
+    # agenix 在 activation 阶段解密，服务启动时文件可能还没落盘，等一会儿。
+    i=0
+    while [ ! -s ${uuidSecretPath} ]; do
+      i=$((i + 1))
+      if [ "$i" -ge 60 ]; then
+        echo "${uuidSecretPath} 在 60s 内没有出现" >&2
+        exit 1
+      fi
+      sleep 1
+    done
+
     ${pkgs.jq}/bin/jq --argjson mark ${toString cfg.mihomoBypass.mark} '
       def withSockopt:
         .streamSettings = (.streamSettings // {})
@@ -50,11 +65,37 @@ let
           withSockopt
         end
       ))
-    ' ${secretPath} > ${generatedConfigPath}.tmp
+    ' ${secretPath} > ${generatedConfigTmpPath}
 
-    chown xray-client:xray-client ${generatedConfigPath}.tmp
-    chmod 0400 ${generatedConfigPath}.tmp
-    mv ${generatedConfigPath}.tmp ${generatedConfigPath}
+    # jq 对空输入是「退出码 0 + 零字节输出」，不拦的话后面 xray -test 只会给一个
+    # 无信息的 status=23。先把「密文没落盘/为空」这种真实故障点报出来。
+    if [ ! -s ${generatedConfigTmpPath} ]; then
+      echo "生成的 xray 配置为空：${secretPath} 可能是空文件或未被 agenix 解密" >&2
+      ls -l ${secretPath} >&2 || true
+      exit 1
+    fi
+
+    # UUID 只存在于 relay/xray-uuid.age，配置密文里是 __XRAY_UUID__ 占位符。
+    # uuid 只含 [0-9a-f-]，sed 替换串里没有需要转义的字符。
+    uuid="$(tr -d '\n' < ${uuidSecretPath})"
+    sed -i "s|__XRAY_UUID__|$uuid|g" ${generatedConfigTmpPath}
+
+    if grep -q "__XRAY_" ${generatedConfigTmpPath}; then
+      echo "xray 配置里仍有未替换的占位符" >&2
+      exit 1
+    fi
+
+    # 配置错误就在激活阶段炸掉，别让服务起在错误状态上。
+    # 注意：xray 把包括报错在内的所有输出都写到 stdout，不能重定向掉，
+    # 否则 journal 里只剩一个没有信息量的 status=23。
+    if ! ${cfg.package}/bin/xray run -test -c ${generatedConfigTmpPath}; then
+      echo "xray 配置自检失败，原因见上面 xray 的输出" >&2
+      exit 1
+    fi
+
+    chown xray-client:xray-client ${generatedConfigTmpPath}
+    chmod 0400 ${generatedConfigTmpPath}
+    mv ${generatedConfigTmpPath} ${generatedConfigPath}
   '';
 in
 {
@@ -72,6 +113,16 @@ in
       type = types.str;
       default = "xray-client-conf.json.age";
       description = "age-encrypted xray client config file under inputs.mysecrets.";
+    };
+
+    uuidSecretFile = mkOption {
+      type = types.str;
+      default = "relay/xray-uuid.age";
+      description = ''
+        age-encrypted file under inputs.mysecrets holding the upstream VLESS UUID。
+        配置密文里对应的位置写 `__XRAY_UUID__`，由 prepare 服务在启动时注入，
+        轮换 UUID 只需替换本文件。
+      '';
     };
 
     userId = mkOption {
@@ -105,9 +156,11 @@ in
         type = types.bool;
         default = true;
         description = ''
-          Generate a runtime xray config with streamSettings.sockopt.mark injected
-          into proxy outbounds. This makes xray set SO_MARK on its own sockets,
-          which is more reliable for UDP/QUIC/H3 than nftables skuid marking alone.
+          Generate a runtime xray config from the encrypted one: inject
+          streamSettings.sockopt.mark into proxy outbounds, and substitute the
+          __XRAY_UUID__ placeholder with the value from uuidSecretFile.
+
+          不能关闭：配置密文里的 UUID 已经是占位符，关掉后 xray 会拿字面量启动。
         '';
       };
 
@@ -126,6 +179,12 @@ in
         assertion = !cfg.mihomoBypass.enable || cfg.userId != null;
         message = "${namespace}.xray-client.userId must be set when mihomoBypass is enabled.";
       }
+      {
+        # 配置密文里是 __XRAY_UUID__，真值只有 prepare 服务注入；
+        # 关掉注入等于让 xray 拿字面量当 uuid 启动。
+        assertion = cfg.mihomoBypass.injectXraySockopt;
+        message = "${namespace}.xray-client.mihomoBypass.injectXraySockopt 不能关闭：配置密文依赖 prepare 服务注入 UUID。";
+      }
     ];
 
     age.secrets."xray-client-conf.json" = {
@@ -133,6 +192,12 @@ in
       owner = "xray-client";
       group = "xray-client";
       mode = "0400";
+    };
+
+    # UUID 与配置分离（同 miho 的 relay/*）：配置里只有占位符，
+    # 真值在 prepare 服务里注入到 /run/xray-client/config.json。
+    age.secrets."relay/xray-uuid" = {
+      file = "${mysecrets}/${cfg.uuidSecretFile}";
     };
 
     users.groups.xray-client = {
@@ -164,8 +229,19 @@ in
       path = lib.optionals cfg.mihomoBypass.enable [
         pkgs.iproute2
         pkgs.jq
+        # prepare 脚本里用到的裸命令（tr/sed/grep/install/chmod）
+        pkgs.coreutils
+        pkgs.gnused
+        pkgs.gnugrep
       ];
       wantedBy = [ "multi-user.target" ];
+      # agenix 的路径是稳定的 /run/agenix/...，换密文内容时 unit 文本不变，
+      # nixos-rebuild 不会重启服务。用内容哈希做触发器：只有这两份密文真的变了
+      # 才重启，避免无关 secrets 变更连带重启。
+      restartTriggers = [
+        (builtins.hashFile "sha256" "${mysecrets}/${cfg.configSecretFile}")
+        (builtins.hashFile "sha256" "${mysecrets}/${cfg.uuidSecretFile}")
+      ];
       serviceConfig = {
         Type = "simple";
         User = "xray-client";
