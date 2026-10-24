@@ -290,4 +290,51 @@
       tr -d '\n' < $prompts/token > $out/token
     '';
   };
+
+  # Cloudflare R2 的 S3 兼容凭据（CF 后台 → R2 → Manage R2 API Tokens → 创建后
+  # 只显示一次的那组）。注意这组与 Account API Token 不通用：
+  #   - R2 这组是 S3 协议用（Access Key ID / Secret Access Key / endpoint），
+  #     给 rclone、aws-cli、s3cmd 这类客户端；
+  #   - Account API Token（Cloudflare Tunnel / DNS 管理）是另一套，见
+  #     cloudflare-api-token。
+  # 换值：clan vars set zen14 cloudflare-r2/access-key-id（其余同理）
+  clan.core.vars.generators.cloudflare-r2 = {
+    prompts.access-key-id = {
+      description = "Cloudflare R2 Access Key ID";
+      type = "hidden";
+    };
+    prompts.secret-access-key = {
+      description = "Cloudflare R2 Secret Access Key";
+      type = "hidden";
+    };
+    prompts.endpoint = {
+      description = "Cloudflare R2 S3 endpoint (https://<account-id>.r2.cloudflarestorage.com)";
+      type = "line";
+    };
+    files.access-key-id.secret = true;
+    files.secret-access-key.secret = true;
+    files.endpoint.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/access-key-id > $out/access-key-id
+      tr -d '\n' < $prompts/secret-access-key > $out/secret-access-key
+      tr -d '\n' < $prompts/endpoint > $out/endpoint
+    '';
+  };
+
+  # Cloudflare Account API Token（cfat_ 前缀），用于 Cloudflare Tunnel / DNS 的
+  # API 调用（如 cloudflared tunnel create、同步 DNS 记录）。
+  # 权限按最小化给：Account → Cloudflare Tunnel:Edit + Zone → DNS:Edit。
+  # 换值：clan vars set zen14 cloudflare-api-token/token
+  clan.core.vars.generators.cloudflare-api-token = {
+    prompts.token = {
+      description = "Cloudflare Account API Token (cfat_...)";
+      type = "hidden";
+    };
+    files.token.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/token > $out/token
+    '';
+  };
 }
