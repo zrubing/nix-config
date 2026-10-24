@@ -178,6 +178,10 @@ in
         nginxPlugin = true;
       };
       tmux.enable = true;
+      # agent-shell：用 bubblewrap 把凭据目录挂成空 tmpfs 后启动 agent。
+      # agent 在里面照样能干活，但读不到 ~/.aliyun、~/.kube、~/.ssh、pass 等；
+      # 且 bwrap 的 no_new_privs 让 sudo 直接失效（实测报 "no new privileges"）。
+      agent-shell.enable = true;
       # eca.enable = true;
     };
 

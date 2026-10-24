@@ -13,7 +13,12 @@ let
   proxysqlEnabled = false;
 
   # 临时开关：true = jojo 免密码 sudo（规则与 nova13 一致），false = 回到 GUI askpass。
-  # 用完改回 false 再 nixos-rebuild switch 即撤销；不要长期开着。
+  #
+  # 保持 true 的前提：agent 必须从 agent-shell 启动。bwrap 默认设 no_new_privs，
+  # sudo 在 namespace 内直接失效（实测报 "The no new privileges flag is set"），
+  # 所以「外面有免密 sudo、里面没有」成立。
+  # 反过来要清楚：任何在普通 shell 里启动的 agent 都能 sudo 到 root，那时文件
+  # 权限、setgid wrapper 全部失效 —— 这是这套方案唯一的缺口。
   passwordlessSudo = true;
 in
 {
@@ -685,6 +690,22 @@ in
       fi
     '';
   };
+
+  # 审计：记录谁读了凭据。auditd 是内核级，管不到"用不用得上"，
+  # 但能回答"昨晚是哪个进程把 ~/.aliyun 读走了"。
+  #
+  # 只挂目录级规则（-w 目录 = 监控该目录下文件的读取/写入/属性变更），
+  # 不逐文件列：新增的 secret 自动被覆盖。
+  # 查看：ausearch -k creds -ts recent
+  security.auditd.enable = true;
+  security.audit.rules = [
+    "-w /home/jojo/.aliyun -p rwa -k creds"
+    "-w /home/jojo/.kube -p rwa -k creds"
+    "-w /home/jojo/.ssh -p rwa -k creds"
+    "-w /home/jojo/.gnupg -p rwa -k creds"
+    "-w /home/jojo/.local/share/password-store -p rwa -k creds"
+    "-w /run/agenix -p rwa -k agenix"
+  ];
 
   # sudo 规则
   security.sudo.extraRules = [
