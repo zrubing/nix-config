@@ -180,19 +180,48 @@ agenix -r -i /etc/ssh/ssh_host_ed25519_key
 2. 不在就从 `zrubing-gpg-subkeys.priv.age.age` 按 3.5 解出来导入。
 3. 主密钥是 `sec#`（离线），只有 subkey 在本地 —— 解密 pass 只需要 subkey。
 
-## 6. 当前缺口
+## 6. 根密钥备份
 
-1. **`/etc/ssh/ssh_host_ed25519_key` 没有备份**：不在 `/persistent`（本机无 impermanence），仓库里没有，密码管理器里没有。
-2. **`~/.ssh/id_ed25519` 没有备份**：同样是单点。
-3. 这两把是全部链条的根。nix-secrets 里的 GPG 备份、clan vars、sops 文件都只能间接恢复，前提是至少一把根 key 还活着。
+两把根 key（`~/.ssh/id_ed25519`、`/etc/ssh/ssh_host_ed25519_key`）打包成一个 **age 对称加密归档**（`age -p`，独立 passphrase），存三处：
 
-建议（未执行）：
+| 副本 | 位置 | 用途 |
+|---|---|---|
+| 1 | Cloudflare R2：`r2:zen14-backup/keys/zen14/keys-backup.tar.gz.age` | 异地副本，不依赖任何本机硬件 |
+| 2 | U 盘 `/run/media/jojo/ALU/keys-backup.tar.gz.age` | 随身/离线 |
+| 3 | 本机 `/tmp/keybackup`（临时） | 打包源，用完即删 |
 
-1. 把两把 key 离线备份：密码管理器 + 加密 U 盘，各一份。
-2. host key 可以存进 `pass`（`pass insert -m ssh/zen14-host-ed25519`），因为 pass 本身可由 GPG 备份恢复。
-3. `~/.ssh/id_ed25519` **不能**存进 pass（循环依赖），必须离线。
+归档内容：
 
-## 7. 相关文件
+```
+id_ed25519                  个人 SSH 私钥 → age18punjd2wdz9s…
+id_ed25519.pub
+ssh_host_ed25519_key        主机 SSH 私钥 → age1wy5lwhs0s5kj…
+ssh_host_ed25519_key.pub
+README.txt                  恢复说明
+```
+
+恢复方式：
+
+```bash
+age -d keys-backup.tar.gz.age | tar xzf -
+```
+
+R2 凭据存在 clan vars（`cloudflare-r2/*`），取用方式见 3.3；bucket 名 `zen14-backup`，endpoint 见 `cloudflare-r2/endpoint`。
+
+**必须记住的**：归档的 age passphrase（`age -p` 时设的那个）。它与 GPG passphrase、LUKS passphrase 相互独立，**不要和归档存在一起**。
+
+### 已解决
+
+- `~/.ssh/id_ed25519` 此前只以**明文**形式放在 U 盘（与 `.pub` 同目录）—— 已改为加密归档，U 盘上的明文私钥已删除。
+- `/etc/ssh/ssh_host_ed25519_key` 此前完全无备份 —— 已纳入同一归档。
+
+## 7. 仍然存在的缺口
+
+1. 两把 key **本身不带 passphrase**（NixOS 激活时 sops-nix 要自动解密，加了就开不了机），所以归档加密是唯一保护层。
+2. 归档 passphrase 一旦忘记，三份副本全部作废 —— 这是这套方案唯一不可恢复的点。
+3. 建议每半年做一次恢复演练：从 R2 拉回归档、解密、比对公钥指纹，确认可用。
+
+## 8. 相关文件
 
 | 文件 | 作用 |
 |---|---|
