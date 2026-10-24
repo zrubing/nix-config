@@ -11,6 +11,10 @@ let
   piBin = "${inputs.llm-agents.packages.${system}.pi}/bin/pi";
   mysecrets = inputs.mysecrets;
   proxysqlEnabled = false;
+
+  # 临时开关：true = jojo 免密码 sudo（规则与 nova13 一致），false = 回到 GUI askpass。
+  # 用完改回 false 再 nixos-rebuild switch 即撤销；不要长期开着。
+  passwordlessSudo = true;
 in
 {
   snowfallorg.users.jojo = {
@@ -332,6 +336,9 @@ in
     # dae 抢 tc eBPF 和出网 :53），同时开会被断言拦下。
     # 切 mihomo：miho.enable = true;  sib.enable = false; dae.enable = false;
     # 切 dae   ：miho.enable = false; sib.enable = false; dae.enable = true;
+    #           —— 当前不可用：cilium 的 tcx 独占 clsact，dae 的 filter 不执行。
+    #              先按 docs/dae-cilium-tcx.md 处理 cilium（bpf.enableTCX=false）
+    #              再切，同时在 sops 的 dsh.env 里删掉 HTTP_PROXY/HTTPS_PROXY。
     miho = {
       enable = false;
       # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
@@ -661,16 +668,24 @@ in
         }
       ];
     }
-    # jojo 和 agent 用户执行 sudo 需要密码（使用 SUDO_ASKPASS 弹出 GUI）
+    # jojo：passwordlessSudo 打开时免密码（与 nova13 同一套规则），
+    # 关闭时仍走 SUDO_ASKPASS 弹 GUI。SETENV 允许继承环境变量（包括 SUDO_ASKPASS）。
     {
-      users = [
-        "jojo"
-        "agent"
-      ];
+      users = [ "jojo" ];
       commands = [
         {
           command = "ALL";
-          options = [ "SETENV" ]; # 允许继承环境变量（包括 SUDO_ASKPASS）
+          options = (lib.optional passwordlessSudo "NOPASSWD") ++ [ "SETENV" ];
+        }
+      ];
+    }
+    # agent 用户执行 sudo 仍需要密码
+    {
+      users = [ "agent" ];
+      commands = [
+        {
+          command = "ALL";
+          options = [ "SETENV" ];
         }
       ];
     }
