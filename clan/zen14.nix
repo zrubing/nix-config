@@ -37,6 +37,28 @@
     '';
   };
 
+  # 个人（self）阿里云账号的 AK/SK，与 work 完全分开：两个账号、两套权限，
+  # 泄一个不影响另一个。消费方同 work：渲染成 ~/.aliyun/credentials 的
+  # [self] profile 与 config.json 里的 self 条目。
+  # 换值：clan vars set zen14 aliyun-self/access-key-id
+  clan.core.vars.generators.aliyun-self = {
+    prompts.access-key-id = {
+      description = "Aliyun self (personal) AccessKey ID";
+    };
+    files.access-key-id.secret = true;
+
+    prompts.access-key-secret = {
+      description = "Aliyun self (personal) AccessKey Secret";
+      type = "hidden";
+    };
+    files.access-key-secret.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/access-key-id > $out/access-key-id
+      tr -d '\n' < $prompts/access-key-secret > $out/access-key-secret
+    '';
+  };
+
   # ApiPost 开放平台的 MCP api-token（https://open.apipost.net/mcp 认证头）。
   # 消费方：homes/x86_64-linux/jojo 的 home 级 sops 引用本加密文件，
   # 渲染进 dsh.env，由 dsh 的 mcp-client 插件以 process.env.APIPOST_MCP_TOKEN 读取。

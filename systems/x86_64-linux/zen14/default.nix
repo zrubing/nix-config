@@ -135,6 +135,17 @@ in
         format = "binary";
       };
     }
+    # aliyun self（个人账号）AK/SK，与 work 完全独立：两个账号、两套权限
+    {
+      "vars/aliyun-self/access-key-id" = {
+        sopsFile = ../../../vars/per-machine/zen14/aliyun-self/access-key-id/secret;
+        format = "binary";
+      };
+      "vars/aliyun-self/access-key-secret" = {
+        sopsFile = ../../../vars/per-machine/zen14/aliyun-self/access-key-secret/secret;
+        format = "binary";
+      };
+    }
   ];
 
   sops.templates = lib.mkIf proxysqlEnabled {
@@ -186,12 +197,15 @@ in
     };
   };
 
-  # --- aliyun work AK/SK 渲染与 CLI 配置 ---
+  # --- aliyun AK/SK 渲染与 CLI 配置 ---
 
-  # 把两个 secret 值渲染为 aliyun CLI 的 credentials 文件（profile: work）。
+  # 把 clan vars 里的 AK/SK 渲染成 aliyun CLI 的两套文件：
+  #   ~/.aliyun/credentials  → [work] 与 [self] 两个 profile（SDK/其他工具读）
+  #   ~/.aliyun/config.json  → work / self 两个条目（aliyun CLI 只认这个）
+  # 两个账号完全独立，默认 profile 仍是 work。
   # 必须等 sops-nix 解密完成（sops-nix.service）后再渲染。
   systemd.services.aliyun-credentials = {
-    description = "Render aliyun CLI work credentials from sops secrets";
+    description = "Render aliyun CLI work+self credentials from sops secrets";
     wantedBy = [ "multi-user.target" ];
     after = [ "sops-nix.service" ];
     serviceConfig = {
@@ -200,18 +214,25 @@ in
     };
     script = ''
       install -d -o jojo -g users -m 700 /home/jojo/.aliyun
+
+      WORK_ID=$(cat ${config.sops.secrets."vars/aliyun-work/access-key-id".path})
+      WORK_SECRET=$(cat ${config.sops.secrets."vars/aliyun-work/access-key-secret".path})
+      SELF_ID=$(cat ${config.sops.secrets."vars/aliyun-self/access-key-id".path})
+      SELF_SECRET=$(cat ${config.sops.secrets."vars/aliyun-self/access-key-secret".path})
+
       {
         echo "[work]"
-        echo "access_key_id = $(cat ${config.sops.secrets."vars/aliyun-work/access-key-id".path})"
-        echo "access_key_secret = $(cat ${config.sops.secrets."vars/aliyun-work/access-key-secret".path})"
+        echo "access_key_id = $WORK_ID"
+        echo "access_key_secret = $WORK_SECRET"
+        echo "[self]"
+        echo "access_key_id = $SELF_ID"
+        echo "access_key_secret = $SELF_SECRET"
       } > /home/jojo/.aliyun/credentials
       chown jojo:users /home/jojo/.aliyun/credentials
       chmod 600 /home/jojo/.aliyun/credentials
 
       # aliyun CLI config.json：凭据直接写入（CLI 只认 config.json 里的字段），
       # credentials 文件供 SDK/其他工具使用。region_id 仅为占位（OSS/RAM 用不到）。
-      AK_ID=$(cat ${config.sops.secrets."vars/aliyun-work/access-key-id".path})
-      AK_SECRET=$(cat ${config.sops.secrets."vars/aliyun-work/access-key-secret".path})
       cat > /home/jojo/.aliyun/config.json <<JSON
       {
         "current": "work",
@@ -225,8 +246,18 @@ in
           {
             "name": "work",
             "mode": "AK",
-            "access_key_id": "$AK_ID",
-            "access_key_secret": "$AK_SECRET",
+            "access_key_id": "$WORK_ID",
+            "access_key_secret": "$WORK_SECRET",
+            "region_id": "cn-hangzhou",
+            "output_format": "json",
+            "language": "en",
+            "site": "china"
+          },
+          {
+            "name": "self",
+            "mode": "AK",
+            "access_key_id": "$SELF_ID",
+            "access_key_secret": "$SELF_SECRET",
             "region_id": "cn-hangzhou",
             "output_format": "json",
             "language": "en",
