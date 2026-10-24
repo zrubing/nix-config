@@ -159,9 +159,27 @@
     #   inputs.noctalia-qs.follows = "noctalia-qs-patched";
     # };
     #
+    # noctalia 的 nixpkgs 必须与它自己 flake.lock 里锁的那份**完全一致**。
+    # 上游 CI（.github/workflows/cachix.yml）就是在那个 nixpkgs 下构建并推到
+    # noctalia.cachix.org 的；nixpkgs 一变，bash/stdenv/wayland 等输入的 store
+    # path 全变，noctalia 派生 hash 随之改变，缓存必然 404、只能源码重建。
+    #
+    # 所以这里 follows 到 noctalia-nixpkgs，而不是跟随本仓库的 nixpkgs-unstable
+    # （那条路只有和上游锁撞在同一 rev 上时才碰巧命中）。代价是多一份 nixpkgs
+    # 求值；收益是只要 rev 对得上就 100% 替代，不编译。
+    #
+    # 升 noctalia 时两处一起改：
+    #   1) 下面 noctalia 的 rev；
+    #   2) noctalia-nixpkgs 的 rev = 新 rev 仓库里 flake.lock 的
+    #      `nodes.nixpkgs.locked.rev`（用 rev 形式而不是 channels.nixos.org
+    #      的 tarball URL，后者会被 nix flake update 重新解析成当天最新）。
+    noctalia-nixpkgs = {
+      url = "github:NixOS/nixpkgs/fe13242281a67641c0102cdb1087f0ebe586c7df";
+    };
+
     noctalia = {
-      url = "github:noctalia-dev/noctalia-shell/cachix";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
+      url = "github:noctalia-dev/noctalia-shell/c42ffe51fa45087faeae29e5cf00ef2df623abcb";
+      inputs.nixpkgs.follows = "noctalia-nixpkgs";
     };
 
     gpui-shell = {
@@ -310,6 +328,8 @@
           # Allow unfree packages.
           allowUnfree = true;
           doCheckByDefault = false;
+          # pnpm 9.15.9 (openspec) 在新 nixpkgs 中被标记为 insecure。
+          permittedInsecurePackages = [ "pnpm-9.15.9" ];
         };
 
       };
