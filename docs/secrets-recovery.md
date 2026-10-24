@@ -186,7 +186,7 @@ agenix -r -i /etc/ssh/ssh_host_ed25519_key
 
 | 副本 | 位置 | 用途 |
 |---|---|---|
-| 1 | Cloudflare R2：`r2:zen14-backup/keys/zen14/keys-backup.tar.gz.age` | 异地副本，不依赖任何本机硬件 |
+| 1 | Cloudflare R2：`r2:<bucket>/keys/zen14/keys-backup.tar.gz.age` | 异地副本，不依赖任何本机硬件 |
 | 2 | U 盘 `/run/media/jojo/ALU/keys-backup.tar.gz.age` | 随身/离线 |
 | 3 | 本机 `/tmp/keybackup`（临时） | 打包源，用完即删 |
 
@@ -206,7 +206,7 @@ README.txt                  恢复说明
 age -d keys-backup.tar.gz.age | tar xzf -
 ```
 
-R2 凭据存在 clan vars（`cloudflare-r2/*`），取用方式见 3.3；bucket 名 `zen14-backup`，endpoint 见 `cloudflare-r2/endpoint`。
+R2 凭据存在 clan vars（`cloudflare-r2/*`，取用方式见 3.3）。**bucket 名不入库**，与归档 passphrase 一起记在密码管理器里。
 
 **必须记住的**：归档的 age passphrase（`age -p` 时设的那个）。它与 GPG passphrase、LUKS passphrase 相互独立，**不要和归档存在一起**。
 
