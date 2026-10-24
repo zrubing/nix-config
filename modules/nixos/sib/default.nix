@@ -28,6 +28,21 @@ let
     system = pkgs.stdenv.hostPlatform.system;
   };
 
+  # nixpkgs（unstable 与 master 都是）还停在 1.14.3；1.14.4 是 2026-10-24 的纯修复版。
+  # 就地覆盖版本，等 nixpkgs 跟进后删掉本段、package 回退到 pkgs-unstable.sing-box。
+  # 上游 go.mod 只换了依赖版本，cronet-go 仍是 v0.0.0-20260912104727，
+  # 所以 nixpkgs 的 cronet-go 与其补丁（包内 postConfigure 引用的 cronet-go.patch）可原样复用。
+  sing-box = pkgs-unstable.sing-box.overrideAttrs (old: {
+    version = "1.14.4";
+    src = pkgs-unstable.fetchFromGitHub {
+      owner = "SagerNet";
+      repo = "sing-box";
+      tag = "v1.14.4";
+      hash = "sha256-1tP0gXUTLGVR32c11nypsZSx2FtBOmKMTJkt+7j/fJU=";
+    };
+    vendorHash = "sha256-xZWWzvyTrbaxqHG1UdKOVLOd5dPf9z6JfPJf3WeTm5Y=";
+  });
+
   runtimeDir = "/run/sib";
   configPath = "${runtimeDir}/config.json";
   # 临时文件必须以 .json 结尾：xray 那次踩过后缀坑，这里统一带上。
@@ -79,8 +94,8 @@ in
 
     package = mkOption {
       type = types.package;
-      default = pkgs-unstable.sing-box;
-      defaultText = lib.literalExpression "pkgs-unstable.sing-box";
+      default = sing-box;
+      defaultText = lib.literalExpression "pkgs-unstable.sing-box（版本覆盖到 1.14.4）";
       description = "sing-box package to run.";
     };
 
