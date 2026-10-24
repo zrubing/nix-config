@@ -10,6 +10,8 @@
 let
   cfg = config.${namespace}.modules.tmux;
 
+  # 电量/负载/内存那段只给无桌面的 tty 机器（nova13）；与 modules/home/sys-status 同开关。
+  sysStatus = config.${namespace}.modules.sys-status.enable;
 in
 {
   options.${namespace}.modules.tmux = {
@@ -37,8 +39,8 @@ in
         set -g status-style 'bg=colour240 fg=white'
         set -g status-left '#[bg=colour236 fg=colour214] #S #[default] '
         set -g status-left-length 20
-        set -g status-right '#[bg=colour236 fg=colour109] #(sys-status) #[default] #[bg=colour236 fg=colour114] %H:%M #[default] #[bg=colour236 fg=colour174] %Y-%m-%d '
-        set -g status-right-length 90
+        set -g status-right '${lib.optionalString sysStatus "#[bg=colour236 fg=colour109] #(sys-status) #[default] "}#[bg=colour236 fg=colour114] %H:%M #[default] #[bg=colour236 fg=colour174] %Y-%m-%d '
+        set -g status-right-length ${if sysStatus then "90" else "50"}
 
         # 窗口列表格式
         setw -g window-status-format ' #I:#W '

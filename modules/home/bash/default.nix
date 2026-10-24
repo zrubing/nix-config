@@ -9,6 +9,33 @@
 
 let
   shellCfg = config.${namespace}.shell;
+
+  # 无桌面的 tty 机器（nova13）把电量/负载/内存直接放进提示符，不逼人开 tmux。
+  # 开关与 modules/home/sys-status 同一个：脚本不装时这里也不挂钩子。
+  sysStatusHook = ''
+    # 为什么不写进 starship 的 format：custom 模块在本机实测渲染成空串
+    # （同样的配置换个模块名也复现），靠不住。这里走 bash 自己的
+    # PROMPT_COMMAND —— 与谁设置 PS1 无关，starship 也照常工作。
+    #
+    # 只在数值变化时打印：每敲一条命令都刷一行会很吵。
+    __sys_status_line() {
+      local out last
+      out=$(sys-status 2>/dev/null) || return 0
+      last=$(cat "''${TMPDIR:-/tmp}/sys-status.$UID" 2>/dev/null || true)
+      [ "$out" = "$last" ] && return 0
+      printf '\033[33m%s\033[0m\n' "$out"
+      printf '%s' "$out" > "''${TMPDIR:-/tmp}/sys-status.$UID" 2>/dev/null || true
+    }
+
+    # bash 5.1+ 的 PROMPT_COMMAND 可以是数组；两种情况都追加到**最后**，
+    # 这样它排在别的 hook（direnv / starship）之后，打印仍在提示符之前。
+    if [[ "''${PROMPT_COMMAND@a}" == *a* ]]; then
+      PROMPT_COMMAND+=(__sys_status_line)
+    else
+      PROMPT_COMMAND="''${PROMPT_COMMAND:+''$PROMPT_COMMAND; }__sys_status_line"
+    fi
+
+  '';
 in
 {
 
@@ -39,30 +66,7 @@ in
         export PATH="$HOME/bin:$PATH"
         export PATH="$HOME/.local/bin:$PATH"
 
-        # 无桌面环境的机器只有 tty，电量/负载/内存要能直接看到，不能逼人开 tmux。
-        #
-        # 为什么不写进 starship 的 format：custom 模块在本机实测渲染成空串
-        # （同样的配置换个模块名也复现），靠不住。这里走 bash 自己的
-        # PROMPT_COMMAND —— 与谁设置 PS1 无关，starship 也照常工作。
-        #
-        # 只在数值变化时打印：每敲一条命令都刷一行会很吵。
-        __sys_status_line() {
-          local out last
-          out=$(sys-status 2>/dev/null) || return 0
-          last=$(cat "''${TMPDIR:-/tmp}/sys-status.$UID" 2>/dev/null || true)
-          [ "$out" = "$last" ] && return 0
-          printf '\033[33m%s\033[0m\n' "$out"
-          printf '%s' "$out" > "''${TMPDIR:-/tmp}/sys-status.$UID" 2>/dev/null || true
-        }
-
-        # bash 5.1+ 的 PROMPT_COMMAND 可以是数组；两种情况都追加到**最后**，
-        # 这样它排在别的 hook（direnv / starship）之后，打印仍在提示符之前。
-        if [[ "''${PROMPT_COMMAND@a}" == *a* ]]; then
-          PROMPT_COMMAND+=(__sys_status_line)
-        else
-          PROMPT_COMMAND="''${PROMPT_COMMAND:+''$PROMPT_COMMAND; }__sys_status_line"
-        fi
-
+        ${lib.optionalString config.${namespace}.modules.sys-status.enable sysStatusHook}
         # Make Maven follow the same JDK as `java` (so `mvn -v` shows Java 25).
         if command -v java >/dev/null 2>&1; then
           export JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
