@@ -694,17 +694,25 @@ in
   # 审计：记录谁读了凭据。auditd 是内核级，管不到"用不用得上"，
   # 但能回答"昨晚是哪个进程把 ~/.aliyun 读走了"。
   #
-  # 只挂目录级规则（-w 目录 = 监控该目录下文件的读取/写入/属性变更），
-  # 不逐文件列：新增的 secret 自动被覆盖。
+  # 收窄过一轮（2026-10-25）：最初对 ~/.kube 整目录挂 rwa，实测一小时 8000+
+  # 事件，绝大部分来自 kubectl 的 discovery 缓存（`~/.kube/cache/discovery/*`
+  # 每次调用读几十个 json，不含量任何凭据），以及 ssh 反复读 id_ed25519。
+  # 现在：
+  #   - ~/.kube 只挂 config 一个文件（真正存集群凭据的地方）
+  #   - 权限位只留 r（读），写/属性变更不记录
+  #   - ~/.ssh 保留（私钥价值最高），噪音靠 -p r 压
   # 查看：ausearch -k creds -ts recent
   security.auditd.enable = true;
   security.audit.rules = [
-    "-w /home/jojo/.aliyun -p rwa -k creds"
-    "-w /home/jojo/.kube -p rwa -k creds"
-    "-w /home/jojo/.ssh -p rwa -k creds"
-    "-w /home/jojo/.gnupg -p rwa -k creds"
-    "-w /home/jojo/.local/share/password-store -p rwa -k creds"
-    "-w /run/agenix -p rwa -k agenix"
+    "-w /home/jojo/.aliyun -p r -k creds"
+    "-w /home/jojo/.kube/config -p r -k creds"
+    # 不挂 ~/.kube/cache/oidc-login：kubectl 每次调用都让 kubelogin 读一次 token
+    # 缓存，实测 60 秒 30 条、全部来自 comm="kubectl-oidc_lo"，没有信号价值。
+    # audit 的 -F exe!= 需要精确 store 路径，每次升级都变，不采用。
+    "-w /home/jojo/.ssh -p r -k creds"
+    "-w /home/jojo/.gnupg -p r -k creds"
+    "-w /home/jojo/.local/share/password-store -p r -k creds"
+    "-w /run/agenix.d -p r -k agenix"
   ];
 
   # sudo 规则
