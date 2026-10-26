@@ -96,14 +96,10 @@ let
       done
     done
 
-    # 密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，sed 替换串无需转义。
-    hy2_pw="$(tr -d '\n' < ${hy2PasswordPath})"
-    sed "s|__RELAY_HYSTERIA_PASSWORD__|$hy2_pw|g" ${secretPath} > ${runtimeDir}/config.base.json
-
-    if grep -q "__RELAY_" ${runtimeDir}/config.base.json; then
-      echo "sib 配置里仍有未替换的占位符" >&2
-      exit 1
-    fi
+    # 这里只做拷贝。占位符留到最终配置生成之后再替换 —— 见下面「注入密码」。
+    # 节点是从 proxy-nodes 密文注入的，它们的 password 也写同一个占位符，
+    # 只在 base 上替换会漏掉。
+    cp ${secretPath} ${runtimeDir}/config.base.json
 
     # ── 合并共享节点清单（nix-secrets/proxy-nodes.json.age）──────────────
     # 节点定义只写一处（那份加密 JSON）：这里按 sib 方言转换后追加进配置，
@@ -165,6 +161,22 @@ let
         )
     ' ${runtimeDir}/config.merged.json ${policyJson} > ${tmpConfigPath}
     rm -f ${runtimeDir}/config.base.json ${runtimeDir}/config.merged.json
+
+    # ── 注入密码 ───────────────────────────────────────────────────────
+    # 必须作用在**最终配置**上，不能只替换 base：hy2 节点的 password 字段也写
+    # 同一个占位符，而节点是上一步才从 proxy-nodes 密文注入的。之前只替换 base
+    # 且把残留检查放在节点合并之前，于是 sib 拿着字面量
+    # __RELAY_HYSTERIA_PASSWORD__ 去认证，服务端一律回 419（masquerade 兜底），
+    # 表现为两个 hy2 节点长期不可用、但 check 与自检全部通过。
+    #
+    # 密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，sed 替换串无需转义。
+    hy2_pw="$(tr -d '\n' < ${hy2PasswordPath})"
+    sed -i "s|__RELAY_HYSTERIA_PASSWORD__|$hy2_pw|g" ${tmpConfigPath}
+    remaining="$(grep -o '__RELAY_[A-Z_]*__' ${tmpConfigPath} | sort -u | tr '\n' ' ' || true)"
+    if [ -n "$remaining" ]; then
+      echo "sib 最终配置里仍有未替换的占位符：$remaining" >&2
+      exit 1
+    fi
 
     # `sing-box check` 只校验语法与自身一致性，**不校验任何引用**（实测：把规则
     # 的 outbound / rule_set 改成不存在的值、或把 route.final 指向不存在的出站，
