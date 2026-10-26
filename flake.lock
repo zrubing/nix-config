@@ -1279,18 +1279,6 @@
         "type": "github"
       }
     },
-    "rime-3gram": {
-      "flake": false,
-      "locked": {
-        "narHash": "sha256-almNdW8WCSFuolbBWxjLSRfVnolc4R/pl9pwXebwy30=",
-        "type": "file",
-        "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
-      },
-      "original": {
-        "type": "file",
-        "url": "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
-      }
-    },
     "root": {
       "inputs": {
         "adhd-skill": "adhd-skill",
@@ -1328,7 +1316,6 @@
         "pi-guardrails-src": "pi-guardrails-src",
         "pi-runinfra-provider-src": "pi-runinfra-provider-src",
         "process-compose": "process-compose",
-        "rime-3gram": "rime-3gram",
         "snowfall-lib": "snowfall-lib",
         "sops-nix": "sops-nix_2",
         "superpowers": "superpowers",

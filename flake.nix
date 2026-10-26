@@ -133,10 +133,13 @@
     };
     k0s-nix.url = "github:zrubing/k0s-nix/main";
 
-    rime-3gram = {
-      url = "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram";
-      flake = false;
-    };
+    # ⚠️ 不要把 rime 的 .gram 做成 flake input（曾经有过 `rime-3gram`）。
+    # 上游（RIME-LMDG 的 LTS release）**原地覆盖**同一个 tag + 同名 asset，
+    # 内容一变 flake.lock 的 narHash 就失效；而 flake input 的求值是**全局**的
+    # —— 连不装 fcitx5 的机器，`nixos-rebuild` 都会在 eval 阶段直接失败
+    # （2026-10-26 实测 nova13 被一个 home 模块的数据文件卡死，同一 URL 前后三
+    #  次抓到的 narHash 各不相同）。它现在是普通 fetchurl，见
+    #  modules/home/fcitx5 里的 hash 与升级流程。
 
     # subagents = {
     #   url = "git+ssh://git@github.com/wshobson/agents?ref=main";

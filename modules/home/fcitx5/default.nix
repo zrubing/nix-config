@@ -115,8 +115,31 @@ in
       };
 
       dataFile = {
+        # ── 万相 LTS 三元模型（3gram）──
+        #
+        # ⚠️ 上游**原地覆盖**这个 release asset（同一个 tag、同一个文件名，内容
+        #    换掉），所以它不能做 flake input：narHash 一旦对不上，整个 flake 求值
+        #    就失败 —— 连不装 fcitx5 的机器也 `nixos-rebuild` 不了（2026-10-26 实测
+        #    同一 URL 前后三次抓到的 narHash 各不相同，nova13 因此卡在 eval）。
+        #
+        # 用普通 fetchurl 固定内容：上游再换也不影响构建，只影响「主动升级」这一步。
+        # 文件 418MB，务必推 cachix，否则每台机器每次升级都要回源重下：
+        #
+        #   升级步骤
+        #     1) nix store prefetch-file --json --name amz.gram <下面的 url>  # 取新 hash
+        #     2) 改下面的 hash
+        #     3) nix build --no-link --print-out-paths --impure --expr \
+        #          'with import <nixpkgs> {}; fetchurl { url = "<上面的 url>"; hash = "<新 hash>"; }'
+        #     4) cachix push zrubing <上一步输出的 store 路径>
+        #
+        # 校验：文件头必须是 `Rime::Grammar/1.0`。拿错文件时 librime 只在输入法
+        # 加载阶段报错，看不出是数据文件的问题。
         "fcitx5/rime/amz-v2n3m1-zh-hans.gram" = {
-          source = inputs.rime-3gram;
+          source = pkgs.fetchurl {
+            name = "amz-v2n3m1-zh-hans.gram";
+            url = "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram";
+            hash = "sha256-40UAq0RibcA5oGQXkuy6mKtjMHZG6z0pGGvlZgj/4JQ=";
+          };
         };
 
         # Redirect dbus activation to the systemd unit, so a rogue instance
