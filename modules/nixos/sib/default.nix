@@ -144,10 +144,14 @@ let
     jq -s '
       .[1] as $p
       | .[0]
+      | ([ (.route.rules // [])[] | select(.action == null) ] | length) as $handwritten
+      | if $handwritten > 0 then
+          error("密文里仍有 \($handwritten) 条手写分流规则：分流规则的单一事实源是 net-policy，密文里只允许 sniff / hijack-dns 这类有 action 的 mechanics")
+        else . end
       | .route.rules = (
-          ([.route.rules[] | select(.action != null)])
+          ([ (.route.rules // [])[] | select(.action != null) ])
           + $p.rules
-          + ([.route.rules[] | select(.action == null)])
+          + ([ (.route.rules // [])[] | select(.action == null) ])
         )
       | .route.final = $p.final
       | .inbounds = (
@@ -162,21 +166,41 @@ let
     ' ${runtimeDir}/config.merged.json ${policyJson} > ${tmpConfigPath}
     rm -f ${runtimeDir}/config.base.json ${runtimeDir}/config.merged.json
 
-    # sing-box check 只校验语法与自身一致性。实测：删掉一个节点、但组的 outbounds
-    # 里还引用它时，check 照样通过，run 才 FATAL `dependency[x] not found` ——
-    # 那时服务已经进入重启循环，journal 里只有一行 FATAL。这里把这道补上：
-    # selector/urltest 的成员必须都是最终 outbounds 里的 tag。
-    dangling="$(jq -r '
-      ([.outbounds[].tag]) as $tags
-      | [ .outbounds[]
-          | select(.outbounds != null)
-          | . as $g
-          | ($g.outbounds - $tags)[]
-          | "\($g.tag) -> \(.)" ]
-      | join(", ")
+    # `sing-box check` 只校验语法与自身一致性，**不校验任何引用**（实测：把规则
+    # 的 outbound / rule_set 改成不存在的值、或把 route.final 指向不存在的出站，
+    # check 全部 exit 0）。这类错误要等 `sing-box run` 才 FATAL，而那时服务已经
+    # 进重启循环、journal 里只有一行 FATAL。所以下面把四类引用一次核完：
+    #   · selector/urltest 成员 → outbounds tag
+    #   · rule.outbound        → outbounds tag
+    #   · rule.rule_set[]      → route.rule_set[].tag
+    #   · route.final          → outbounds tag
+    badrefs="$(jq -r '
+      ([.outbounds[].tag]) as $outs
+      | ([.route.rule_set[]?.tag]) as $sets
+      | [
+          ( .outbounds[]
+            | select(.outbounds != null)
+            | . as $g
+            | ($g.outbounds - $outs)[]
+            | "组 \($g.tag) → 不存在的出站 \(.)" ),
+          ( .route.rules[]
+            | (.outbound // empty) as $o
+            | select(($outs | index($o)) == null)
+            | "规则 → 不存在的出站 \($o)" ),
+          ( .route.rules[]
+            | select(.rule_set != null)
+            | .rule_set[] as $s
+            | select(($sets | index($s)) == null)
+            | "规则 → 不存在的 rule_set \($s)" ),
+          ( (.route.final // null) as $f
+            | select($f != null)
+            | select(($outs | index($f)) == null)
+            | "route.final → 不存在的出站 \($f)" )
+        ]
+      | join("; ")
     ' ${tmpConfigPath})"
-    if [ -n "$dangling" ]; then
-      echo "sib 配置里有指向不存在出站的组成员：$dangling" >&2
+    if [ -n "$badrefs" ]; then
+      echo "sib 配置里有指不存在的引用：$badrefs" >&2
       exit 1
     fi
 
@@ -208,7 +232,7 @@ in
       type = types.str;
       internal = true;
       readOnly = true;
-      default = "${runtimeDir}/config-with-secret.json";
+      default = configPath;
       description = "单实例运行用的最终配置路径（已注入密码）。";
     };
 

@@ -29,9 +29,12 @@ let
   proxyNodesJq = ../../../lib/proxy-nodes.jq;
 
   mergedExtraConfig = cfg.extraConfig // {
-    # 规则主干整份来自 net-policy（单一事实源，含 bypassProxyPorts 的直连规则）；
-    # extraConfig 里的规则只能在它之后追加，抢不掉不变量。
-    rules = netPolicy.mihoRules ++ (cfg.extraConfig.rules or [ ]);
+    # 规则主干整份来自 net-policy（单一事实源，含 bypassProxyPorts 的直连规则）。
+    # 顺序：不变量 → extraConfig 偏好 → 兜底 MATCH。MATCH 必须最后一条，
+    # 因为 mihomo 首条匹配 —— 追加在它后面的规则永远不会生效（曾经就是这么写的）。
+    rules = netPolicy.mihoRules
+      ++ (cfg.extraConfig.rules or [ ])
+      ++ [ "MATCH,${netPolicy.final}" ];
     tun = (cfg.extraConfig.tun or { }) // {
       route-exclude-address = lib.unique (
         policyAddresses ++ (cfg.extraConfig.tun.route-exclude-address or [ ])
@@ -126,27 +129,34 @@ in
 
         # ── 合并 base（age 密文）+ extraConfig（nix 侧声明）─────────────
         #
+        # 分流规则的单一事实源是 net-policy（已在 extra 里渲染好，末尾带 MATCH）。
+        # 密文里不许再写 rules —— 两边对「密文里的 rules」处理本来就不一致
+        # （sib 保留生效，miho 这边会被顶到 MATCH 之后而失效），同一种写法
+        # 两种结果，所以直接拒绝，不留这个入口。
+        if [ "$(yq eval 'has("rules")' /run/agenix/miho-conf)" = "true" ]; then
+          echo "miho-conf 里有 rules：分流规则只由 net-policy 声明，请从密文删掉" >&2
+          exit 1
+        fi
+        #
         # 语义（一次合并说清，别再拆成两次）：
         #   · 对象：逐键深度合并，extraConfig 胜出 —— `dns.listen` 这类覆盖靠它；
-        #   · 数组：**追加**（`*+`）。`proxies` / `proxy-groups` 这类天然是"多一份"；
-        #   · `rules`：单独**前置**。rule 表首条匹配，而 base 末尾是 `MATCH,`，
-        #     追加到末尾等于没写。
+        #   · 数组：**追加**（`*+`）。`proxies` / `proxy-groups` 这类天然是“多一份”；
+        #   · `rules`：整份来自 extra，不参与合并（见上面的断言）。
         #
         # ⚠️ 曾经的写法是「先 `*+` 再 `*`」两次合并，而 `*` 对数组是**整体替换**：
         #    只要 extraConfig 里写了 `rules`，base 的 29 条分流规则会被削成那 1 条
         #    （2026-10-26 实测：最终 rules 只剩 `DST-PORT,123,DIRECT`），全机分流
-        #    静默失效。现在只合并一次，rules 由下面这行显式前置，不参与追加。
+        #    静默失效。
         #
-        # 用 load() 一次读完两份文件，不再有"第二次合并把第一次结果覆盖掉"这种
+        # 用 load() 一次读完三份文件，不再有“第二次合并把第一次结果覆盖掉”这种
         # 必须读代码才能发现的隐式行为。
         yq eval --null-input '
           load("/run/agenix/miho-conf") as $base |
           load("${mihomoExtraConfigFile}") as $extra |
           load("/run/mihomo/nodes.json") as $nodes |
-          ($extra.rules // []) as $extra_rules |
           (($base *+ ($extra | del(.rules)))
             | .proxies = ((.proxies // []) + ($nodes.miho // []))
-            | .rules = ($extra_rules + (.rules // [])))
+            | .rules = $extra.rules)
         ' > /run/mihomo/config.merged.yaml
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，

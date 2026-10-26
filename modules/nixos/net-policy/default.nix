@@ -15,7 +15,11 @@
 #
 # ── 本模块只声明「要什么」 ────────────────────────────────────────────
 #
-# 各客户端模块自己渲染成自己的语法（本模块不碰任何客户端选项）：
+# 各客户端模块自己把声明渲染成自己的语法。本模块不写客户端的配置文件，
+# 但确实会**读**两个客户端导出的路径（sib.configPath / services.mihomo.configFile）
+# 做运行时自检 —— 否则同一个文件名要在两处各写一份，重命名时会静默漂开
+# （实测踩过：自检报「配置不存在」，真实原因只是文件名叫法不同）。
+# 除了这两个只读路径，不引用任何客户端的其他选项。
 #   · miho → extraConfig 的 `rules` / `tun.route-exclude-address`
 #   · sib  → `route.rules` 前插 / `inbounds[tun].route_exclude_address`
 #   · dae  → **未接入**，见 modules/nixos/dae 顶部注释（该客户端当前不可用）
@@ -45,18 +49,6 @@ let
 
   mihoEnabled = config.${namespace}.miho.enable or false;
   sibEnabled = config.${namespace}.sib.enable or false;
-
-  # 手动启动的本地 socks provider（如 topsap —— 第三方客户端，仓库里只有它的
-  # ssh/env 密文，没有任何 systemd 单元）。分流规则会把某些网段指向它，但没人
-  # 保证它在跑：历史上它的缺失完全静默，只能等访问内网失败才发现。
-  # 这里每次启动核一遍监听，只告警不失败（规则本身是对的，缺的是那个客户端）。
-  providerProbe = lib.concatMapStringsSep "\n" (
-    p: ''
-      if ! ${pkgs.iproute2}/bin/ss -Hlntn 2>/dev/null | ${pkgs.gnugrep}/bin/grep -qF " ${p.host}:${toString p.port} "; then
-        echo "net-policy: 警告 —— ${p.name} 的本地 socks ${p.host}:${toString p.port} 没有监听者，指向它的分流规则当前不可用" >&2
-      fi
-    ''
-  ) cfg.manualProviders;
 
   # ── 分流规则的方言渲染 ────────────────────────────────────────────
   # 规则本身只声明「匹配什么 → 走哪个出站 tag」，两家客户端各自方言在这里生成：
@@ -128,8 +120,6 @@ let
         script = ''
           set -euo pipefail
 
-          ${providerProbe}
-
           cfg=${config.services.mihomo.configFile}
           [ -s "$cfg" ] || { echo "net-policy: $cfg 不存在（mihomo 还没生成配置？）" >&2; exit 1; }
 
@@ -145,8 +135,8 @@ let
 
           bad=0
           for p in $ports; do
-            jq -e --arg r "DST-PORT,$p,DIRECT" 'index($r) != null' <<<"$rules" >/dev/null \
-              || { echo "net-policy: miho 缺分流规则 DST-PORT,$p,DIRECT" >&2; bad=1; }
+            jq -e --arg r "DST-PORT,$p,直连" 'index($r) != null' <<<"$rules" >/dev/null \
+              || { echo "net-policy: miho 缺分流规则 DST-PORT,$p,直连" >&2; bad=1; }
           done
           for a in $addrs; do
             jq -e --arg a "$a" 'index($a) != null' <<<"$excl" >/dev/null \
@@ -160,8 +150,6 @@ let
         unit = "sib.service";
         script = ''
           set -euo pipefail
-
-          ${providerProbe}
 
           cfg=${config.${namespace}.sib.configPath}
           [ -s "$cfg" ] || { echo "net-policy: $cfg 不存在（sib 还没生成配置？）" >&2; exit 1; }
@@ -464,38 +452,13 @@ in
       '';
     };
 
-    # 手动启动的本地 socks provider（不在 systemd 管下，启动顺序无法保证）。
-    # 列在这里的会在 net-policy-check 里被核一遍监听。
-    manualProviders = lib.mkOption {
-      type = lib.types.listOf (
-        lib.types.submodule {
-          options = {
-            name = lib.mkOption { type = lib.types.str; };
-            host = lib.mkOption {
-              type = lib.types.str;
-              default = "127.0.0.1";
-            };
-            port = lib.mkOption { type = lib.types.port; };
-          };
-        }
-      );
-      default = [ ];
-      description = ''
-        由手动启动的客户端提供的本地 socks 上游。它们无法靠 systemd 保证存在，
-        但分流规则会引用它们 —— 缺失时在 journal 里告警，避免静默失效。
-
-        历史例子：topsap（一个带 VPN 的 docker 容器，本地 socks 1088，无 systemd
-        单元）曾经在这里，但根本没人保证它跑着，2026-10-27 检查时已确认无监听，
-        规则与节点清单里的对应条目一并删除了。将来再引这种 provider，把条目
-        加回这里和 rules 里。
-      '';
-    };
-
     final = lib.mkOption {
       type = lib.types.str;
       default = "其他";
       description = ''
-        兜底出站 tag。sib 落到 route.final，miho 渲染成最后一条 MATCH 规则。
+        兜底出站 tag。sib 落到 route.final，miho 由模块在**最后**补一条 MATCH
+        （不在 mihoRules 里输出 —— 否则 extraConfig 追加的规则会落在 MATCH 之后，
+        永远匹配不到）。
         放在这里而不是密文里：兜底策略是「不管用哪个客户端都必须成立」的不变量。
       '';
     };
@@ -518,10 +481,12 @@ in
       type = lib.types.listOf lib.types.str;
       internal = true;
       readOnly = true;
-      default = map (p: "DST-PORT,${toString p},DIRECT") cfg.bypassProxyPorts
-        ++ lib.concatMap mihoRule cfg.rules
-        ++ [ "MATCH,${cfg.final}" ];
-      description = "mihomo 方言的 rules 字符串数组（含 bypassProxyPorts 的直连规则）。";
+      default = map (p: "DST-PORT,${toString p},直连") cfg.bypassProxyPorts
+        ++ lib.concatMap mihoRule cfg.rules;
+      description = ''
+        mihomo 方言的 rules 字符串数组（含 bypassProxyPorts 的直连规则）。
+        不包含兜底 MATCH —— 它必须由消费方拼在最后一条，见 final 的说明。
+      '';
     };
   };
 
@@ -535,8 +500,6 @@ in
       after = [ clientCheck.unit ];
       path = with pkgs; [
         coreutils
-        gnugrep
-        iproute2
         jq
         yq-go
       ];
