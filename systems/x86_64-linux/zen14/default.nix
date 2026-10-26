@@ -376,11 +376,11 @@ in
     #              先按 docs/dae-cilium-tcx.md 处理 cilium（bpf.enableTCX=false）
     #              再切，同时在 sops 的 dsh.env 里删掉 HTTP_PROXY/HTTPS_PROXY。
     miho = {
-      enable = false;
+      enable = true;
       # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
       extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
-    sib.enable = true;
+    sib.enable = false;
     dae.enable = false;
     # vps-a 上的 TUIC 是 Itsusinn fork（v2 协议），mihomo 自带的 tuic 客户端
     # （v5）在认证阶段被拒（Invalid authentication）。这里跑同源客户端，
