@@ -104,8 +104,8 @@ in
       script = ''
         set -euo pipefail
 
-        # 两个输入都要就绪：主配置 + hysteria2 密码 + 节点清单
-        for f in miho-conf relay/hysteria-password proxy-nodes; do
+        # 两个输入都要就绪：主配置 + hysteria2 密码 + 节点清单 + 敏感地址表
+        for f in miho-conf relay/hysteria-password proxy-nodes net-policy-addresses; do
           i=0
           while [ "$i" -lt 60 ]; do
             [ -s "/run/agenix/$f" ] && break
@@ -150,13 +150,37 @@ in
         #
         # 用 load() 一次读完三份文件，不再有“第二次合并把第一次结果覆盖掉”这种
         # 必须读代码才能发现的隐式行为。
+        # 敏感地址 token 展开。net-policy 的 rules 里只有 __NETPOLICY_<键>__，
+        # 真值在 net-policy-addresses.json.age；token 不是合法 CIDR / 域名，
+        # 忘展开时 mihomo 加载配置会直接报错，不会静默跑错。
+        #
+        # 用 jq 而不是 yq：yq-go 4.53 不支持 if/then 表达式，而这里需要
+        # 「一条字符串变多条」（Mihomo 的 IP-CIDR / DOMAIN-SUFFIX 一条一个值）。
+        # 先导成 JSON 再导回，保持规则顺序不变。
+        yq -o=json -I=0 '.rules' "${mihomoExtraConfigFile}" > /run/mihomo/rules.tmpl.json
+        jq --slurpfile a ${netPolicy.addressTokenFile} '
+          def np_lines($addr):
+            . as $t
+            | ($t | ltrimstr("__NETPOLICY_") | rtrimstr("__")) as $k
+            | ($addr[$k] // error("net-policy-addresses 里没有键 \($k)"))[];
+          def expand_rule($addr):
+            if test("__NETPOLICY_") then
+              capture("^(?<t>[^,]+),(?<v>[^,]+),(?<rest>.*)$") as $m
+              | [ $m.v | np_lines($addr) ] as $vals
+              | $vals[] as $v | "\($m.t),\($v),\($m.rest)"
+            else . end;
+          map(expand_rule($a[0]))
+        ' /run/mihomo/rules.tmpl.json > /run/mihomo/rules.json
+        rm -f /run/mihomo/rules.tmpl.json
+
         yq eval --null-input '
           load("/run/agenix/miho-conf") as $base |
           load("${mihomoExtraConfigFile}") as $extra |
           load("/run/mihomo/nodes.json") as $nodes |
+          load("/run/mihomo/rules.json") as $rules |
           (($base *+ ($extra | del(.rules)))
             | .proxies = ((.proxies // []) + ($nodes.miho // []))
-            | .rules = $extra.rules)
+            | .rules = $rules)
         ' > /run/mihomo/config.merged.yaml
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，
@@ -191,6 +215,7 @@ in
         (builtins.hashFile "sha256" "${mysecrets}/miho-conf/zen14-test.age")
         (builtins.hashFile "sha256" "${mysecrets}/relay/hysteria-password.age")
         (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.json.age")
+        (builtins.hashFile "sha256" "${mysecrets}/net-policy-addresses.json.age")
         mihomoExtraConfigFile
       ];
       serviceConfig = {

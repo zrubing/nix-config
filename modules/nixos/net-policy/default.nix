@@ -30,6 +30,7 @@
 # —— 验结果，不验文本：它能抓住「合并脚本静默失效」这类最难发现的问题。
 {
   config,
+  inputs,
   lib,
   namespace,
   pkgs,
@@ -37,6 +38,26 @@
 }:
 let
   cfg = config.${namespace}.netPolicy;
+
+  mysecrets = inputs.mysecrets;
+
+  # 敏感 CIDR 的占位符。真实地址在 nix-secrets 的 net-policy-addresses.json.age
+  # 里，由各客户端的 prepare 阶段展开——原因：nix-config 是公开仓库，而这些
+  # 地址（公网中转 VPS、自建 apiserver）一旦写进 nix 就同时泄漏到两处：
+  #   · GitHub（永久留痕，抹不掉）
+  #   · 0644 的 /nix/store（实测 mihomo-extra.yaml 里 nobody 可读 IP-CIDR 规则）
+  #
+  # token 名 = __NETPOLICY_<密文键>__，客户端从 token 本身推出要取密文的哪个
+  # 键（去首尾包装即可），因此不用在 4 处同步一张映射表。
+  # token 不是合法 CIDR，忘展开时 sing-box check / mihomo 都会直接报错，
+  # 不存在「带着占位符静默跑」这种失败模式（对比密码占位符那次 419）。
+  addressTokens = {
+    directCidrs = "__NETPOLICY_directCidrs__";
+    cnCidrs = "__NETPOLICY_cnCidrs__";
+    directDomains = "__NETPOLICY_directDomains__";
+    jpDomains = "__NETPOLICY_jpDomains__";
+    usDomains = "__NETPOLICY_usDomains__";
+  };
 
   # 去重后的一份完整地址表：loopback 与网段之间可能重复（当前没有，但不该靠人保证）。
   allAddresses = lib.unique (cfg.bypassProxyLoopback ++ cfg.bypassProxyCidrs);
@@ -236,9 +257,9 @@ in
     # ── 分流规则的单一事实源 ──────────────────────────────────────
     #
     # 过去这份主干在两个客户端的 age 密文里各写一份（sib 25 条 / miho 29 条）。
-    # 2026-10-27 实测：sib 有的 4 条直连例外（__NETPOLICY_directDomains__、__NETPOLICY_directDomains__、
-    # __NETPOLICY_directCidrs__、__NETPOLICY_directCidrs__）miho 根本没有 —— 切到 miho 时访问这些
-    # 目标的流量会进代理组（回环风险），而两份密文都不可 review、没有 diff 历史。
+    # 2026-10-27 实测：sib 有的 4 条直连例外（两个 xray CDN 入口域名、
+    # 两台中转 VPS 的 /32）miho 根本没有 —— 切到 miho 时访问这些目标的流量会
+    # 进代理组（回环风险），而两份密文都不可 review、没有 diff 历史。
     #
     # 这里只声明「匹配什么 → 走哪个出站 tag」，顺序即优先级；客户端方言由
     # sibRules / mihoRules 两个只读选项渲染。密文里不应再手写分流规则。
@@ -293,47 +314,54 @@ in
       );
       default = [
         # 直连例外：访问这些目标绝不能进代理，否则自指回环。
+        #
+        # 地址与域名都是敏感数据（自有域名、公网中转 VPS、自建 apiserver），
+        # 这里只留 token，真值由 prepare 阶段从 net-policy-addresses.json.age
+        # 展开（见 let 里的 addressTokens）。
+        #
+        # 第一条是 xray-client 的 CDN 入口域名（上下行分离用），进代理就会
+        # 自指：代理走的又是这个入口。
         {
           match = "domain-suffix";
-          value = [
-            "__NETPOLICY_directDomains__"
-            "__NETPOLICY_directDomains__"
-          ];
+          value = addressTokens.directDomains;
           target = "直连";
         }
         {
           match = "ip-cidr";
-          value = [
-            "__NETPOLICY_directCidrs__"
-            "__NETPOLICY_directCidrs__"
-          ];
+          value = addressTokens.directCidrs;
           target = "直连";
         }
 
-        # 定向网段。
+        # 定向网段。地址同样敏感，走 token。
         {
           match = "ip-cidr";
-          value = "__NETPOLICY_cnCidrs__";
+          value = addressTokens.cnCidrs;
           target = "国内";
         }
 
         # 指定出口。
+        #
+        # 这里不能写 youtube.com：domain_suffix 会抢在下面的 geosite-youtube 之前
+        # 命中，YouTube 组（selector）从此收不到任何主域名流量。实测删之前
+        # www.youtube.com / youtube.com / m.youtube.com 全走“美国”，只有 youtu.be
+        # 能落到 geosite-youtube。把某站固定到某出口前先确认它没有专属 rule-set，
+        # 否则就是用一条宽规则覆盖掉一整组。
+        #
+        # 公开服务域名可以直接写在 nix 里；自有域名走 token。
         {
           match = "domain-suffix";
           value = [
-            "__NETPOLICY_usDomains__"
-            "youtube.com"
             "huggingface.co"
             "codeberg.org"
             "grok.com"
             "x.ai"
             "chatgpt.com"
-          ];
+          ] ++ [ addressTokens.usDomains ];
           target = "美国";
         }
         {
           match = "domain-suffix";
-          value = "__NETPOLICY_jpDomains__";
+          value = addressTokens.jpDomains;
           target = "日本";
         }
 
@@ -463,6 +491,25 @@ in
       '';
     };
 
+    # 敏感地址的占位符与解密后路径。客户端 prepare 用它们把 render 出来
+    # 的 token 展开成真实 CIDR。从这里取而不是在客户端里硬编码 token 名，
+    # 否则改一个字符串要在 4 处同步。
+    addressTokens = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      internal = true;
+      readOnly = true;
+      default = addressTokens;
+      description = "敏感 CIDR 的占位符（键：directCidrs / cnCidrs）。";
+    };
+
+    addressTokenFile = lib.mkOption {
+      type = lib.types.str;
+      internal = true;
+      readOnly = true;
+      default = config.age.secrets."net-policy-addresses".path;
+      description = "net-policy-addresses 解密后的路径（含 directCidrs / cnCidrs）。";
+    };
+
     # 渲染产物：客户端模块直接用，不再自己拼规则。
     sibRules = lib.mkOption {
       type = lib.types.listOf lib.types.attrs;
@@ -491,6 +538,12 @@ in
   };
 
   config = lib.mkIf (clientCheck != null) {
+    # 敏感地址表。声明在这里而不是在两个客户端里，是因为 sib 与 miho 要读
+    # 同一份文件 —— 各声明一次会撞同名 secret 选项。
+    age.secrets."net-policy-addresses" = {
+      file = "${mysecrets}/net-policy-addresses.json.age";
+    };
+
     systemd.services.net-policy-check = {
       description = "Verify proxy bypass invariants against the live client config";
       wantedBy = [ "multi-user.target" ];

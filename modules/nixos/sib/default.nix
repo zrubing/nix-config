@@ -78,13 +78,17 @@ let
   proxyNodesSecretPath = config.age.secrets."proxy-nodes".path;
   proxyNodesJq = ../../../lib/proxy-nodes.jq;
 
+  # 敏感地址表（自有域名 / 中转 VPS / 自建 apiserver 的 CIDR）。
+  # net-policy 的 rules 里只留 __NETPOLICY_<键>__ token，真值在这里。
+  netPolicyAddressPath = config.${namespace}.netPolicy.addressTokenFile;
+
   prepareConfigScript = pkgs.writeShellScript "sib-prepare-config" ''
     set -euo pipefail
 
     install -d -m 0700 ${runtimeDir}
 
     # agenix 在 activation 阶段解密，服务启动时可能还没落盘。
-    for f in ${secretPath} ${hy2PasswordPath} ${proxyNodesSecretPath}; do
+    for f in ${secretPath} ${hy2PasswordPath} ${proxyNodesSecretPath} ${netPolicyAddressPath}; do
       i=0
       while [ ! -s "$f" ]; do
         i=$((i + 1))
@@ -137,8 +141,17 @@ let
     # 0x1c00 命中 cilium 的不改写分支（mark & 0xe00 == 0x800），改写对它是幂等的；
     # 0x1000 是 cilium 未使用的 k8s mark 位，既能和普通 host 流量的 0x0c00 区分，
     # 又不带 identity。
-    jq -s '
+    jq -s --slurpfile addr ${netPolicyAddressPath} '
+      # token 名就是 __NETPOLICY_<密文键>__，去首尾包装即得键，不用维护映射表。
+      def np_lines($a):
+        . as $t
+        | ($t | ltrimstr("__NETPOLICY_") | rtrimstr("__")) as $k
+        | ($a[$k] // error("net-policy-addresses 里没有键 \($k)"))[];
+      def np_expand($a):
+        map(if test("^__NETPOLICY_") then np_lines($a) else . end);
+
       .[1] as $p
+      | ($addr[0]) as $a
       | .[0]
       | ([ (.route.rules // [])[] | select(.action == null) ] | length) as $handwritten
       | if $handwritten > 0 then
@@ -148,6 +161,12 @@ let
           ([ (.route.rules // [])[] | select(.action != null) ])
           + $p.rules
           + ([ (.route.rules // [])[] | select(.action == null) ])
+        )
+      # 展开敏感地址 token。必须在这里（规则已合并进最终配置）而不是 nix
+      # 侧：真实地址在密文里，nix 求值时读不到。用 |= 保持规则顺序不变。
+      | .route.rules |= map(
+          (if (.ip_cidr // []) | any(test("^__NETPOLICY_")) then .ip_cidr |= np_expand($a) else . end)
+          | (if (.domain_suffix // []) | any(test("^__NETPOLICY_")) then .domain_suffix |= np_expand($a) else . end)
         )
       | .route.final = $p.final
       | .inbounds = (
@@ -172,7 +191,7 @@ let
     # 密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，sed 替换串无需转义。
     hy2_pw="$(tr -d '\n' < ${hy2PasswordPath})"
     sed -i "s|__RELAY_HYSTERIA_PASSWORD__|$hy2_pw|g" ${tmpConfigPath}
-    remaining="$(grep -o '__RELAY_[A-Z_]*__' ${tmpConfigPath} | sort -u | tr '\n' ' ' || true)"
+    remaining="$(grep -oE '__(RELAY|NETPOLICY)_[A-Za-z_]+__' ${tmpConfigPath} | sort -u | tr '\n' ' ' || true)"
     if [ -n "$remaining" ]; then
       echo "sib 最终配置里仍有未替换的占位符：$remaining" >&2
       exit 1
@@ -333,6 +352,7 @@ in
         (builtins.hashFile "sha256" "${mysecrets}/${cfg.configSecretFile}")
         (builtins.hashFile "sha256" "${mysecrets}/relay/hysteria-password.age")
         (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.json.age")
+        (builtins.hashFile "sha256" "${mysecrets}/net-policy-addresses.json.age")
         # net-policy 的不变量变了也要重启 —— 否则 prepare-config 重算出的配置
         # 没人用，表现为「改了 nix 但行为没变」。
         policyJson
