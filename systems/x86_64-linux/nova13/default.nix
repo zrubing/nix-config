@@ -255,7 +255,13 @@ in
     dae.enable = false;
     # 同一个 miho-conf 两台机器共用，里面的中转节点指向本机 socks5，
     # 所以 nova13 也得起这个客户端，否则那个节点在 nova13 上是死的。
-    tuic-client.enable = true;
+    tuic-client = {
+      enable = true;
+      instances.vps-a = {
+        serverSecret = "relay/tuic-server";
+        listen = "127.0.0.1:12190";
+      };
+    };
     desktop-programs.enable = false;
     # nova13 是 k0s worker（build/proxy 角色），不需要桌面虚拟化栈（libvirtd/qemu/virt-manager）。
     # virt 模块默认启用，这里显式关闭。

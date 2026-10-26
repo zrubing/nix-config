@@ -376,16 +376,31 @@ in
     #              先按 docs/dae-cilium-tcx.md 处理 cilium（bpf.enableTCX=false）
     #              再切，同时在 sops 的 dsh.env 里删掉 HTTP_PROXY/HTTPS_PROXY。
     miho = {
-      enable = true;
+      enable = false;
       # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
       extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
-    sib.enable = false;
+    sib.enable = true;
     dae.enable = false;
-    # vps-a 上的 TUIC 是 Itsusinn fork（v2 协议），mihomo 自带的 tuic 客户端
+    # 服务端的 TUIC 都是 Itsusinn fork（v2 协议），mihomo 自带的 tuic 客户端
     # （v5）在认证阶段被拒（Invalid authentication）。这里跑同源客户端，
-    # mihomo 只把它当成一个本地 socks5 节点。
-    tuic-client.enable = true;
+    # sib 只把每个实例当成一个本地 socks5 节点。
+    #   vps-a（美）→ 12190，对应 sib 的「m2」
+    #   上游 B → 12191，对应 sib 的「n2」
+    # uuid/password 两台服务端相同，所以共用 relay/tuic-{uuid,password} 密文。
+    tuic-client = {
+      enable = true;
+      instances = {
+        vps-a = {
+          serverSecret = "relay/tuic-server";
+          listen = "127.0.0.1:12190";
+        };
+        jp = {
+          serverSecret = "relay/tuic-server-jp";
+          listen = "127.0.0.1:12191";
+        };
+      };
+    };
     xray-client = {
       enable = true;
       configSecretFile = "xray-client-conf.json.age";
