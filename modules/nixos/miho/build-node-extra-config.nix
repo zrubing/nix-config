@@ -26,4 +26,16 @@
     # 已用 containerd mirror（见各机 default.nix 的 k0s/containerd.d/mirrors.toml）
     # 直连本机 NodePort 解决，不依赖 DNS。
   };
+
+  tun = {
+    # 与 sib 同一个根因：cilium 的 CILIUM_OUTPUT 链把 skb mark 归一化为 0xc00
+    # （mark and 0xfffff0ff xor 0xc00），sing-tun 默认的
+    # auto-redirect-output-mark = 0x2024 被改成 0x2c24，自身的出站连接随即
+    # 被 `not fwmark 0x2024 lookup 2022` 规则塞回 TUN —— 日志里的
+    # "dial tcp <节点>: no such device" 就是自环时绑定设备失败。
+    # 0x1c00（十进制 7168）命中 cilium 的不改写分支（mark & 0xe00 == 0x800），
+    # 改写对它是幂等的；0x1000 是 cilium 未使用的 k8s mark 位，能和普通 host
+    # 流量的 0x0c00 区分。
+    auto-redirect-output-mark = 7168;
+  };
 }
