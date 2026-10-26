@@ -328,16 +328,6 @@ in
           value = "__NETPOLICY_cnCidrs__";
           target = "国内";
         }
-        # topsap 内网：由手动启动的 topsap 客户端在本机 socks 端口提供，
-        # 客户端没跑时这两段不可达（net-policy-check 会校验监听并在 journal 告警）。
-        {
-          match = "ip-cidr";
-          value = [
-            "172.17.192.0/18"
-            "172.17.100.0/24"
-          ];
-          target = "topsap";
-        }
 
         # 指定出口。
         {
@@ -489,15 +479,15 @@ in
           };
         }
       );
-      default = [
-        {
-          name = "topsap";
-          port = 1088;
-        }
-      ];
+      default = [ ];
       description = ''
         由手动启动的客户端提供的本地 socks 上游。它们无法靠 systemd 保证存在，
         但分流规则会引用它们 —— 缺失时在 journal 里告警，避免静默失效。
+
+        历史例子：topsap（一个带 VPN 的 docker 容器，本地 socks 1088，无 systemd
+        单元）曾经在这里，但根本没人保证它跑着，2026-10-27 检查时已确认无监听，
+        规则与节点清单里的对应条目一并删除了。将来再引这种 provider，把条目
+        加回这里和 rules 里。
       '';
     };
 
