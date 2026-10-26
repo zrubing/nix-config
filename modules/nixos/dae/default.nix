@@ -99,6 +99,19 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # net-policy 的不变量（NTP/123、ET/集群网段不进代理）**尚未接入 dae**：
+    # 它的配置是一份密文里的 .dae 文本，没有对应的渲染器。启用 dae 就等于放弃
+    # 那些不变量（时钟可能重新走进代理），所以先显式告警，别让切换变得无声无息。
+    # 该项工作的前置条件见本文件顶部注释：dae 与 cilium 目前在本机不能共存。
+    warnings = [
+      ''
+        ${namespace}.dae 已启用，但 net-policy 的代理不变量（NTP 直连、ET/集群网段
+        不进代理）尚未为 dae 实现渲染器。请确认 ${namespace}.netPolicy 的条目在
+        ${config.age.secrets."dae-conf".path} 里有等价声明，否则切回 miho/sib 前
+        先核对 docs/net-invariants.md。
+      ''
+    ];
+
     assertions = [
       {
         assertion = !config.${namespace}.miho.enable;

@@ -7,6 +7,12 @@
 #
 # 消费方：systems/x86_64-linux/{zen14,nova13}/default.nix 的
 #         `${namespace}.miho.extraConfig = import <本文件>;`
+#
+# ⚠️ 本文件只放「mihomo 特有的本机偏好」。**不变量不在这里**：
+#    · 哪些流量永不进代理（NTP 的 123 端口、ET/集群网段、tcp-forward 的 loopback）
+#      → modules/nixos/net-policy（三家客户端共用同一份声明，切 sib 也不会丢）
+#    · 为什么是这些值、踩过什么坑        → docs/net-invariants.md
+#    miho 模块会把 net-policy 的条目合并进来（rules 前置、地址取并集）。
 {
   dns = {
     # resolved 上游配置为 127.0.0.1:53（由 miho 模块声明），基础配置里
@@ -19,61 +25,5 @@
     # build 节点解析 cluster.local 的唯一实际场景是 containerd 拉镜像，
     # 已用 containerd mirror（见各机 default.nix 的 k0s/containerd.d/mirrors.toml）
     # 直连本机 NodePort 解决，不依赖 DNS。
-  };
-
-  tun = {
-    # ── 排除判据 ────────────────────────────────────────────────────────
-    #
-    # ⚠️ 判据不是「网段属不属于集群」，而是
-    #    **「这个包会不会被主机自己的路由表送出去」**：
-    #
-    #   要排除的（会经主机路由表 → 可能被 Meta 设备劫持）：
-    #     · ET overlay（10.144.0.0/16）
-    #     · 集群**节点 InternalIP**（云 VPC 子网）—— Cilium
-    #       routingMode=tunnel 用 InternalIP 作 VXLAN 隧道端点
-    #     · tcp-forward 的 loopback 地址（127.0.0.2/3）
-    #
-    #   刻意**不**排除的（走不到路由表）：
-    #     · serviceCIDR / podCIDR —— ClusterIP 在 **socket 层就被 Cilium eBPF
-    #       翻译掉**，发生在路由决策之前。实测 zen14 未排除新集群的
-    #       10.112.0.0/12 仍能直连 10.112.0.10:53。
-    route-exclude-address = [
-      # tcp-forward 的 loopback 监听地址（test-mysql@127.0.0.2、
-      # prod-mysql@127.0.0.3，见各机 default.nix 的 tcp-forward.forwards）。
-      # 不排除 → 本机连不上自己的转发端口。
-      "127.0.0.2/32"
-      "127.0.0.3/32"
-
-      # 老集群（acme-net）的 serviceCIDR / podCIDR。
-      # 2026-10-12 两机均已迁入 acme-prod，这两条**已失效**，保留的理由：
-      # 它们无害（只是多两条直连路由），且让迁移痕迹可见、可追溯。
-      "10.96.0.0/12"
-      "10.244.0.0/16"
-
-      # EasyTier overlay —— 必须排除，否则 ET 自己的包进代理，全网不通。
-      "10.144.0.0/16"
-
-      # ── 新集群 acme-prod 的**节点内网网段**（云 VPC 两个子网）──
-      #
-      # ⚠️ 为什么必须排除（2026-10-11 在 zen14 上实测踩到）：
-      #   Cilium 的 routingMode=tunnel(vxlan)，它用节点的 **InternalIP** 作为
-      #   VXLAN 隧道端点。三个节点的 InternalIP 分属两个网络：
-      #       acme-prod-net    10.3.0.4       ← VPC 内网
-      #       acme-prod-world  10.3.4.13      ← VPC 内网
-      #       zen14 / nova13         10.144.150.x   ← ET 虚拟 IP
-      #   访问 10.3.0.4 时若被 mihomo TUN 劫持（`ip route get` 显示
-      #   `via 198.18.0.2 dev Meta`），包会进代理而不是走 ET → 直接丢包。
-      #
-      #   连锁症状（表面现象与真因相隔很远，容易误判）：
-      #     build pod 只能访问**同节点** pod，跨节点全断（Cilium VXLAN 到不了）
-      #     → 解析不了 kube-dns(10.112.0.10) → 所有域名解析失败
-      #     → registry 访问 COS 超时 → build pod ImagePullBackOff。
-      #
-      #   ⚠️ 排查时别被 MTU 带偏：cilium_vxlan 的 MTU 看起来很像 MTU 问题
-      #   （zen14 上是 1500，而 net/world 是 1360），但实测 ping 大小包
-      #   **都不通** —— 根因是上面这条路由，不是 MTU。
-      "10.3.0.0/22"
-      "10.3.4.0/22"
-    ];
   };
 }

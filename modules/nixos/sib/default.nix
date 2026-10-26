@@ -51,6 +51,26 @@ let
   secretPath = config.age.secrets."sib-conf".path;
   hy2PasswordPath = config.age.secrets."relay/hysteria-password".path;
 
+  # ── 不变量渲染器（单一事实源：modules/nixos/net-policy）────────────────
+  #
+  # 密文里只该放「节点 / 凭据 / 域名规则」；「哪些流量永不进代理」是 nix 侧的
+  # 声明，这里渲染成 sing-box 的语法再合并进去：
+  #   · bypassProxyPorts  → route.rules 前插 { port = [...], outbound = "直连" }
+  #     （rule 表按顺序匹配，必须排在 geosite/geoip 规则之前；放在最前是安全的，
+  #      因为它只按端口匹配，不依赖协议嗅探结果）
+  #   · bypassProxyAddresses → inbounds[tun].route_exclude_address 取并集
+  #
+  # 为什么不是写死在密文里：那两份配置既不能 review 也没有 diff 历史，实测
+  # 已经和 miho 漂了（2026-10-26：sib 9 条 / miho 7 条，且 NTP 规则只有 miho 有）。
+  netPolicy = config.${namespace}.netPolicy;
+  policyJson = (pkgs.formats.json { }).generate "sib-policy.json" {
+    rules = map (p: {
+      port = [ p ];
+      outbound = "直连";
+    }) netPolicy.bypassProxyPorts;
+    addresses = netPolicy.bypassProxyAddresses;
+  };
+
   prepareConfigScript = pkgs.writeShellScript "sib-prepare-config" ''
     set -euo pipefail
 
@@ -71,12 +91,30 @@ let
 
     # 密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，sed 替换串无需转义。
     hy2_pw="$(tr -d '\n' < ${hy2PasswordPath})"
-    sed "s|__RELAY_HYSTERIA_PASSWORD__|$hy2_pw|g" ${secretPath} > ${tmpConfigPath}
+    sed "s|__RELAY_HYSTERIA_PASSWORD__|$hy2_pw|g" ${secretPath} > ${runtimeDir}/config.base.json
 
-    if grep -q "__RELAY_" ${tmpConfigPath}; then
+    if grep -q "__RELAY_" ${runtimeDir}/config.base.json; then
       echo "sib 配置里仍有未替换的占位符" >&2
       exit 1
     fi
+
+    # ── 注入不变量（net-policy）────────────────────────────────────────
+    # 语义与 mihomo 侧保持一致：rules 前插，地址取并集（unique 保证幂等 ——
+    # 密文里若还留着同样的条目也不会重复）。
+    jq -s '
+      .[1] as $p
+      | .[0]
+      | .route.rules = ($p.rules + (.route.rules // []))
+      | .inbounds = (
+          .inbounds
+          | map(
+              if .type == "tun"
+              then .route_exclude_address = (((.route_exclude_address // []) + $p.addresses) | unique)
+              else . end
+            )
+        )
+    ' ${runtimeDir}/config.base.json ${policyJson} > ${tmpConfigPath}
+    rm -f ${runtimeDir}/config.base.json
 
     # 配置错误在启动前炸掉，并让 sing-box 自己把原因打到 journal。
     if ! ${cfg.package}/bin/sing-box check -c ${tmpConfigPath}; then
@@ -148,6 +186,7 @@ in
         coreutils
         gnused
         gnugrep
+        jq
       ];
       serviceConfig = {
         Type = "oneshot";
@@ -179,6 +218,9 @@ in
       restartTriggers = [
         (builtins.hashFile "sha256" "${mysecrets}/${cfg.configSecretFile}")
         (builtins.hashFile "sha256" "${mysecrets}/relay/hysteria-password.age")
+        # net-policy 的不变量变了也要重启 —— 否则 prepare-config 重算出的配置
+        # 没人用，表现为「改了 nix 但行为没变」。
+        policyJson
       ];
       serviceConfig = {
         Type = "simple";

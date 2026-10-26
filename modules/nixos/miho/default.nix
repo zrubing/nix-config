@@ -9,7 +9,29 @@
 let
   mysecrets = inputs.mysecrets;
   cfg = config.${namespace}.miho;
-  mihomoExtraConfigFile = (pkgs.formats.yaml { }).generate "mihomo-extra.yaml" cfg.extraConfig;
+
+  # ── 不变量渲染器（单一事实源：modules/nixos/net-policy）────────────────
+  #
+  # policy 的条目**优先且取并集**：extraConfig 是「本机代理偏好」，可以调节点、
+  # 加规则；但「NTP 直连」「ET/集群网段不进代理」这类不变量不能因为
+  # extraConfig 里写了同名字段就被顶掉 —— 所以这里先放 policy，再拼 extra。
+  #
+  # 顺序上 policy 的规则在最前（rule 表首条匹配），保证它不会被
+  # `RULE-SET,geolocation-!cn` 这类宽规则提前命中。
+  netPolicy = config.${namespace}.netPolicy;
+  policyRules = map (p: "DST-PORT,${toString p},DIRECT") netPolicy.bypassProxyPorts;
+  policyAddresses = netPolicy.bypassProxyAddresses;
+
+  mergedExtraConfig = cfg.extraConfig // {
+    rules = policyRules ++ (cfg.extraConfig.rules or [ ]);
+    tun = (cfg.extraConfig.tun or { }) // {
+      route-exclude-address = lib.unique (
+        policyAddresses ++ (cfg.extraConfig.tun.route-exclude-address or [ ])
+      );
+    };
+  };
+
+  mihomoExtraConfigFile = (pkgs.formats.yaml { }).generate "mihomo-extra.yaml" mergedExtraConfig;
 in
 {
 
@@ -85,12 +107,28 @@ in
         ip -4 addr show dev lo | grep -q '169.254.53.53/32' || ip addr add 169.254.53.53/32 dev lo
 
         install -d -m 0700 /run/mihomo
-        yq eval-all 'select(fileIndex == 0) *+ select(fileIndex == 1)' \
-          /run/agenix/miho-conf \
-          ${mihomoExtraConfigFile} > /run/mihomo/config.yaml.tmp
-        yq eval-all --inplace 'select(fileIndex == 0) * select(fileIndex == 1)' \
-          /run/mihomo/config.yaml.tmp \
-          ${mihomoExtraConfigFile}
+
+        # ── 合并 base（age 密文）+ extraConfig（nix 侧声明）─────────────
+        #
+        # 语义（一次合并说清，别再拆成两次）：
+        #   · 对象：逐键深度合并，extraConfig 胜出 —— `dns.listen` 这类覆盖靠它；
+        #   · 数组：**追加**（`*+`）。`proxies` / `proxy-groups` 这类天然是"多一份"；
+        #   · `rules`：单独**前置**。rule 表首条匹配，而 base 末尾是 `MATCH,`，
+        #     追加到末尾等于没写。
+        #
+        # ⚠️ 曾经的写法是「先 `*+` 再 `*`」两次合并，而 `*` 对数组是**整体替换**：
+        #    只要 extraConfig 里写了 `rules`，base 的 29 条分流规则会被削成那 1 条
+        #    （2026-10-26 实测：最终 rules 只剩 `DST-PORT,123,DIRECT`），全机分流
+        #    静默失效。现在只合并一次，rules 由下面这行显式前置，不参与追加。
+        #
+        # 用 load() 一次读完两份文件，不再有"第二次合并把第一次结果覆盖掉"这种
+        # 必须读代码才能发现的隐式行为。
+        yq eval --null-input '
+          load("/run/agenix/miho-conf") as $base |
+          load("${mihomoExtraConfigFile}") as $extra |
+          ($extra.rules // []) as $extra_rules |
+          (($base *+ ($extra | del(.rules))) | .rules = ($extra_rules + (.rules // [])))
+        ' > /run/mihomo/config.yaml.tmp
         mv /run/mihomo/config.yaml.tmp /run/mihomo/config.yaml
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，
