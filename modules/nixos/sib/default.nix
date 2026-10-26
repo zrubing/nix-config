@@ -44,9 +44,9 @@ let
   });
 
   runtimeDir = "/run/sib";
-  configPath = "${runtimeDir}/config.json";
+  configPath = "${runtimeDir}/config-with-secret.json";
   # 临时文件必须以 .json 结尾：xray 那次踩过后缀坑，这里统一带上。
-  tmpConfigPath = "${runtimeDir}/config.next.json";
+  tmpConfigPath = "${runtimeDir}/config-with-secret.next.json";
 
   secretPath = config.age.secrets."sib-conf".path;
   hy2PasswordPath = config.age.secrets."relay/hysteria-password".path;
@@ -64,10 +64,10 @@ let
   # 已经和 miho 漂了（2026-10-26：sib 9 条 / miho 7 条，且 NTP 规则只有 miho 有）。
   netPolicy = config.${namespace}.netPolicy;
   policyJson = (pkgs.formats.json { }).generate "sib-policy.json" {
-    rules = map (p: {
-      port = [ p ];
-      outbound = "直连";
-    }) netPolicy.bypassProxyPorts;
+    # 分流规则主干由 net-policy 声明（单一事实源），这里是 sing-box 方言的渲染结果。
+    # 密文里不再写分流规则；两边客户端的规则不可能再漂。
+    rules = netPolicy.sibRules;
+    final = netPolicy.final;
     addresses = netPolicy.bypassProxyAddresses;
   };
 
@@ -127,8 +127,11 @@ let
     rm -f ${runtimeDir}/nodes.json
 
     # ── 注入不变量（net-policy）────────────────────────────────────────
-    # 语义与 mihomo 侧保持一致：rules 前插，地址取并集（unique 保证幂等 ——
-    # 密文里若还留着同样的条目也不会重复）。
+    # 分流规则主干整份来自 net-policy（单一事实源），地址取并集（unique 保证幂等）。
+    #
+    # 插入点：sniff / hijack-dns 这类带 action 的 mechanics 保持最前 —— 域名规则
+    # 依赖 sniff 出来的域名，排在它前面等于让 domain 规则看不到域名。密文里若还留着
+    # 手写分流（无 action），排在 policy 之后，不会抢掉断言里要求的那几条。
     #
     # auto_redirect_output_mark 也在这里覆盖，原因是本机 cilium 的 CILIUM_OUTPUT
     # 链会把非 magic 的 skb mark 归一化：mark and 0xfffff0ff xor 0xc00。sing-box
@@ -141,7 +144,12 @@ let
     jq -s '
       .[1] as $p
       | .[0]
-      | .route.rules = ($p.rules + (.route.rules // []))
+      | .route.rules = (
+          ([.route.rules[] | select(.action != null)])
+          + $p.rules
+          + ([.route.rules[] | select(.action == null)])
+        )
+      | .route.final = $p.final
       | .inbounds = (
           .inbounds
           | map(

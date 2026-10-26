@@ -46,6 +46,80 @@ let
   mihoEnabled = config.${namespace}.miho.enable or false;
   sibEnabled = config.${namespace}.sib.enable or false;
 
+  # 手动启动的本地 socks provider（如 topsap —— 第三方客户端，仓库里只有它的
+  # ssh/env 密文，没有任何 systemd 单元）。分流规则会把某些网段指向它，但没人
+  # 保证它在跑：历史上它的缺失完全静默，只能等访问内网失败才发现。
+  # 这里每次启动核一遍监听，只告警不失败（规则本身是对的，缺的是那个客户端）。
+  providerProbe = lib.concatMapStringsSep "\n" (
+    p: ''
+      if ! ${pkgs.iproute2}/bin/ss -Hlntn 2>/dev/null | ${pkgs.gnugrep}/bin/grep -qF " ${p.host}:${toString p.port} "; then
+        echo "net-policy: 警告 —— ${p.name} 的本地 socks ${p.host}:${toString p.port} 没有监听者，指向它的分流规则当前不可用" >&2
+      fi
+    ''
+  ) cfg.manualProviders;
+
+  # ── 分流规则的方言渲染 ────────────────────────────────────────────
+  # 规则本身只声明「匹配什么 → 走哪个出站 tag」，两家客户端各自方言在这里生成：
+  #   sib  → route.rules 的对象数组（ip_cidr / domain_suffix / ip_is_private / rule_set）
+  #   miho → "TYPE,value,target[,no-resolve]" 字符串数组
+  # 规则集名字两边不同（geosite-x/geoip-x 与 x_domain/x_ip），映射也在这里，
+  # 调用方不需要知道任何一家的拼写。
+  asList = v: if builtins.isList v then v else [ v ];
+
+  # 不写 no-resolve 时：IP 类规则默认加（域名连接不必为了判 IP 先解析一次）。
+  wantsNoResolve =
+    r: if r.noResolve == null then (r.match == "ip-cidr") else r.noResolve;
+
+  sibRule =
+    r:
+    if r.match == "ip-cidr" then
+      {
+        ip_cidr = asList r.value;
+        outbound = r.target;
+      }
+    else if r.match == "domain-suffix" then
+      {
+        domain_suffix = asList r.value;
+        outbound = r.target;
+      }
+    else if r.match == "private" then
+      {
+        ip_is_private = true;
+        outbound = r.target;
+      }
+    else if r.match == "rule-set" then
+      {
+        rule_set = [ (if r.kind == "ip" then "geoip-${r.set}" else "geosite-${r.set}") ];
+        outbound = r.target;
+      }
+    else
+      throw "net-policy: 未知 match ${r.match}";
+
+  # miho 一个语义条目可能展开成多条（每个 CIDR / 域名一条字符串）。
+  mihoRule =
+    r:
+    if r.match == "ip-cidr" then
+      map (
+        c: "IP-CIDR,${c},${r.target}${lib.optionalString (wantsNoResolve r) ",no-resolve"}"
+      ) (asList r.value)
+    else if r.match == "domain-suffix" then
+      map (d: "DOMAIN-SUFFIX,${d},${r.target}") (asList r.value)
+    else if r.match == "private" then
+      [ "RULE-SET,private_ip,${r.target},no-resolve" ]
+    else if r.match == "rule-set" then
+      [
+        "RULE-SET,${
+          if r.mihoSet != "" then
+            r.mihoSet
+          else if r.kind == "ip" then
+            "${r.set}_ip"
+          else
+            "${r.set}_domain"
+        },${r.target}"
+      ]
+    else
+      throw "net-policy: 未知 match ${r.match}";
+
   # 只有一条「生效中的客户端」需要核对；两个都没开（例如临时停机维护）就不建这个单元。
   clientCheck =
     if mihoEnabled then
@@ -53,6 +127,9 @@ let
         unit = "mihomo.service";
         script = ''
           set -euo pipefail
+
+          ${providerProbe}
+
           cfg=/run/mihomo/config.yaml
           [ -s "$cfg" ] || { echo "net-policy: $cfg 不存在（mihomo 还没生成配置？）" >&2; exit 1; }
 
@@ -83,6 +160,9 @@ let
         unit = "sib.service";
         script = ''
           set -euo pipefail
+
+          ${providerProbe}
+
           cfg=/run/sib/config.json
           [ -s "$cfg" ] || { echo "net-policy: $cfg 不存在（sib 还没生成配置？）" >&2; exit 1; }
 
@@ -164,6 +244,295 @@ in
       default = allAddresses;
       description = "loopback + 网段去重后的完整地址表，供各客户端渲染器使用。";
     };
+
+    # ── 分流规则的单一事实源 ──────────────────────────────────────
+    #
+    # 过去这份主干在两个客户端的 age 密文里各写一份（sib 25 条 / miho 29 条）。
+    # 2026-10-27 实测：sib 有的 4 条直连例外（__NETPOLICY_directDomains__、__NETPOLICY_directDomains__、
+    # __NETPOLICY_directCidrs__、__NETPOLICY_directCidrs__）miho 根本没有 —— 切到 miho 时访问这些
+    # 目标的流量会进代理组（回环风险），而两份密文都不可 review、没有 diff 历史。
+    #
+    # 这里只声明「匹配什么 → 走哪个出站 tag」，顺序即优先级；客户端方言由
+    # sibRules / mihoRules 两个只读选项渲染。密文里不应再手写分流规则。
+    rules = lib.mkOption {
+      type = lib.types.listOf (
+        lib.types.submodule {
+          options = {
+            match = lib.mkOption {
+              type = lib.types.enum [
+                "ip-cidr"
+                "domain-suffix"
+                "private"
+                "rule-set"
+              ];
+              description = "匹配类型；private = 内网地址（两家各有原生写法）。";
+            };
+            value = lib.mkOption {
+              type = lib.types.either lib.types.str (lib.types.listOf lib.types.str);
+              default = "";
+              description = "ip-cidr 的 CIDR / domain-suffix 的域名；rule-set 时留空。";
+            };
+            set = lib.mkOption {
+              type = lib.types.str;
+              default = "";
+              description = "rule-set 的语义名（如 github、cn），各家拼法由渲染器补全。";
+            };
+            kind = lib.mkOption {
+              type = lib.types.enum [
+                "domain"
+                "ip"
+                ""
+              ];
+              default = "";
+              description = "rule-set 属于域名类还是 IP 类。";
+            };
+            mihoSet = lib.mkOption {
+              type = lib.types.str;
+              default = "";
+              description = "miho 侧 provider 名与命名规则不一致时在这里覆盖（如 geolocation-!cn）。";
+            };
+            target = lib.mkOption {
+              type = lib.types.str;
+              description = "出站 tag，必须与客户端配置里的 outbound / 策略组名一致。";
+            };
+            noResolve = lib.mkOption {
+              type = lib.types.nullOr lib.types.bool;
+              default = null;
+              description = "null = IP 类规则自动加 no-resolve；其他类型默认不加。";
+            };
+          };
+        }
+      );
+      default = [
+        # 直连例外：访问这些目标绝不能进代理，否则自指回环。
+        {
+          match = "domain-suffix";
+          value = [
+            "__NETPOLICY_directDomains__"
+            "__NETPOLICY_directDomains__"
+          ];
+          target = "直连";
+        }
+        {
+          match = "ip-cidr";
+          value = [
+            "__NETPOLICY_directCidrs__"
+            "__NETPOLICY_directCidrs__"
+          ];
+          target = "直连";
+        }
+
+        # 定向网段。
+        {
+          match = "ip-cidr";
+          value = "__NETPOLICY_cnCidrs__";
+          target = "国内";
+        }
+        # topsap 内网：由手动启动的 topsap 客户端在本机 socks 端口提供，
+        # 客户端没跑时这两段不可达（net-policy-check 会校验监听并在 journal 告警）。
+        {
+          match = "ip-cidr";
+          value = [
+            "172.17.192.0/18"
+            "172.17.100.0/24"
+          ];
+          target = "topsap";
+        }
+
+        # 指定出口。
+        {
+          match = "domain-suffix";
+          value = [
+            "__NETPOLICY_usDomains__"
+            "youtube.com"
+            "huggingface.co"
+            "codeberg.org"
+            "grok.com"
+            "x.ai"
+            "chatgpt.com"
+          ];
+          target = "美国";
+        }
+        {
+          match = "domain-suffix";
+          value = "__NETPOLICY_jpDomains__";
+          target = "日本";
+        }
+
+        # 内网一律直连（必须排在所有域名规则集之前，否则内网域名会被 rule-set 抢走）。
+        {
+          match = "private";
+          target = "直连";
+        }
+
+        # 域名规则集：顺序即优先级。
+        {
+          match = "rule-set";
+          set = "github";
+          kind = "domain";
+          target = "Github";
+        }
+        {
+          match = "rule-set";
+          set = "twitter";
+          kind = "domain";
+          target = "Twitter";
+        }
+        {
+          match = "rule-set";
+          set = "youtube";
+          kind = "domain";
+          target = "YouTube";
+        }
+        {
+          match = "rule-set";
+          set = "google";
+          kind = "domain";
+          target = "Google";
+        }
+        {
+          match = "rule-set";
+          set = "telegram";
+          kind = "domain";
+          target = "Telegram";
+        }
+        {
+          match = "rule-set";
+          set = "netflix";
+          kind = "domain";
+          target = "NETFLIX";
+        }
+        {
+          match = "rule-set";
+          set = "bilibili";
+          kind = "domain";
+          target = "哔哩哔哩";
+        }
+        {
+          match = "rule-set";
+          set = "bahamut";
+          kind = "domain";
+          target = "巴哈姆特";
+        }
+        {
+          match = "rule-set";
+          set = "spotify";
+          kind = "domain";
+          target = "Spotify";
+        }
+        {
+          match = "rule-set";
+          set = "cn";
+          kind = "domain";
+          target = "国内";
+        }
+        # 非中国域名 → 代理。注意它排在 cn 域名之后、cn IP 之前：域名优先于 IP，
+        # 所以「不在 geosite-cn 里的国内小站」会被送进代理，这是有意的取舍。
+        {
+          match = "rule-set";
+          set = "geolocation-!cn";
+          kind = "domain";
+          mihoSet = "geolocation-!cn";
+          target = "其他";
+        }
+
+        # IP 规则集。
+        {
+          match = "rule-set";
+          set = "google";
+          kind = "ip";
+          target = "Google";
+        }
+        {
+          match = "rule-set";
+          set = "netflix";
+          kind = "ip";
+          target = "NETFLIX";
+        }
+        {
+          match = "rule-set";
+          set = "telegram";
+          kind = "ip";
+          target = "Telegram";
+        }
+        {
+          match = "rule-set";
+          set = "twitter";
+          kind = "ip";
+          target = "Twitter";
+        }
+        {
+          match = "rule-set";
+          set = "cn";
+          kind = "ip";
+          target = "国内";
+        }
+      ];
+      description = ''
+        分流规则主干（单一事实源）。顺序即优先级；只写语义，方言由模块渲染。
+        改这里会同时影响 sib 与 miho，两边不可能再漂。
+      '';
+    };
+
+    # 手动启动的本地 socks provider（不在 systemd 管下，启动顺序无法保证）。
+    # 列在这里的会在 net-policy-check 里被核一遍监听。
+    manualProviders = lib.mkOption {
+      type = lib.types.listOf (
+        lib.types.submodule {
+          options = {
+            name = lib.mkOption { type = lib.types.str; };
+            host = lib.mkOption {
+              type = lib.types.str;
+              default = "127.0.0.1";
+            };
+            port = lib.mkOption { type = lib.types.port; };
+          };
+        }
+      );
+      default = [
+        {
+          name = "topsap";
+          port = 1088;
+        }
+      ];
+      description = ''
+        由手动启动的客户端提供的本地 socks 上游。它们无法靠 systemd 保证存在，
+        但分流规则会引用它们 —— 缺失时在 journal 里告警，避免静默失效。
+      '';
+    };
+
+    final = lib.mkOption {
+      type = lib.types.str;
+      default = "其他";
+      description = ''
+        兜底出站 tag。sib 落到 route.final，miho 渲染成最后一条 MATCH 规则。
+        放在这里而不是密文里：兜底策略是「不管用哪个客户端都必须成立」的不变量。
+      '';
+    };
+
+    # 渲染产物：客户端模块直接用，不再自己拼规则。
+    sibRules = lib.mkOption {
+      type = lib.types.listOf lib.types.attrs;
+      internal = true;
+      readOnly = true;
+      default = [
+        {
+          port = cfg.bypassProxyPorts;
+          outbound = "直连";
+        }
+      ] ++ map sibRule cfg.rules;
+      description = "sing-box 方言的 route.rules（含 bypassProxyPorts 的直连规则）。";
+    };
+
+    mihoRules = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      internal = true;
+      readOnly = true;
+      default = map (p: "DST-PORT,${toString p},DIRECT") cfg.bypassProxyPorts
+        ++ lib.concatMap mihoRule cfg.rules
+        ++ [ "MATCH,${cfg.final}" ];
+      description = "mihomo 方言的 rules 字符串数组（含 bypassProxyPorts 的直连规则）。";
+    };
   };
 
   config = lib.mkIf (clientCheck != null) {
@@ -176,6 +545,8 @@ in
       after = [ clientCheck.unit ];
       path = with pkgs; [
         coreutils
+        gnugrep
+        iproute2
         jq
         yq-go
       ];

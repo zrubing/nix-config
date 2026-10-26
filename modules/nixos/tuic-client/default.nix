@@ -54,11 +54,11 @@ let
         ''}
         printf '\n[local]\n'
         printf 'server = "%s"\n' ${lib.escapeShellArg inst.listen}
-      } > /run/tuic-client-${name}/config.toml.tmp
+      } > /run/tuic-client-${name}/config-with-secret.toml.tmp
 
-      chown ${cfg.user}:${cfg.group} /run/tuic-client-${name}/config.toml.tmp
-      chmod 0400 /run/tuic-client-${name}/config.toml.tmp
-      mv /run/tuic-client-${name}/config.toml.tmp /run/tuic-client-${name}/config.toml
+      chown ${cfg.user}:${cfg.group} /run/tuic-client-${name}/config-with-secret.toml.tmp
+      chmod 0400 /run/tuic-client-${name}/config-with-secret.toml.tmp
+      mv /run/tuic-client-${name}/config-with-secret.toml.tmp /run/tuic-client-${name}/config-with-secret.toml
     '';
 in
 {
@@ -149,7 +149,7 @@ in
           # `+` 前缀 = 以 root 跑（ExecStartPre 默认继承 User=），
           # 只有它需要读 /run/agenix 下 root:0400 的密文。
           ExecStartPre = "+${renderConfig name inst}";
-          ExecStart = "${cfg.package}/bin/tuic-client --config /run/tuic-client-${name}/config.toml";
+          ExecStart = "${cfg.package}/bin/tuic-client --config /run/tuic-client-${name}/config-with-secret.toml";
           Restart = "always";
           RestartSec = 5;
 

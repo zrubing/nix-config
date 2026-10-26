@@ -19,7 +19,6 @@ let
   # 顺序上 policy 的规则在最前（rule 表首条匹配），保证它不会被
   # `RULE-SET,geolocation-!cn` 这类宽规则提前命中。
   netPolicy = config.${namespace}.netPolicy;
-  policyRules = map (p: "DST-PORT,${toString p},DIRECT") netPolicy.bypassProxyPorts;
   policyAddresses = netPolicy.bypassProxyAddresses;
 
   # 共享节点清单（私有仓的加密 JSON）是唯一事实源。节点定义刻意不经 nix 求值：
@@ -30,7 +29,9 @@ let
   proxyNodesJq = ../../../lib/proxy-nodes.jq;
 
   mergedExtraConfig = cfg.extraConfig // {
-    rules = policyRules ++ (cfg.extraConfig.rules or [ ]);
+    # 规则主干整份来自 net-policy（单一事实源，含 bypassProxyPorts 的直连规则）；
+    # extraConfig 里的规则只能在它之后追加，抢不掉不变量。
+    rules = netPolicy.mihoRules ++ (cfg.extraConfig.rules or [ ]);
     tun = (cfg.extraConfig.tun or { }) // {
       route-exclude-address = lib.unique (
         policyAddresses ++ (cfg.extraConfig.tun.route-exclude-address or [ ])
@@ -73,7 +74,7 @@ in
     services.mihomo = {
       enable = true;
       package = pkgs.${namespace}.mihomo;
-      configFile = "/run/mihomo/config.yaml";
+      configFile = "/run/mihomo/config-with-secret.yaml";
       tunMode = true;
     };
 
@@ -146,22 +147,27 @@ in
           (($base *+ ($extra | del(.rules)))
             | .proxies = ((.proxies // []) + ($nodes.miho // []))
             | .rules = ($extra_rules + (.rules // [])))
-        ' > /run/mihomo/config.yaml.tmp
-        mv /run/mihomo/config.yaml.tmp /run/mihomo/config.yaml
+        ' > /run/mihomo/config.merged.yaml
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，
         # sed 的替换串里不会出现需要转义的字符。
+        #
+        # 命名约定：中间产物（合并后、仍是占位符）叫 config.merged.yaml，
+        # 只有替换过密码的最终文件才叫 config-with-secret.yaml —— 让任何人
+        # （包括 agent）一眼看出哪份文件含明文凭据，不会误 cat。
         hy2_pw="$(tr -d '\n' < ${config.age.secrets."relay/hysteria-password".path})"
-        sed -i \
+        sed \
           -e "s|__RELAY_HYSTERIA_PASSWORD__|$hy2_pw|g" \
-          /run/mihomo/config.yaml
+          /run/mihomo/config.merged.yaml > /run/mihomo/config-with-secret.yaml.tmp
 
-        if grep -q "__RELAY_" /run/mihomo/config.yaml; then
+        if grep -q "__RELAY_" /run/mihomo/config-with-secret.yaml.tmp; then
           echo "mihomo 配置里仍有未替换的占位符" >&2
           exit 1
         fi
 
-        chmod 0600 /run/mihomo/config.yaml
+        chmod 0600 /run/mihomo/config-with-secret.yaml.tmp
+        mv /run/mihomo/config-with-secret.yaml.tmp /run/mihomo/config-with-secret.yaml
+        rm -f /run/mihomo/config.merged.yaml
       '';
     };
 
