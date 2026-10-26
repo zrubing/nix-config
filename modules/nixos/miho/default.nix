@@ -22,11 +22,14 @@ let
   policyRules = map (p: "DST-PORT,${toString p},DIRECT") netPolicy.bypassProxyPorts;
   policyAddresses = netPolicy.bypassProxyAddresses;
 
-  # 共享节点清单（私有仓）：加/删节点只改 mysecrets/proxy-nodes.nix。
-  proxyNodes = import ../../../lib/proxy-nodes.nix { inherit lib mysecrets; };
+  # 共享节点清单（私有仓的加密 JSON）是唯一事实源。节点定义刻意不经 nix 求值：
+  # 一旦渲染成 store 文件，server/跳端口/密码/SNI 就是世界可读的 /nix/store 明文。
+  # 进 store 的只有方言转换器 lib/proxy-nodes.jq，prepare 服务在运行时
+  # 解密 → 转换 → 合并。
+  proxyNodesSecretPath = config.age.secrets."proxy-nodes".path;
+  proxyNodesJq = ../../../lib/proxy-nodes.jq;
 
   mergedExtraConfig = cfg.extraConfig // {
-    proxies = (cfg.extraConfig.proxies or [ ]) ++ proxyNodes.mihoProxies;
     rules = policyRules ++ (cfg.extraConfig.rules or [ ]);
     tun = (cfg.extraConfig.tun or { }) // {
       route-exclude-address = lib.unique (
@@ -58,6 +61,9 @@ in
 
     age.secrets.miho-conf.file = "${mysecrets}/miho-conf/zen14-test.age";
 
+    # 节点清单由 sib / miho 共用；两个模块同时声明同一份文件时只是合并，不冲突。
+    age.secrets."proxy-nodes".file = "${mysecrets}/proxy-nodes.json.age";
+
     # 中转凭据与配置分离：加密的 miho-conf 里只留占位符，真实值在激活时注入。
     # 轮换密码只需要换 nix-secrets 里的 relay/*.age，不用重写整份 YAML。
     # tuic 的凭据不在这里：mihomo 已经没有 tuic 节点，它连的是本机 tuic-client
@@ -85,6 +91,7 @@ in
       path = with pkgs; [
         coreutils
         iproute2
+        jq
         yq-go
       ];
       serviceConfig = {
@@ -93,8 +100,8 @@ in
       script = ''
         set -euo pipefail
 
-        # 两个输入都要就绪：主配置 + hysteria2 密码
-        for f in miho-conf relay/hysteria-password; do
+        # 两个输入都要就绪：主配置 + hysteria2 密码 + 节点清单
+        for f in miho-conf relay/hysteria-password proxy-nodes; do
           i=0
           while [ "$i" -lt 60 ]; do
             [ -s "/run/agenix/$f" ] && break
@@ -111,6 +118,10 @@ in
         ip -4 addr show dev lo | grep -q '169.254.53.53/32' || ip addr add 169.254.53.53/32 dev lo
 
         install -d -m 0700 /run/mihomo
+
+        # 节点清单：加密 JSON 是唯一事实源，这里按 mihomo 方言转换后合并进 proxies。
+        # 不在 nix 求值里渲染——那会把 server/密码落进世界可读的 /nix/store。
+        jq -f ${proxyNodesJq} ${proxyNodesSecretPath} > /run/mihomo/nodes.json
 
         # ── 合并 base（age 密文）+ extraConfig（nix 侧声明）─────────────
         #
@@ -130,8 +141,11 @@ in
         yq eval --null-input '
           load("/run/agenix/miho-conf") as $base |
           load("${mihomoExtraConfigFile}") as $extra |
+          load("/run/mihomo/nodes.json") as $nodes |
           ($extra.rules // []) as $extra_rules |
-          (($base *+ ($extra | del(.rules))) | .rules = ($extra_rules + (.rules // [])))
+          (($base *+ ($extra | del(.rules)))
+            | .proxies = ((.proxies // []) + ($nodes.miho // []))
+            | .rules = ($extra_rules + (.rules // [])))
         ' > /run/mihomo/config.yaml.tmp
         mv /run/mihomo/config.yaml.tmp /run/mihomo/config.yaml
 
@@ -160,6 +174,7 @@ in
       restartTriggers = [
         (builtins.hashFile "sha256" "${mysecrets}/miho-conf/zen14-test.age")
         (builtins.hashFile "sha256" "${mysecrets}/relay/hysteria-password.age")
+        (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.json.age")
         mihomoExtraConfigFile
       ];
       serviceConfig = {

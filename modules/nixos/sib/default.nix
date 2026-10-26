@@ -71,10 +71,12 @@ let
     addresses = netPolicy.bypassProxyAddresses;
   };
 
-  # 共享节点清单（私有仓）。节点定义不再写进密文，改由这里渲染后合并。
-  proxyNodes = import ../../../lib/proxy-nodes.nix { inherit lib mysecrets; };
-  nodesJson = (pkgs.formats.json { }).generate "sib-nodes.json" proxyNodes.sibOutbounds;
-  nodesGroupsJson = (pkgs.formats.json { }).generate "sib-node-groups.json" proxyNodes.sibGroups;
+  # 共享节点清单（私有仓的加密 JSON）是唯一事实源。节点定义刻意不经 nix 求值：
+  # 一旦渲染成 store 文件，server/跳端口/密码/SNI 就是世界可读的 /nix/store 明文。
+  # 进 store 的只有方言转换器 lib/proxy-nodes.jq，prepare 服务在运行时
+  # 解密 → 转换 → 合并。
+  proxyNodesSecretPath = config.age.secrets."proxy-nodes".path;
+  proxyNodesJq = ../../../lib/proxy-nodes.jq;
 
   prepareConfigScript = pkgs.writeShellScript "sib-prepare-config" ''
     set -euo pipefail
@@ -82,7 +84,7 @@ let
     install -d -m 0700 ${runtimeDir}
 
     # agenix 在 activation 阶段解密，服务启动时可能还没落盘。
-    for f in ${secretPath} ${hy2PasswordPath}; do
+    for f in ${secretPath} ${hy2PasswordPath} ${proxyNodesSecretPath}; do
       i=0
       while [ ! -s "$f" ]; do
         i=$((i + 1))
@@ -103,12 +105,18 @@ let
       exit 1
     fi
 
-    # ── 合并共享节点清单（mysecrets/proxy-nodes.nix）────────────────────
-    # 节点定义只写一处：这里把渲染好的 outbounds 追加进配置，并按 sibGroups
-    # 给 selector/urltest 补成员。dedupe 保持原顺序 —— selector 的默认项
-    # 就是列表第一个，不能用 unique（会排序，默认节点被改掉）。
-    jq --argjson nodes '${nodesJson}' --argjson groups '${nodesGroupsJson}' '
-      .outbounds |= map(
+    # ── 合并共享节点清单（nix-secrets/proxy-nodes.json.age）──────────────
+    # 节点定义只写一处（那份加密 JSON）：这里按 sib 方言转换后追加进配置，
+    # 并按 sibGroups 给 selector/urltest 补成员。dedupe 保持原顺序 ——
+    # selector 的默认项就是列表第一个，不能用 unique（会排序，默认节点被改掉）。
+    #
+    # 转换器（lib/proxy-nodes.jq）一次产出 sib / sibGroups / miho 三份视图，
+    # 两家客户端共用同一份事实源，只在这里各取所需。
+    jq -f ${proxyNodesJq} ${proxyNodesSecretPath} > ${runtimeDir}/nodes.json
+    jq --slurpfile p ${runtimeDir}/nodes.json '
+      ($p[0].sib) as $nodes
+      | ($p[0].sibGroups) as $groups
+      | .outbounds |= map(
         . as $o
         | if ($groups | has($o.tag)) then
             .outbounds = (((.outbounds // []) + ($groups[$o.tag] - (.outbounds // []))))
@@ -116,6 +124,7 @@ let
       )
       | .outbounds = ((.outbounds // []) + $nodes)
     ' ${runtimeDir}/config.base.json > ${runtimeDir}/config.merged.json
+    rm -f ${runtimeDir}/nodes.json
 
     # ── 注入不变量（net-policy）────────────────────────────────────────
     # 语义与 mihomo 侧保持一致：rules 前插，地址取并集（unique 保证幂等 ——
@@ -198,6 +207,9 @@ in
       file = "${mysecrets}/${cfg.configSecretFile}";
     };
 
+    # 节点清单由 sib / miho 共用；两个模块同时声明同一份文件时只是合并，不冲突。
+    age.secrets."proxy-nodes".file = "${mysecrets}/proxy-nodes.json.age";
+
     # miho 关掉后这个 secret 没有别的声明方，sib 自己声明；
     # 两个模块同时声明同一份文件时只是合并，不冲突。
     age.secrets."relay/hysteria-password".file = "${mysecrets}/relay/hysteria-password.age";
@@ -247,7 +259,7 @@ in
       restartTriggers = [
         (builtins.hashFile "sha256" "${mysecrets}/${cfg.configSecretFile}")
         (builtins.hashFile "sha256" "${mysecrets}/relay/hysteria-password.age")
-        (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.nix")
+        (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.json.age")
         # net-policy 的不变量变了也要重启 —— 否则 prepare-config 重算出的配置
         # 没人用，表现为「改了 nix 但行为没变」。
         policyJson
