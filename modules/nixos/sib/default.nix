@@ -101,6 +101,15 @@ let
     # ── 注入不变量（net-policy）────────────────────────────────────────
     # 语义与 mihomo 侧保持一致：rules 前插，地址取并集（unique 保证幂等 ——
     # 密文里若还留着同样的条目也不会重复）。
+    #
+    # auto_redirect_output_mark 也在这里覆盖，原因是本机 cilium 的 CILIUM_OUTPUT
+    # 链会把非 magic 的 skb mark 归一化：mark and 0xfffff0ff xor 0xc00。sing-box
+    # 默认的 0x2024 因此变成 0x2c24，它自己生成的 `not fwmark 0x2024 lookup 2022`
+    # 规则随即命中，出站被塞回 TUN —— 日志表现为反复出现
+    # "inbound connection to <节点地址>" 加 outbound/direct 的 i/o timeout。
+    # 0x1c00 命中 cilium 的不改写分支（mark & 0xe00 == 0x800），改写对它是幂等的；
+    # 0x1000 是 cilium 未使用的 k8s mark 位，既能和普通 host 流量的 0x0c00 区分，
+    # 又不带 identity。
     jq -s '
       .[1] as $p
       | .[0]
@@ -110,6 +119,7 @@ let
           | map(
               if .type == "tun"
               then .route_exclude_address = (((.route_exclude_address // []) + $p.addresses) | unique)
+                   | .auto_redirect_output_mark = "0x1c00"
               else . end
             )
         )
