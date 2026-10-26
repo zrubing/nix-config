@@ -257,9 +257,16 @@ in
     # 所以 nova13 也得起这个客户端，否则那个节点在 nova13 上是死的。
     tuic-client = {
       enable = true;
-      instances.vps-a = {
-        serverSecret = "relay/tuic-server";
-        listen = "127.0.0.1:12190";
+      instances = {
+        vps-a = {
+          serverSecret = "relay/tuic-server";
+          listen = "127.0.0.1:12190";
+        };
+        # 上游 B：mihomo 的「n2」节点指向 12191。
+        jp = {
+          serverSecret = "relay/tuic-server-jp";
+          listen = "127.0.0.1:12191";
+        };
       };
     };
     desktop-programs.enable = false;

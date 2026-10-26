@@ -22,7 +22,11 @@ let
   policyRules = map (p: "DST-PORT,${toString p},DIRECT") netPolicy.bypassProxyPorts;
   policyAddresses = netPolicy.bypassProxyAddresses;
 
+  # 共享节点清单（私有仓）：加/删节点只改 mysecrets/proxy-nodes.nix。
+  proxyNodes = import ../../../lib/proxy-nodes.nix { inherit lib mysecrets; };
+
   mergedExtraConfig = cfg.extraConfig // {
+    proxies = (cfg.extraConfig.proxies or [ ]) ++ proxyNodes.mihoProxies;
     rules = policyRules ++ (cfg.extraConfig.rules or [ ]);
     tun = (cfg.extraConfig.tun or { }) // {
       route-exclude-address = lib.unique (
