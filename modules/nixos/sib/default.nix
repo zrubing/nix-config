@@ -162,6 +162,24 @@ let
     ' ${runtimeDir}/config.merged.json ${policyJson} > ${tmpConfigPath}
     rm -f ${runtimeDir}/config.base.json ${runtimeDir}/config.merged.json
 
+    # sing-box check 只校验语法与自身一致性。实测：删掉一个节点、但组的 outbounds
+    # 里还引用它时，check 照样通过，run 才 FATAL `dependency[x] not found` ——
+    # 那时服务已经进入重启循环，journal 里只有一行 FATAL。这里把这道补上：
+    # selector/urltest 的成员必须都是最终 outbounds 里的 tag。
+    dangling="$(jq -r '
+      ([.outbounds[].tag]) as $tags
+      | [ .outbounds[]
+          | select(.outbounds != null)
+          | . as $g
+          | ($g.outbounds - $tags)[]
+          | "\($g.tag) -> \(.)" ]
+      | join(", ")
+    ' ${tmpConfigPath})"
+    if [ -n "$dangling" ]; then
+      echo "sib 配置里有指向不存在出站的组成员：$dangling" >&2
+      exit 1
+    fi
+
     # 配置错误在启动前炸掉，并让 sing-box 自己把原因打到 journal。
     if ! ${cfg.package}/bin/sing-box check -c ${tmpConfigPath}; then
       echo "sib 配置自检失败，原因见上面 sing-box 的输出" >&2
@@ -181,6 +199,17 @@ in
       default = sing-box;
       defaultText = lib.literalExpression "pkgs-unstable.sing-box（版本覆盖到 1.14.4）";
       description = "sing-box package to run.";
+    };
+
+    # 运行时配置路径。net-policy 的自检脚本要读它 —— 之前在两边各写一份
+    # 文件名，重命名（config.json → config-with-secret.json）时静默漂开了：
+    # 自检报「配置不存在」，而真正的原因只是文件名叫法不同。
+    configPath = mkOption {
+      type = types.str;
+      internal = true;
+      readOnly = true;
+      default = "${runtimeDir}/config-with-secret.json";
+      description = "单实例运行用的最终配置路径（已注入密码）。";
     };
 
     configSecretFile = mkOption {

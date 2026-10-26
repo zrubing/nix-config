@@ -130,7 +130,7 @@ let
 
           ${providerProbe}
 
-          cfg=/run/mihomo/config.yaml
+          cfg=${config.services.mihomo.configFile}
           [ -s "$cfg" ] || { echo "net-policy: $cfg 不存在（mihomo 还没生成配置？）" >&2; exit 1; }
 
           # 期望值文件必须存在：否则下面的 for 循环会拿到空列表、直接"通过"，
@@ -163,7 +163,7 @@ let
 
           ${providerProbe}
 
-          cfg=/run/sib/config.json
+          cfg=${config.${namespace}.sib.configPath}
           [ -s "$cfg" ] || { echo "net-policy: $cfg 不存在（sib 还没生成配置？）" >&2; exit 1; }
 
           exp=${expectedJson}
