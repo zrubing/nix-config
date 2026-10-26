@@ -327,6 +327,12 @@ in
         export OPENAI_API_KEY="${config.sops.placeholder."openai/api_key"}"
         export OPENROUTER_API_KEY="${config.sops.placeholder."openrouter/api_key"}"
         export OPENCODE_API_KEY="${config.sops.placeholder."opencode/api_key"}"
+        # NVIDIA NIM：pi 的 nvidia-nim 扩展 resolveRequiredNimApiKey 先查
+        # auth.json、再回退 NVIDIA_NIM_API_KEY env。这里走 env 路径 ——
+        # ~/.pi/agent/auth.json 是 agenix 的软链（agents/pi/auth.json.age），
+        # 往里写 key 会把软链顶成普通文件，下次激活又被 agenix 覆盖回来。
+        # dsh 侧同名变量在 dsh.env 里，同一个 clan var。
+        export NVIDIA_NIM_API_KEY="${config.sops.placeholder."nvidia-nim/api_key"}"
         export DEEPSEEK_API_KEY="${config.sops.placeholder."deepseek/api_key"}"
         export ZAI_CODING_CN_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
         # DeepSeek relay：与 dsh.env 的 DEEPSEEK_RELAY_API_KEY 同一个 clan var

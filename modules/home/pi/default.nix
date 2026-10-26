@@ -15,6 +15,29 @@ let
   # 它内嵌 models.json 快照且合并时永不删 id，网关改名后 pi 会一直展示旧 id，
   # 与 dsh 漂移。现由本仓库的本地扩展读 dsh autosync 发布的 catalog。
 
+  # ── 凭据投递：pi 自己没有注入机制，必须包一层 wrapper ──────────────────
+  #
+  # pi 只从**进程环境**读 OPENCODE_API_KEY / DEEPSEEK_RELAY_API_KEY 等
+  # （catalog 里 "opencode-go": "OPENCODE_API_KEY"，实测 `pi auth check`），
+  # 而 ~/.config/default.env 只有交互式 bash 的 .bashrc 会 source：
+  #   bash -ic 'pi auth check --provider opencode-go' → ready
+  #   bash -lc 'pi auth check --provider opencode-go' → not_ready
+  # 也就是 ssh 命令、GUI 启动器、niri bind 直接 exec、dsh 的 agent 子进程
+  # （敏感名被 scrub）里起的 pi 全都没有 key。dsh 不受影响是因为它自己有
+  # wrapper / EnvironmentFile 去 source dsh.env，与这里同一个模式。
+  piPackage = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.pi;
+
+  # 唯一职责：source 一次 default.env 再 exec 原二进制。参数、退出码、
+  # `pi update self` 全部原样透传。
+  piWithEnv = pkgs.writeShellScriptBin "pi" ''
+    if [ -r "$HOME/.config/default.env" ]; then
+      set -a
+      . "$HOME/.config/default.env"
+      set +a
+    fi
+    exec ${piPackage}/bin/pi "$@"
+  '';
+
   # 共享的 relay 路由事实（modules/home/llm-routes/routes.nix），与 dsh 侧同源。
   # baseUrl 不在共享声明里：pi 只对 apiKey / headers 做 "$VAR" env 插值，
   # baseUrl 原样直读（源码实测 dist/core/provider-composer.js 的 modelFromJson），
@@ -162,6 +185,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # 覆盖 modules/home/packages 装的 pkgs-nix-ai.pi 的 bin/pi。同一个 profile
+    # 里两个包都提供 bin/pi，靠 hiPrio 让这层 wrapper 胜出（home-manager 的
+    # buildEnv 按 meta.priority 解冲突，同优先级会报 collision）。
+    home.packages = [ (lib.hiPrio piWithEnv) ];
+
     home.file.".pi/agent/settings.json" = {
       text = piSettings;
       force = true;
@@ -213,46 +241,12 @@ in
       content = piMcpJson;
     };
 
-    # nvidia-nim key：clan vars（nvidia-nim-api-key generator）→ home sops
-    # （nvidia-nim/api_key）→ 合并进 ~/.pi/agent/auth.json。pi-nvidia-nim
-    # 扩展 resolveRequiredNimApiKey 先查 pi 的 auth 注册表（auth.json），再回退
-    # NVIDIA_NIM_API_KEY/NVIDIA_API_KEY env；dsh 侧走 dsh.env 的 env 路径，两者
-    # 同源同一个 clan secret。幂等：只更新 nvidia-nim 条目，保留其他 provider。
-    # 顺序坑（2026-08-27 实证）：sops-nix home 的原始 secret 渲染不是 activation
-    # 直做，而是 sops-nix user systemd oneshot 服务按 manifest 跑
-    # sops-install-secrets；user unit 文件 symlink 在 linkGeneration 才换，
-    # 早于它的 activation 里 restart sops-nix 只会重放旧 unit（旧 manifest）→
-    # 新 secret 永远渲染不出。故必须 entryAfter linkGeneration 并自己触发渲染
-    # （与 sops-nix 同名 entry 同操作，幂等）；user systemd 离线（boot 时）
-    # 则跳过并 WARN，不阻 activation。
-    home.activation.configurePiNvidiaNimAuth = config.lib.dag.entryAfter [ "linkGeneration" ] ''
-      set -euo pipefail
-      export PATH='/etc/profiles/per-user/${config.snowfallorg.user.name}/bin:/run/current-system/sw/bin:$PATH'
-      secret=${config.sops.secrets."nvidia-nim/api_key".path}
-      if systemctl --user is-system-running 2>/dev/null | grep -qE '^(running|degraded)$'; then
-        # daemon-reload 必须先行：linkGeneration 刚换过 unit symlink，
-        # systemd 可能还在缓存旧 unit（旧 manifest），直接 restart 会重放
-        # 旧脚本（2026-08-27 实证：14:22 两次 restart 都跑了旧脚本，
-        # 新 secret 没渲染，本 activation 被 guard 跳过）
-        systemctl --user daemon-reload 2>/dev/null || true
-        systemctl --user restart sops-nix
-      fi
-      if [ ! -f "$secret" ]; then
-        echo "WARN: nvidia-nim secret not rendered yet (user systemd offline?); skipping auth.json update"
-        exit 0
-      fi
-      auth_file="$HOME/.pi/agent/auth.json"
-      mkdir -p "$HOME/.pi/agent"
-      key="$(cat "$secret")"
-      if [ -f "$auth_file" ]; then
-        tmp="$(mktemp)"
-        jq --arg k "$key" '.["nvidia-nim"] = {"type": "api_key", "key": $k}' "$auth_file" > "$tmp"
-        mv "$tmp" "$auth_file"
-      else
-        printf '{\n  "nvidia-nim": {"type": "api_key", "key": "%s"}\n}\n' "$key" > "$auth_file"
-      fi
-      chmod 600 "$auth_file"
-    '';
+    # nvidia-nim 的 key 现在只走 env（default.env 的 NVIDIA_NIM_API_KEY）。
+    # 原先这里用 activation 把 key 合并进 ~/.pi/agent/auth.json，与 agenix 打架：
+    # 该文件是 place 出来的软链（modules/home/agenix 的
+    # "agents/pi/auth.json"），`mv` 会把软链顶成普通文件，下次激活 agenix 又
+    # 换回软链 —— 两边互相擦，条目时有时无（2026-10-27 实测就只剩 runinfra 一条）。
+    # env 路径由 pi 的 wrapper source default.env 保证，启动方式无关。
 
     # home.activation.configurePiGuardrailsFork = config.lib.dag.entryAfter [ "writeBoundary" ] ''
     #   settings_file="$HOME/.pi/agent/settings.json"
