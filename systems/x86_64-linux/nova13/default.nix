@@ -255,12 +255,15 @@ in
     netPolicy.forcedProxySocksPort = 7899;
 
     # 代理客户端三选一：miho / sib / dae（互斥见各模块的断言）。
+    # 2026-10-27：临时从 miho 切到 sib，验证 xhttp 的间歇性超时是否与客户端
+    # 实现有关（zen14 跑 sib 时同配置 xhttp 全成功，nova13 跑 mihomo 时间歇超时）。
+    # 测完切回 miho：enable 互换即可。
     miho = {
-      enable = true;
+      enable = false;
       # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
       extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
-    sib.enable = false;
+    sib.enable = true;
     dae.enable = false;
     # 同一个 miho-conf 两台机器共用，里面的中转节点指向本机 socks5，
     # 所以 nova13 也得起这个客户端，否则那个节点在 nova13 上是死的。
