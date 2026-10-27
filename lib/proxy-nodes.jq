@@ -1,7 +1,7 @@
 # 代理节点清单的方言转换器（单一事实源：nix-secrets 的 proxy-nodes.json.age）。
 #
 # 输入：{ "nodes": [ ... ] }，每个节点是中性定义：
-#   hysteria2: { kind, name, server, port, hopPorts{start,end}, password, sni, sibGroups? }
+#   hysteria2: { kind, name, server, server6?, port, hopPorts{start,end}, password, sni, sibGroups? }
 #   socks    : { kind, name, port }          —— 本机 provider 提供的 socks5 上游
 #
 # 输出：{ sib: [...outbounds], sibGroups: { 组名: [节点名] }, miho: [...proxies] }
@@ -11,6 +11,19 @@
 #
 # 为什么在运行时跑而不是 nix 求值：节点清单是敏感的（server/密码/SNI），
 # 经 nix 求值就会变成世界可读的 /nix/store 文件。这里只让「转换逻辑」进 store。
+
+# 带 server6 的节点额外派生一个 v6 出站：同一节点、同一份凭据，只是 server 换成
+# v6 字面量；名字加 -v6 后缀，sibGroups 原样继承（所以会自动进「自动选择」等组）。
+#
+# 为什么不用「域名 + domain_resolver.strategy=prefer_ipv6」派生：那只是换解析偏好，
+# 出站仍然只有一条链路——v4 挂了也走 v6，反过来 v6 挂了也回不来。两个独立出站 +
+# urltest，才能让「哪族活着就用哪族」由测速决定。
+# 实测依据（2026-10-27）：屏蔽该节点的 v4 后 45 秒，sing-box 的 hy2 出站 0 次
+# 尝试 v6，它不会替你换族（QUIC/UDP 也没有 TCP 那种 Happy Eyeballs）。
+def expand_v6:
+  if (.server6 // null) == null then [ . ]
+  else [ ., (. + { name: (.name + "-v6"), server: .server6 }) ]
+  end;
 
 def require($f):
   if has($f) and .[$f] != null then .
@@ -54,7 +67,8 @@ def miho_proxy:
     error("proxy-nodes: 未知 kind \(.kind)（节点 \(.name // "?")）")
   end;
 
-.nodes as $nodes
+.nodes as $raw
+| ($raw | map(expand_v6) | add) as $nodes
 | {
     sib: ($nodes | map(sib_outbound)),
     # 组名 → 成员列表。按节点顺序追加，不排序：selector 的默认项是列表第一项。
