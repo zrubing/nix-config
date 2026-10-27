@@ -255,12 +255,20 @@ in
     netPolicy.forcedProxySocksPort = 7899;
 
     # 代理客户端三选一：miho / sib / dae（互斥见各模块的断言）。
-    # 2026-10-27：临时从 miho 切到 sib，验证 xhttp 的间歇性超时是否与客户端
-    # 实现有关（zen14 跑 sib 时同配置 xhttp 全成功，nova13 跑 mihomo 时间歇超时）。
-    # 测完切回 miho：enable 互换即可。
+    #
+    # nova13 用 sib（2026-10-27 决策）。依据是同一个 xhttp 节点在两套客户端下的
+    # 对照测量（同网段、同时刻、跨主机交替请求）：
+    #   · sib：6/6 成功，中位 0.42s
+    #   · mihomo：2/4 成功，中位 1.58s
+    # 机制上的原因不是「哪个客户端更快」，而是两家的 TUN 接管范围不同：
+    #   · mihomo 只对 198.18.0.0/30 做策略路由，xray 的 mark 0x66 落到 main 表
+    #     直连 CF 前置，绕开了节点
+    #   · sib 用 nfqueue 抓全部流量，xray 的出站同样走节点转发
+    # 回切代价：enable 互换即可，但要重跑 net-policy-check（里面有 tun DNS 断言）。
     miho = {
       enable = false;
       # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
+      # 保留引用是为了回切时不多一步：mihomo 不启用时它不参与求值。
       extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
     sib.enable = true;

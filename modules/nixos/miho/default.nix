@@ -48,10 +48,13 @@ let
   #   dnsDirect     → dns.fake-ip-filter（mihomo 默认 blacklist：列进去的域名不走 fake-ip）
   #   tunnelExclude → tun.route-exclude-address（连服务器本身不进 TUN）
   #
-  # ⚠ mihomo 当前未启用，本段只过了 nix eval，未做运行时实测。切回 miho 时先确认：
+  # 已验证（2026-10-26 ~ 27，nova13 实际跑 mihomo 期间核对过）：
   #   · /run/mihomo/config-with-secret.yaml 的 dns.fake-ip-filter 含全部节点域名
   #   · tun.route-exclude-address 含 directCidrs 的全部条目
-  #   · 密文里没有 dns.fake-ip-filter-mode: whitelist（有的话语义反转，本段会错）
+  #   · 密文里没有 dns.fake-ip-filter-mode: whitelist
+  #
+  # 但三条仍需在回切时复核：它们取决于密文与 net-policy 的内容，而不是本段代码。
+  # 密文里一旦有人加上 fake-ip-filter-mode: whitelist，语义就反过来，本段会错。
   netPolicyTokensJson = (pkgs.formats.json { }).generate "miho-net-policy-tokens.json" {
     dnsDirect = netPolicy.dnsDirectDomainTokens;
     tunnelExclude = netPolicy.tunnelExcludeTokens;
