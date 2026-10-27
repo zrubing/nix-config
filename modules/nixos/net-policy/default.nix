@@ -528,14 +528,14 @@ in
     #   · dnsDirectDomainTokens —— 这些域名必须用真实上游解析，不能被 fakeip 改写
     #   · tunnelExcludeTokens   —— 这些地址永不进 TUN，代理客户端连服务器本身直出
     #
-    # 为什么两条都要（实测 2026-10-27，tuic-client 连 vps-a）：
-    #   客户端用域名连服务器，经系统 DNS(sing-box) 拿到 fakeip 198.18.3.0；连接被
-    #   TUN 反查回域名，命中 final 走代理 → QUIC 握手被塞进另一个代理的 UDP 通道
+    # 为什么两条都要（实测 2026-10-27）：
+    #   客户端用域名连服务器，经系统 DNS(sing-box) 拿到 fakeip 假地址；连接被
+    #   TUN 反查回域名，命中 final 走代理 → 握手被塞进另一个代理的 UDP 通道
     #   → 每 500ms 重连一次，节点永久不可用。
     #
     #   只修 DNS 不够：客户端也可能拿到真实地址（resolved 缓存），那时目标是 IP
     #   字面量，域名规则匹配不到，包照样进 TUN 绕一圈（表现为「首次连上、握手偶发
-    #   超时」）。实测 tuic-client-jp 就是这样。
+    #   超时」）。实测另一台客户端进程就是这样。
     #   只修 TUN 排除也不够：应用侧拿到的仍是 fakeip，语义上依然是代理流量，且
     #   fakeip 反查会多绕一层 netfilter。
     #

@@ -35,6 +35,11 @@ let
       . "$HOME/.config/default.env"
       set +a
     fi
+    # pi-cache-optimizer：先只开“统计 + prompt_cache_key 兜底 + 代理 compat 告警”。
+    # 它的 prompt 改写（压缩 skill 列表、剔除 session-overview 抖动）默认开启，
+    # 会改变送进模型的 system prompt——与“测缓存命中”是两个变量，先不叠在一起。
+    # 要开改写就删掉这一行。
+    export PI_CACHE_OPTIMIZER_NO_PROMPT_REWRITE=1
     exec ${piPackage}/bin/pi "$@"
   '';
 
@@ -66,38 +71,35 @@ let
         cacheRead = 0;
         cacheWrite = 0;
       };
+      # pi 原生前缀缓存保温（0.86+）的资格声明：只有声明了「best-effort 寿命」的
+      # 模型才进入 warming 候选，没这条 = 永不续命。pi 只在「避免的 miss 成本 ≥ $0.05」
+      # 时才真续——按本路由 cacheRead 0.007 / input 0.22 算，前缀要 ~235k token 以上才会
+      # 触发，短会话完全不参与（不花钱）。DeepSeek 官方未公布 TTL（只说长期不用的条目
+      # 会自动清空），取保守端 1 小时：真实 TTL 更长只是少续几次，不会更贵（一次续命
+      # ≈ 0.007/M × 前缀）。pi 专有概念，dsh 侧无对应字段，故留在 pi 渲染器里（同 cost）。
+      promptCache = {
+        short = 3600;
+      };
     } // lib.optionalAttrs (m ? compat) { inherit (m) compat; }) relayRoute.models;
   };
 
-  # ── pi-deepseek-cache：禁用其 P3（cache-friendly compaction）后本地加载 ──
-  # 冲突事实（2026-09-08 实证）：该扩展与 pi-blackhole 都注册 session_before_compact，
-  # 而 pi 的 runner 对 session_before_* 事件是「覆盖」语义、非合并——
-  # core/extensions/runner.js 的 isSessionBeforeEvent 分支里 `result = handlerResult`
-  # （仅 cancel 会短路）。扩展按包名字母序加载（旧 pi-debug.log 的 [Extensions] 段可验：
-  # @aliou/… → context-mode → monotykamary/… → pi-blackhole → pi-deepseek-search →
-  # pi-mcp-adapter），故 pi-blackhole 先注册、pi-deepseek-cache 后注册并覆盖，
-  # blackhole 的 OM 折叠内容（`summary + "\n\n" + omContent`）被整段丢弃，
-  # details.compactor/sections/om.folded 一并丢失；/blackhole 手动路径同样被覆盖
-  # （该扩展不检查 customInstructions）。
-  # 上游 0.2.1 已是最新且无任何开关（源码无 config/env 读取），故从 npm tarball
-  # 构建一份禁用 P3 的副本，经本地扩展目录加载（pi 支持 ~/.pi/agent/extensions/*/index.ts，
-  # 且 loader.js 的 _aliases 表对本地扩展同样生效，裸导入 @earendil-works/* 可解析），
-  # 保留 P1 命中率遥测与 P2 前缀守卫。
-  # patch 手法：把 session_before_compact 的注册改成 `if (false) …`（单行、版本无关），
-  # 该 handler 从此不注册 → 对 compaction 结果弃权 → blackhole 的返回值存活。
-  # 上游若加开关，改回 settings.json 的 packages 引用并删掉本段即可。
-  deepseekCacheVersion = "0.2.1";
-  deepseekCacheTarball = pkgs.fetchurl {
-    url = "https://registry.npmjs.org/pi-deepseek-cache/-/pi-deepseek-cache-${deepseekCacheVersion}.tgz";
-    hash = "sha256-biTininOQyEQrdTq40+7ojlpTnVnO+DuRkffm2Ykg3Y=";
-  };
-  deepseekCacheExt = pkgs.runCommand "pi-deepseek-cache-nocompact-${deepseekCacheVersion}" { } ''
-    mkdir -p $out
-    tar xzf ${deepseekCacheTarball} -C $out --strip-components=1
-    substituteInPlace $out/index.ts --replace-fail \
-      '  pi.on("session_before_compact", async (event, ctx) => {' \
-      '  if (false) pi.on("session_before_compact", async (event, ctx) => {'
-  '';
+  # ── 缓存优化：只用「不注册 session_before_compact」的方案 ──
+  # 历史：pi-deepseek-cache（P1 遥测 / P2 前缀守卫 / P3 缓存友好压缩 / P4 保温否决）
+  # 曾以本地 patched 副本加载，因为 P3 与 pi-blackhole 抢 session_before_compact。
+  # 2026-10-27 换成两层组合，都不碰 compaction：
+  #   1. 保温本身用 pi 1.4.0 原生：settings.json 的 cacheWarming + 模型条目的 promptCache
+  #      （见上方 relayProvider）。注意它的硬门槛：CACHE_WARMING_MINIMUM_EXPECTED_SAVINGS
+  #      是硬编码 0.05 美元、不可配置，按本路由定价反推需要前缀 ≥ ~243k token，
+  #      且 streaming 模式只在单次 run 内有效（agent settle 就停）——交互式基本不触发，
+  #      属于“零成本占位”，靠它不能救命中率；
+  #   2. 遥测与代理兼容用 pi-cache-optimizer（见下文 packages）：它注册的 hook 集合
+  #      与 blackhole 零重叠（blackhole 只有 agent_start/turn_end/session_compact/
+  #      session_before_compact/agent_end），且 cache_warming_decision 只在零价模型上
+  #      答 warm，不会抢原生决策。
+  # 仍然排除的：任何注册 session_before_compact 的缓存扩展（pi-deepseek-cache、
+  # pi-dc-distill 等）—— 最后注册者覆盖，与 blackhole 的 OM 折叠直接互斥。
+  # 旧扩展的数据目录 ~/.pi/agent/extensions/deepseek-cache/（stats.json / history.json /
+  # summary-cache.json）已无消费者，保留为历史数据，需要时手动删。
 
   # ── MCP servers：统一源（modules/home/mcp-servers/servers.nix）的 pi 视图 ──
   # pi 0.99 起内置 mcp 扩展直接支持 MCP（/mcp、codemode、OAuth 等），不再需要
@@ -134,14 +136,21 @@ let
       "npm:context-mode@1.0.169"
       "npm:@aliou/pi-processes@0.9.5"
       "npm:pi-deepseek-search@1.0.15"
-      # pi-deepseek-cache 不在此声明：其 P3 compaction 与 pi-blackhole 冲突（覆盖语义），
-      # 改用 deepseekCacheExt 经本地扩展目录加载，理由见上方 deepseekCacheExt 注释。
+      # 缓存优化：不注册 session_before_compact（与 pi-blackhole 的 hook 集合零重叠），
+      # 提供 footer 缓存统计分片、OpenAI 兼容 prompt_cache_key 兜底、代理 compat 告警。
+      # 注意它自带 cache_warming_decision 处理器——只在“模型价格全为 0”时答 warm，
+      # 其余返 undefined 让位给 pi 原生决策，故不会与我们的 promptCache 冲突。
+      "npm:pi-cache-optimizer@2.10.4"
+      # 缓存保温本身仍走 pi 原生 cacheWarming + 模型 promptCache（不装 compaction 类缓存扩展）。
       # runinfra 不在此声明：见上文本地扩展。
       # NVIDIA NIM 网关 provider（integrate.api.nvidia.com/v1，100+ 模型，
       # 运行时 live discovery）。dsh 侧对应 data/nvidia-nim-models.json 静态
       # 快照（见 modules/home/dsh），升级时两边一起动。
       "npm:pi-nvidia-nim@1.1.23"
     ];
+    # pi 原生前缀缓存保温：streaming = 活跃会话期内、缓存即将过期前重发一次；
+    # idle 才管会话之间。上游默认就是 streaming，这里写死防止默认值漂移。
+    cacheWarming = "streaming";
     # —— settings.json 不支持 `providers` 键（pi 源码 Settings 接口无此字段），
     #    modelOverrides 已移到下方 piModelsOverlayJson，经 agenix merge 进 models.json
   };
@@ -201,11 +210,6 @@ in
       text = blackholeConfig;
       force = true;
     };
-    # pi-deepseek-cache：本地 patched 副本（P3 已禁用），不再经 settings.json 的 packages。
-    # 该目录同时是扩展自身的 STATS_DIR（stats.json / history.json / summary-cache.json），
-    # 故只 link index.ts，不动目录内其余运行时文件。
-    home.file.".pi/agent/extensions/deepseek-cache/index.ts".source =
-      "${deepseekCacheExt}/index.ts";
     # RunInfra provider：本地薄扩展，只读 dsh autosync 发布的 catalog
     # （~/.cache/llm/runinfra-models.json）。同步逻辑唯一实现在
     # modules/home/dsh/plugins/autosync/lib/runinfra.js，pi 侧不重复实现。

@@ -19,8 +19,8 @@
 # 为什么不用「域名 + domain_resolver.strategy=prefer_ipv6」派生：那只是换解析偏好，
 # 出站仍然只有一条链路——v4 挂了也走 v6，反过来 v6 挂了也回不来。两个独立出站 +
 # urltest，才能让「哪族活着就用哪族」由测速决定。
-# 实测依据（2026-10-27）：屏蔽该节点的 v4 后 45 秒，sing-box 的 hy2 出站 0 次
-# 尝试 v6，它不会替你换族（QUIC/UDP 也没有 TCP 那种 Happy Eyeballs）。
+# 实测依据（2026-10-27）：屏蔽某节点的 v4 后 45 秒，QUIC 出站 0 次尝试 v6——
+# 它不会替你换族（QUIC/UDP 也没有 TCP 那种 Happy Eyeballs）。
 def expand_v6:
   if (.server6 // null) == null then [ . ]
   else [ ., (. + { name: (.name + "-v6"), server: .server6 }) ]
