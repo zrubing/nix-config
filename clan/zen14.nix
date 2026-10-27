@@ -59,6 +59,21 @@
     '';
   };
 
+  # 投递用的 age 私钥。packages/handoff 只固化公钥（用于加密），私钥留在
+  # 这里加密保存，需要取件时再取出。
+  # 换值：clan vars set zen14 handoff-key/secret-key
+  clan.core.vars.generators.handoff-key = {
+    prompts.secret-key = {
+      description = "age secret key for handoff deliveries";
+      type = "hidden";
+    };
+    files.secret-key.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/secret-key > $out/secret-key
+    '';
+  };
+
   # ApiPost 开放平台的 MCP api-token（https://open.apipost.net/mcp 认证头）。
   # 消费方：homes/x86_64-linux/jojo 的 home 级 sops 引用本加密文件，
   # 渲染进 dsh.env，由 dsh 的 mcp-client 插件以 process.env.APIPOST_MCP_TOKEN 读取。
