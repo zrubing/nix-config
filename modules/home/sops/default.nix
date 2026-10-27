@@ -143,6 +143,14 @@ in
       format = "binary";
     };
 
+    # 投递工具的默认 bucket 名。不是凭据，但不写进公开仓库的明文，因此同样走
+    # clan vars（clan/zen14.nix 的 handoff-bucket generator）。渲染进
+    # ~/.config/handoff.env，登录 shell source 后作为默认值。
+    sops.secrets."handoff/bucket" = {
+      sopsFile = ../../../vars/per-machine/zen14/handoff-bucket/bucket/secret;
+      format = "binary";
+    };
+
     # GitHub 远程 MCP server 的 PAT：密文由 clan vars 管理（clan/zen14.nix 的
     # github-mcp-token generator，写入 vars/per-machine/zen14/github-mcp-token/）。
     # 渲染进 dsh.env 的 GITHUB_MCP_TOKEN（dsh mcp-github server，Bearer 头）。加密
@@ -317,6 +325,18 @@ in
         # export TRADINGAGENTS_DEEP_THINK_LLM=deepseek-chat
         # export TRADINGAGENTS_QUICK_THINK_LLM=deepseek-chat
         # export TRADINGAGENTS_OUTPUT_LANGUAGE=Chinese
+      '';
+    };
+
+    # 投递工具的默认参数。单独一个文件，与 default.env 解耦：改默认 bucket
+    # 不会影响 agent / 模型 key 的注入，也不会把无关变量带进终端环境。
+    # 值末尾的换行必须裁掉：sops placeholder 会原样替换密文内容，而 clan vars
+    # 的 prompt 文件天然带结尾换行；直接写进引号会让 source 后的变量变空。
+    sops.templates."handoff-env" = {
+      path = "/home/${username}/.config/handoff.env";
+      content = ''
+        HANDOFF_BUCKET="$(printf '%s' "${config.sops.placeholder."handoff/bucket"}" | tr -d '\n')"
+        export HANDOFF_BUCKET
       '';
     };
 

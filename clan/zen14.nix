@@ -74,6 +74,23 @@
     '';
   };
 
+  # 投递用的默认 bucket 名。不是凭据，但不写进公开仓库的明文，因此也走 clan
+  # vars；由 sops template 渲染成 ~/.config/handoff.env，登录 shell 自动 source。
+  # 换值：clan vars set zen14 handoff-bucket/bucket
+  clan.core.vars.generators.handoff-bucket = {
+    prompts.bucket = {
+      description = "default bucket name for handoff deliveries";
+      type = "hidden";
+    };
+    files.bucket.secret = true;
+
+    # 用 printf 而不是 tr：prompt 文件末尾带换行，必须裁干净，否则值进入
+    # env 文件后会把换行带进引号，source 后变量变成空。
+    script = ''
+      printf '%s' "$(cat $prompts/bucket)" > $out/bucket
+    '';
+  };
+
   # ApiPost 开放平台的 MCP api-token（https://open.apipost.net/mcp 认证头）。
   # 消费方：homes/x86_64-linux/jojo 的 home 级 sops 引用本加密文件，
   # 渲染进 dsh.env，由 dsh 的 mcp-client 插件以 process.env.APIPOST_MCP_TOKEN 读取。

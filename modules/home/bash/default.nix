@@ -52,6 +52,11 @@ in
           export JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
           export PATH="$JAVA_HOME/bin:$PATH"
         fi
+
+        # 登录 shell 也带上 handoff 的默认 bucket（.bashrc 只在交互式生效）
+        if [ -f ${config.sops.templates."handoff-env".path} ]; then
+          source ${config.sops.templates."handoff-env".path}
+        fi
       '';
 
       initExtra = ''
@@ -109,6 +114,11 @@ in
 
         if [ -f ${config.sops.templates."default-env".path} ]; then
           source ${config.sops.templates."default-env".path}
+        fi
+
+        # handoff 的默认 bucket。单独一份文件，缺失时不影响其他变量。
+        if [ -f ${config.sops.templates."handoff-env".path} ]; then
+          source ${config.sops.templates."handoff-env".path}
         fi
 
 
