@@ -55,6 +55,8 @@ let
   netPolicyTokensJson = (pkgs.formats.json { }).generate "miho-net-policy-tokens.json" {
     dnsDirect = netPolicy.dnsDirectDomainTokens;
     tunnelExclude = netPolicy.tunnelExcludeTokens;
+    # null = 关闭 fakeip v6（不写 fake-ip-range6）
+    fakeip6 = netPolicy.fakeipInet6Range;
   };
 in
 {
@@ -196,7 +198,8 @@ in
           def np_expand($addr):
             map(if test("^__NETPOLICY_") then np_lines($addr) else . end);
           { fake_ip_filter: (.dnsDirect | np_expand($a[0])),
-            route_exclude: (.tunnelExclude | np_expand($a[0])) }
+            route_exclude: (.tunnelExclude | np_expand($a[0])),
+            fakeip6: .fakeip6 }
         ' ${netPolicyTokensJson} > /run/mihomo/net-policy.json
 
         yq eval --null-input '
@@ -212,7 +215,9 @@ in
             # 解析，不会被改写成 198.18.x。否则客户端连服务器拿到假地址，
             # 连接被 TUN 反查回域名后走代理，QUIC 握手被塞进另一个代理的 UDP 通道。
             | .dns["fake-ip-filter"] = (((.dns["fake-ip-filter"] // []) + $np.fake_ip_filter) | unique)
-            | .tun["route-exclude-address"] = (((.tun["route-exclude-address"] // []) + $np.route_exclude) | unique))
+            | .tun["route-exclude-address"] = (((.tun["route-exclude-address"] // []) + $np.route_exclude) | unique)
+            # fakeip v6 闸门：net-policy 声明了段才写 fake-ip-range6。
+            | (if $np.fakeip6 != null then .dns["fake-ip-range6"] = $np.fakeip6 else . end))
         ' > /run/mihomo/config.merged.yaml
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，

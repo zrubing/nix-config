@@ -74,6 +74,8 @@ let
     #   tunnelExclude   —— 这些地址不进 TUN，客户端连服务器本身直接出去
     dnsDirect = netPolicy.dnsDirectDomainTokens;
     tunnelExclude = netPolicy.tunnelExcludeTokens;
+    # null = 关闭：不注入 inet6_range，AAAA 查询仍然 NODATA。
+    fakeip6 = netPolicy.fakeipInet6Range;
   };
 
   # 共享节点清单（私有仓的加密 JSON）是唯一事实源。节点定义刻意不经 nix 求值：
@@ -183,6 +185,14 @@ let
           [ { domain_suffix: ($p.dnsDirect | np_expand($a)), server: "dns-direct" } ]
           + (.dns.rules // [])
         )
+      # ── fakeip v6 闸门 ────────────────────────────────────────────
+      # 只在 net-policy 声明了段时才注入；null 时保持密文原样（fakeip 只有 v4）。
+      # 打开后 AAAA 查询会返回该段的 fakeip 地址，应用才可能发起 v6 连接。
+      | (if $p.fakeip6 != null
+         then .dns.servers |= map(
+                if .type == "fakeip" then .inet6_range = $p.fakeip6 else . end
+              )
+         else . end)
       # ── TUN：代理服务器地址永不进 TUN ───────────────────────────────
       # 光靠 route 规则里的 IP-CIDR → 直连 不够：包仍要先被 nfqueue 抓进 sing-box
       # 再 direct 出站，每条新 QUIC 连接都多绕一圈（表现为握手偶发超时）。

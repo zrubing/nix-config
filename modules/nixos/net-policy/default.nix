@@ -491,6 +491,26 @@ in
       '';
     };
 
+    # ── fakeip v6 闸门 ────────────────────────────────────────────────
+    #
+    # null（默认）= AAAA 查询不返回 fakeip v6 → 应用侧拿不到 v6 地址，全走 IPv4。
+    # 这不是「没配」，是有意的取舍：打开后所有代理域名会优先拿 v6 地址、流量从
+    # 节点 v6 出站，而分流的 v6 侧完全依赖 geoip-* 规则集是否覆盖 v6 段。
+    #
+    # 设成 CIDR 才打开。已知前提：
+    #   1. 本机不需要公网 IPv6 —— fakeip 是本地生成的地址，出口在节点那边。
+    #      只需该段的路由指向 TUN（auto_route 下 sing-box 自己加）。
+    #   2. 该段不能被本机真实地址占用（查 `ip -6 addr` 与 `ip -6 route`）。
+    #   3. 避开 sing-box 的 `ip_is_private → 直连` 规则：ULA（fc00::/7）有被这条
+    #      规则当成内网直连的风险。打开后必须实测「fakeip v6 目标的日志走的是
+    #      代理出站而不是 direct」—— 这一条实测过才算真的能用。
+    fakeipInet6Range = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      defaultText = lib.literalExpression "null（关闭）";
+      description = "fakeip 的 IPv6 段；null 表示应用侧不使用 IPv6。";
+    };
+
     # 敏感地址的占位符与解密后路径。客户端 prepare 用它们把 render 出来
     # 的 token 展开成真实 CIDR。从这里取而不是在客户端里硬编码 token 名，
     # 否则改一个字符串要在 4 处同步。

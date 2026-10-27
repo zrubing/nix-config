@@ -382,6 +382,13 @@ in
     };
     sib.enable = true;
     dae.enable = false;
+
+    # fakeip v6 闸门（2026-10-27 实验性打开，先在 zen14 上验证）。
+    # 段刻意不用 sing-box 默认的 fc00::/18：那是 ULA，会被 net-policy 里
+    # `ip_is_private → 直连` 那条规则当成内网地址。2001:db8::/32 是文档保留段，
+    # 真实网络不会出现，IsPrivate() 也返回 false。
+    # 关闭：删掉这行（或设成 null）后 rebuild。
+    netPolicy.fakeipInet6Range = "2001:db8:1::/48";
     # 服务端的 TUIC 都是 Itsusinn fork（v2 协议），mihomo 自带的 tuic 客户端
     # （v5）在认证阶段被拒（Invalid authentication）。这里跑同源客户端，
     # sib 只把每个实例当成一个本地 socks5 节点。
