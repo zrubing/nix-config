@@ -2,6 +2,7 @@
 #
 # 输入：{ "nodes": [ ... ] }，每个节点是中性定义：
 #   hysteria2: { kind, name, server, server6?, port, hopPorts{start,end}, password, sni, sibGroups? }
+#   vless-reality: { kind, name, server, port, uuid, publicKey, shortId?, sni, sibGroups? }
 #   socks    : { kind, name, port }          —— 本机 provider 提供的 socks5 上游
 #
 # 输出：{ sib: [...outbounds], sibGroups: { 组名: [节点名] }, miho: [...proxies] }
@@ -44,6 +45,26 @@ def sib_outbound:
   elif .kind == "socks" then
     require("port")
     | { type: "socks", tag: .name, server: "127.0.0.1", server_port: .port }
+  elif .kind == "vless-reality" then
+    # 服务端没配 flow，这里也不设（两边必须一致，否则握手失败）。
+    require("port") | require("uuid") | require("publicKey") | require("sni")
+    | {
+        type: "vless",
+        tag: .name,
+        server: .server,
+        server_port: .port,
+        uuid: .uuid,
+        tls: {
+          enabled: true,
+          server_name: .sni,
+          utls: { enabled: true, fingerprint: "chrome" },
+          reality: {
+            enabled: true,
+            public_key: .publicKey,
+            short_id: (.shortId // "")
+          }
+        }
+      }
   else
     error("proxy-nodes: 未知 kind \(.kind)（节点 \(.name // "?")）")
   end;
@@ -63,6 +84,24 @@ def miho_proxy:
   elif .kind == "socks" then
     require("port")
     | { name: .name, type: "socks5", server: "127.0.0.1", port: .port }
+  elif .kind == "vless-reality" then
+    require("port") | require("uuid") | require("publicKey") | require("sni")
+    | {
+        name: .name,
+        type: "vless",
+        server: .server,
+        port: .port,
+        uuid: .uuid,
+        network: "tcp",
+        tls: true,
+        servername: .sni,
+        udp: true,
+        "client-fingerprint": "chrome",
+        "reality-opts": {
+          "public-key": .publicKey,
+          "short-id": (.shortId // "")
+        }
+      }
   else
     error("proxy-nodes: 未知 kind \(.kind)（节点 \(.name // "?")）")
   end;
