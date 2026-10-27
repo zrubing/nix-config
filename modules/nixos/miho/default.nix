@@ -43,6 +43,19 @@ let
   };
 
   mihomoExtraConfigFile = (pkgs.formats.yaml { }).generate "mihomo-extra.yaml" mergedExtraConfig;
+
+  # 代理入口的两条不变量（同为 token，prepare 阶段从密文展开，与 sib 同源）：
+  #   dnsDirect     → dns.fake-ip-filter（mihomo 默认 blacklist：列进去的域名不走 fake-ip）
+  #   tunnelExclude → tun.route-exclude-address（连服务器本身不进 TUN）
+  #
+  # ⚠ mihomo 当前未启用，本段只过了 nix eval，未做运行时实测。切回 miho 时先确认：
+  #   · /run/mihomo/config-with-secret.yaml 的 dns.fake-ip-filter 含全部节点域名
+  #   · tun.route-exclude-address 含 directCidrs 的全部条目
+  #   · 密文里没有 dns.fake-ip-filter-mode: whitelist（有的话语义反转，本段会错）
+  netPolicyTokensJson = (pkgs.formats.json { }).generate "miho-net-policy-tokens.json" {
+    dnsDirect = netPolicy.dnsDirectDomainTokens;
+    tunnelExclude = netPolicy.tunnelExcludeTokens;
+  };
 in
 {
 
@@ -173,14 +186,33 @@ in
         ' /run/mihomo/rules.tmpl.json > /run/mihomo/rules.json
         rm -f /run/mihomo/rules.tmpl.json
 
+        # 代理入口 token 展开（与 sib 同一套 token 名，同一份 net-policy-addresses）。
+        # 展开成两个纯数组，下面交给 yq 合并 —— yq 里不方便写「一条 token 变多条」。
+        jq --slurpfile a ${netPolicy.addressTokenFile} '
+          def np_lines($addr):
+            . as $t
+            | ($t | ltrimstr("__NETPOLICY_") | rtrimstr("__")) as $k
+            | ($addr[$k] // error("net-policy-addresses 里没有键 \($k)"))[];
+          def np_expand($addr):
+            map(if test("^__NETPOLICY_") then np_lines($addr) else . end);
+          { fake_ip_filter: (.dnsDirect | np_expand($a[0])),
+            route_exclude: (.tunnelExclude | np_expand($a[0])) }
+        ' ${netPolicyTokensJson} > /run/mihomo/net-policy.json
+
         yq eval --null-input '
           load("/run/agenix/miho-conf") as $base |
           load("${mihomoExtraConfigFile}") as $extra |
           load("/run/mihomo/nodes.json") as $nodes |
           load("/run/mihomo/rules.json") as $rules |
+          load("/run/mihomo/net-policy.json") as $np |
           (($base *+ ($extra | del(.rules)))
             | .proxies = ((.proxies // []) + ($nodes.miho // []))
-            | .rules = $rules)
+            | .rules = $rules
+            # 代理入口域名走真实 DNS：命中 fake-ip-filter 的域名用 direct-nameserver
+            # 解析，不会被改写成 198.18.x。否则客户端连服务器拿到假地址，
+            # 连接被 TUN 反查回域名后走代理，QUIC 握手被塞进另一个代理的 UDP 通道。
+            | .dns["fake-ip-filter"] = (((.dns["fake-ip-filter"] // []) + $np.fake_ip_filter) | unique)
+            | .tun["route-exclude-address"] = (((.tun["route-exclude-address"] // []) + $np.route_exclude) | unique))
         ' > /run/mihomo/config.merged.yaml
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，
@@ -217,6 +249,7 @@ in
         (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.json.age")
         (builtins.hashFile "sha256" "${mysecrets}/net-policy-addresses.json.age")
         mihomoExtraConfigFile
+        netPolicyTokensJson
       ];
       serviceConfig = {
         AmbientCapabilities = lib.mkForce "CAP_NET_ADMIN CAP_NET_BIND_SERVICE";

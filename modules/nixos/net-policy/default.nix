@@ -502,6 +502,40 @@ in
       description = "敏感 CIDR 的占位符（键：directCidrs / cnCidrs）。";
     };
 
+    # ── 代理入口：客户端与服务器之间的链路必须绕开代理自己 ────────────
+    #
+    # 两条不变量，这里只声明 token，真值在 net-policy-addresses.json.age：
+    #   · dnsDirectDomainTokens —— 这些域名必须用真实上游解析，不能被 fakeip 改写
+    #   · tunnelExcludeTokens   —— 这些地址永不进 TUN，代理客户端连服务器本身直出
+    #
+    # 为什么两条都要（实测 2026-10-27，tuic-client 连 vps-a）：
+    #   客户端用域名连服务器，经系统 DNS(sing-box) 拿到 fakeip 198.18.3.0；连接被
+    #   TUN 反查回域名，命中 final 走代理 → QUIC 握手被塞进另一个代理的 UDP 通道
+    #   → 每 500ms 重连一次，节点永久不可用。
+    #
+    #   只修 DNS 不够：客户端也可能拿到真实地址（resolved 缓存），那时目标是 IP
+    #   字面量，域名规则匹配不到，包照样进 TUN 绕一圈（表现为「首次连上、握手偶发
+    #   超时」）。实测 tuic-client-jp 就是这样。
+    #   只修 TUN 排除也不够：应用侧拿到的仍是 fakeip，语义上依然是代理流量，且
+    #   fakeip 反查会多绕一层 netfilter。
+    #
+    # 两条闸门同时关死，客户端与服务器之间才是一条干净的直连链路。
+    dnsDirectDomainTokens = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      internal = true;
+      readOnly = true;
+      default = [ addressTokens.directDomains ];
+      description = "必须真实解析的域名（token，prepare 阶段展开）。";
+    };
+
+    tunnelExcludeTokens = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      internal = true;
+      readOnly = true;
+      default = [ addressTokens.directCidrs ];
+      description = "永不进 TUN 的地址（token，prepare 阶段展开）。";
+    };
+
     addressTokenFile = lib.mkOption {
       type = lib.types.str;
       internal = true;

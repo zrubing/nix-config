@@ -69,6 +69,11 @@ let
     rules = netPolicy.sibRules;
     final = netPolicy.final;
     addresses = netPolicy.bypassProxyAddresses;
+    # 代理入口的两条不变量（token，prepare 阶段从密文展开）：
+    #   dnsDirect       —— 这些域名走 dns-direct，拿真实地址而不是 fakeip
+    #   tunnelExclude   —— 这些地址不进 TUN，客户端连服务器本身直接出去
+    dnsDirect = netPolicy.dnsDirectDomainTokens;
+    tunnelExclude = netPolicy.tunnelExcludeTokens;
   };
 
   # 共享节点清单（私有仓的加密 JSON）是唯一事实源。节点定义刻意不经 nix 求值：
@@ -169,11 +174,35 @@ let
           | (if (.domain_suffix // []) | any(test("^__NETPOLICY_")) then .domain_suffix |= np_expand($a) else . end)
         )
       | .route.final = $p.final
+      # ── DNS：代理入口域名必须真实解析 ───────────────────────────────
+      # 这些域名一旦被 fakeip 改写，客户端（tuic-client 等）拿到 198.18.x 假地址，
+      # 连过去又被 TUN 反查回域名走代理，自指了一圈。实测 2026-10-27。
+      # 插在最前：只按 domain_suffix 匹配，不依赖 sniff；且必须排在密文里
+      # query_type [A,AAAA] → fakeip 这条之前，否则被 fakeip 抢走。
+      | .dns.rules = (
+          [ { domain_suffix: ($p.dnsDirect | np_expand($a)), server: "dns-direct" } ]
+          + (.dns.rules // [])
+        )
+      # ── TUN：代理服务器地址永不进 TUN ───────────────────────────────
+      # 光靠 route 规则里的 IP-CIDR → 直连 不够：包仍要先被 nfqueue 抓进 sing-box
+      # 再 direct 出站，每条新 QUIC 连接都多绕一圈（表现为握手偶发超时）。
+      #
+      # 判断这条是否生效别看 nft set：`nft list set inet sing-box
+      # inet4_route_exclude_address_set` 对应的是 `route_exclude_address_set`
+      # （rule_set 引用），与 `route_exclude_address` 是两套机制。实测（2026-10-27）：
+      # 加了 /32 和 /128 后 nft set 里仍看不到它们，但 sing-box 日志里不再出现
+      # 这些目标的 inbound —— route_exclude_address 的作用点在 nfqueue 处理：
+      # 包进了队列，但判断命中排除后直接放行，不记日志、不进代理。
       | .inbounds = (
           .inbounds
           | map(
               if .type == "tun"
-              then .route_exclude_address = (((.route_exclude_address // []) + $p.addresses) | unique)
+              then .route_exclude_address = (
+                     ((.route_exclude_address // [])
+                       + $p.addresses
+                       + ($p.tunnelExclude | np_expand($a)))
+                     | unique
+                   )
                    | .auto_redirect_output_mark = "0x1c00"
               else . end
             )
@@ -208,6 +237,7 @@ let
     badrefs="$(jq -r '
       ([.outbounds[].tag]) as $outs
       | ([.route.rule_set[]?.tag]) as $sets
+      | ([.dns.servers[]?.tag]) as $dns_servers
       | [
           ( .outbounds[]
             | select(.outbounds != null)
@@ -223,6 +253,10 @@ let
             | .rule_set[] as $s
             | select(($sets | index($s)) == null)
             | "规则 → 不存在的 rule_set \($s)" ),
+          ( .dns.rules[]
+            | (.server // empty) as $s
+            | select(($dns_servers | index($s)) == null)
+            | "DNS 规则 → 不存在的 dns server \($s)" ),
           ( (.route.final // null) as $f
             | select($f != null)
             | select(($outs | index($f)) == null)
