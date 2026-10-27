@@ -720,11 +720,11 @@
         "treefmt-nix": "treefmt-nix_3"
       },
       "locked": {
-        "lastModified": 1792708153,
-        "narHash": "sha256-WA8ApztLScSY330voQfUR28FS+erMCphfFMPy+/aIF0=",
+        "lastModified": 1793055784,
+        "narHash": "sha256-bBJkqUecWMGtQKVFhQEU9YmFPRWfckmjrd7htJymjj8=",
         "owner": "numtide",
         "repo": "llm-agents.nix",
-        "rev": "d026657ab1ee7ec8a7ca0509e17657d5247ddc42",
+        "rev": "c11e8bfec6a1b2d7038f7455049b002709cb1e65",
         "type": "github"
       },
       "original": {
@@ -772,11 +772,11 @@
     "mysecrets": {
       "flake": false,
       "locked": {
-        "lastModified": 1793038486,
-        "narHash": "sha256-8Bb4dRt6dziCHy3fhN5NfRs4iRSSYx9e7EsuUp8EK5M=",
+        "lastModified": 1793068483,
+        "narHash": "sha256-mc1LWQa6TX6g06jRDWl3dvJ4VCZBUSLvav4mkN9YSqk=",
         "ref": "main",
-        "rev": "d7f44c03698c5598f62d10d1057fdc34be5a9392",
-        "revCount": 412,
+        "rev": "6aafcbf3392f9cc160631e5d7093a554b96cbbb3",
+        "revCount": 413,
         "type": "git",
         "url": "ssh://git@github.com/zrubing/nix-secrets.git"
       },
