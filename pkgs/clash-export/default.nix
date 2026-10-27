@@ -157,6 +157,8 @@ writeShellApplication {
         printf '分流规则: %s 条\n' "$(yq -r '.rules | length' "$workdir/final.yaml")"
         printf '适配模式: %s\n' "$([ "$raw" -eq 1 ] && echo '原样（Linux）' || echo '移动端')"
         printf '注意: 含明文凭据且权限 600；对外投递请用 handoff\n'
+        # 接收方要解密，先把取私钥的命令给出来。这不含敏感值，可直接转发。
+        printf '取私钥: clan vars get zen14 handoff-key/secret-key\n'
       } >&2
     fi
   '';

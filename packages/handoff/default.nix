@@ -161,6 +161,8 @@ writeShellApplication {
       printf '有效期   : %s 秒\n' "$TTL"
       printf '解密要求 : 接收方需持有 age 私钥，无则内容不可读\n'
       printf '访问控制 : 对象未设公开读，链接过期后需重新生成\n'
+      # 打印的是取私钥的命令，不是私钥本身——命令不含敏感值，可以直接截图/转发。
+      printf '取私钥   : clan vars get zen14 handoff-key/secret-key\n'
     } >&2
   '';
 
