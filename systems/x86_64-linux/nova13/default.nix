@@ -245,6 +245,11 @@ in
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
     };
 
+    # fakeip v6 闸门，段与 zen14 同源（段选择理由见 zen14 同处注释与
+    # docs/net-invariants.md）。本机原生 v6 的国内路由质量明显优于对比机型，
+    # 开闸后实际能用上 v6 的收益更大。关闭：设成 null 或删掉这行后 rebuild。
+    netPolicy.fakeipInet6Range = "2001:db8:1::/48";
+
     # 代理客户端三选一：miho / sib / dae（互斥见各模块的断言）。
     miho = {
       enable = true;
