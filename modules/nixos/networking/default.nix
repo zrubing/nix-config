@@ -23,8 +23,18 @@
         set -u
         SERVERS="223.5.5.5#dns.alidns.com 223.6.6.6#dns.alidns.com"
 
+        # 只覆盖物理网卡的 link DNS。判据是 /sys/class/net/<if>/device：
+        # 只有真实硬件（PCI/USB 父设备）才有这个条目，tun / veth / cilium /
+        # lxc 等虚拟接口都没有。
+        #
+        # 必须跳过虚拟接口，尤其是代理的 tun：sing-box 会自己给 tun 宣告
+        # DNS（默认推导为 tun 地址的下一个 IP，如 172.19.0.1/30 → 172.19.0.2，
+        # 并自动劫持到自己的 DNS 模块返回 fakeip）。这里覆盖成公网 DNS 会
+        # 让域名解析成真实 IP，命中「非内网 → 直连」规则后走直连而超时。
+        # 2026-10-27 实测：该覆盖让 singtun0 的 DNS 变成阿里，fakeip 完全失效。
         apply() {
           [ -n "''${1:-}" ] || return 0
+          [ -e "/sys/class/net/$1/device" ] || return 0
           ${pkgs.systemd}/bin/resolvectl dns "$1" $SERVERS 2>/dev/null || true
         }
 
@@ -36,11 +46,12 @@
           exit 0
         fi
 
-        # 启动时调用：枚举能走 DHCP 的物理接口，把它们的 link DNS 全部覆盖。
-        # 不写死接口名：换网卡、换机器都不用改配置。
-        for dev in $(${pkgs.networkmanager}/bin/nmcli -t -f DEVICE,TYPE device status 2>/dev/null \
-                     | awk -F: '$2 ~ /^(802-11-wireless|802-3-ethernet|gsm|cdma)$/ {print $1}'); do
-          apply "$dev"
+        # 启动时调用：遍历所有接口，apply 内部按 sysfs 判据过滤。
+        # 不用 nmcli：它的 TYPE 是简化名（wifi / ethernet / tun），与
+        # NetworkManager 的全名（802-11-wireless / 802-3-ethernet）不同，
+        # 早期版本按全名过滤导致启动分支从未生效过。
+        for dev in /sys/class/net/*; do
+          apply "''${dev##*/}"
         done
       '';
     in
