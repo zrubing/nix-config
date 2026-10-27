@@ -366,6 +366,32 @@
           type = "app";
           program = "${inputs.clan-core.packages.x86_64-linux.clan-cli}/bin/clan";
         };
+
+        # 导出一份完整 Clash 配置。输入全部取自 zen14 的求值结果：渲染用的小文件
+        # （extraConfig/tokens）来自 miho 模块暴露的 readOnly 路径，密文取自
+        # mysecrets。包本身拿不到模块 config，所以在这里组装。
+        clash-export = {
+          type = "app";
+          program = "${
+            (import inputs.nixpkgs {
+              system = "x86_64-linux";
+            }).callPackage ./pkgs/clash-export {
+              mihomoRender = self.packages.x86_64-linux.mihomo-render;
+              # agenix 不是 nixpkgs 顶层包，来自 flake input
+              agenix = inputs.agenix.packages.x86_64-linux.default;
+              extraConfigFile =
+                self.nixosConfigurations.zen14.config.internal.miho.rendered.extraConfigFile;
+              tokensFile = self.nixosConfigurations.zen14.config.internal.miho.rendered.tokensFile;
+              nodesJq = ./lib/proxy-nodes.jq;
+              agenixRules = "${inputs.mysecrets}/secrets.nix";
+              secretsRoot = "${inputs.mysecrets}";
+              mihoConfRel = "miho-conf/zen14-test.age";
+              proxyNodesRel = "proxy-nodes.json.age";
+              relayPasswordRel = "relay/hysteria-password.age";
+              addressesRel = "net-policy-addresses.json.age";
+            }
+          }/bin/clash-export";
+        };
       };
 
       devShells.x86_64-linux.trading =

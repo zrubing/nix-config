@@ -44,6 +44,10 @@ let
 
   mihomoExtraConfigFile = (pkgs.formats.yaml { }).generate "mihomo-extra.yaml" mergedExtraConfig;
 
+  # 渲染管线的唯一实现。原先这段逻辑内嵌在下面的 systemd unit 里，任何需要
+  # “生成一份等价配置”的场合都得复制一遍；抽成脚本后 prepare 与导出共用它。
+  mihomoRender = pkgs.callPackage ../../../packages/mihomo-render { };
+
   # 代理入口的两条不变量（同为 token，prepare 阶段从密文展开，与 sib 同源）：
   #   dnsDirect     → dns.fake-ip-filter（mihomo 默认 blacklist：列进去的域名不走 fake-ip）
   #   tunnelExclude → tun.route-exclude-address（连服务器本身不进 TUN）
@@ -80,9 +84,34 @@ in
       type = types.attrs;
       default = { };
     };
+
+    # 渲染产物路径，无条件求值（不随 enable 开关变化）：导出工具需要它们，
+    # 但启用与否不该决定“能不能拿到输入”。internal 是因为它们只是内部管道。
+    rendered = {
+      extraConfigFile = mkOption {
+        type = types.path;
+        readOnly = true;
+        internal = true;
+        description = "合并后的 extraConfig（含 net-policy 规则），YAML 文件";
+      };
+      tokensFile = mkOption {
+        type = types.path;
+        readOnly = true;
+        internal = true;
+        description = "net-policy 的 token 声明（dnsDirect/tunnelExclude/fakeip6/forcedProxy）";
+      };
+    };
   };
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkMerge [
+    {
+      ${namespace}.miho.rendered = {
+        extraConfigFile = mihomoExtraConfigFile;
+        tokensFile = netPolicyTokensJson;
+      };
+    }
+
+    (lib.mkIf cfg.enable {
 
     environment.systemPackages = [ pkgs.${namespace}.mihomo ];
 
@@ -146,101 +175,20 @@ in
 
         install -d -m 0700 /run/mihomo
 
-        # 节点清单：加密 JSON 是唯一事实源，这里按 mihomo 方言转换后合并进 proxies。
-        # 不在 nix 求值里渲染——那会把 server/密码落进世界可读的 /nix/store。
-        jq -f ${proxyNodesJq} ${proxyNodesSecretPath} > /run/mihomo/nodes.json
-
-        # ── 合并 base（age 密文）+ extraConfig（nix 侧声明）─────────────
-        #
-        # 分流规则的单一事实源是 net-policy（已在 extra 里渲染好，末尾带 MATCH）。
-        # 密文里不许再写 rules —— 两边对「密文里的 rules」处理本来就不一致
-        # （sib 保留生效，miho 这边会被顶到 MATCH 之后而失效），同一种写法
-        # 两种结果，所以直接拒绝，不留这个入口。
-        if [ "$(yq eval 'has("rules")' /run/agenix/miho-conf)" = "true" ]; then
-          echo "miho-conf 里有 rules：分流规则只由 net-policy 声明，请从密文删掉" >&2
-          exit 1
-        fi
-        #
-        # 语义（一次合并说清，别再拆成两次）：
-        #   · 对象：逐键深度合并，extraConfig 胜出 —— `dns.listen` 这类覆盖靠它；
-        #   · 数组：**追加**（`*+`）。`proxies` / `proxy-groups` 这类天然是“多一份”；
-        #   · `rules`：整份来自 extra，不参与合并（见上面的断言）。
-        #
-        # ⚠️ 曾经的写法是「先 `*+` 再 `*`」两次合并，而 `*` 对数组是**整体替换**：
-        #    只要 extraConfig 里写了 `rules`，base 的 29 条分流规则会被削成那 1 条
-        #    （2026-10-26 实测：最终 rules 只剩 `DST-PORT,123,DIRECT`），全机分流
-        #    静默失效。
-        #
-        # 用 load() 一次读完三份文件，不再有“第二次合并把第一次结果覆盖掉”这种
-        # 必须读代码才能发现的隐式行为。
-        # 敏感地址 token 展开。net-policy 的 rules 里只有 __NETPOLICY_<键>__，
-        # 真值在 net-policy-addresses.json.age；token 不是合法 CIDR / 域名，
-        # 忘展开时 mihomo 加载配置会直接报错，不会静默跑错。
-        #
-        # 用 jq 而不是 yq：yq-go 4.53 不支持 if/then 表达式，而这里需要
-        # 「一条字符串变多条」（Mihomo 的 IP-CIDR / DOMAIN-SUFFIX 一条一个值）。
-        # 先导成 JSON 再导回，保持规则顺序不变。
-        yq -o=json -I=0 '.rules' "${mihomoExtraConfigFile}" > /run/mihomo/rules.tmpl.json
-        jq --slurpfile a ${netPolicy.addressTokenFile} '
-          def np_lines($addr):
-            . as $t
-            | ($t | ltrimstr("__NETPOLICY_") | rtrimstr("__")) as $k
-            | ($addr[$k] // error("net-policy-addresses 里没有键 \($k)"))[];
-          def expand_rule($addr):
-            if test("__NETPOLICY_") then
-              capture("^(?<t>[^,]+),(?<v>[^,]+),(?<rest>.*)$") as $m
-              | [ $m.v | np_lines($addr) ] as $vals
-              | $vals[] as $v | "\($m.t),\($v),\($m.rest)"
-            else . end;
-          map(expand_rule($a[0]))
-        ' /run/mihomo/rules.tmpl.json > /run/mihomo/rules.json
-        rm -f /run/mihomo/rules.tmpl.json
-
-        # 代理入口 token 展开（与 sib 同一套 token 名，同一份 net-policy-addresses）。
-        # 展开成两个纯数组，下面交给 yq 合并 —— yq 里不方便写「一条 token 变多条」。
-        jq --slurpfile a ${netPolicy.addressTokenFile} '
-          def np_lines($addr):
-            . as $t
-            | ($t | ltrimstr("__NETPOLICY_") | rtrimstr("__")) as $k
-            | ($addr[$k] // error("net-policy-addresses 里没有键 \($k)"))[];
-          def np_expand($addr):
-            map(if test("^__NETPOLICY_") then np_lines($addr) else . end);
-          { fake_ip_filter: (.dnsDirect | np_expand($a[0])),
-            route_exclude: (.tunnelExclude | np_expand($a[0])),
-            # fakeip v6 闸门：段在 jq 侧就算成一个可直接深合并的小对象。
-            # 不能在 yq 里写 if —— yq 的表达式只实现了 jq 的子集，遇到 `if`
-            # 直接 lexer 报错（2026-10-27 nova13 首次真正跑 miho 时炸出）。
-            dns_extra: (if .fakeip6 != null then { "fake-ip-range6": .fakeip6 } else {} end),
-            # 旁路 listener 同理：在这里拼成可直接追加的数组，yq 只做 +
-            listener_extra:
-              (if .forcedProxy != null
-               then [ { name: .forcedProxy.name, type: "socks",
-                        port: .forcedProxy.port, listen: "127.0.0.1",
-                        proxy: .forcedProxy.proxy } ]
-               else [] end) }
-        ' ${netPolicyTokensJson} > /run/mihomo/net-policy.json
-
-        yq eval --null-input '
-          load("/run/agenix/miho-conf") as $base |
-          load("${mihomoExtraConfigFile}") as $extra |
-          load("/run/mihomo/nodes.json") as $nodes |
-          load("/run/mihomo/rules.json") as $rules |
-          load("/run/mihomo/net-policy.json") as $np |
-          (($base *+ ($extra | del(.rules)))
-            | .proxies = ((.proxies // []) + ($nodes.miho // []))
-            | .rules = $rules
-            # 代理入口域名走真实 DNS：命中 fake-ip-filter 的域名用 direct-nameserver
-            # 解析，不会被改写成 198.18.x。否则客户端连服务器拿到假地址，
-            # 连接被 TUN 反查回域名后走代理，QUIC 握手被塞进另一个代理的 UDP 通道。
-            | .dns["fake-ip-filter"] = (((.dns["fake-ip-filter"] // []) + $np.fake_ip_filter) | unique)
-            | .tun["route-exclude-address"] = (((.tun["route-exclude-address"] // []) + $np.route_exclude) | unique)
-            # fakeip v6 闸门：段在 jq 侧已算成 dns_extra（声明了段才有内容），
-            # 这里只做一次深合并；yq 不支持 if，见上面 jq 段的注释。
-            | .dns = ((.dns // {}) * $np.dns_extra)
-            # 旁路 socks 端口：追加到 listeners，mihomo 的 proxy 字段表示
-            # 「不经过 rules，直接走这个出站」。
-            | .listeners = ((.listeners // []) + $np.listener_extra))
-        ' > /run/mihomo/config.merged.yaml
+        # 渲染：base（age 密文）+ extraConfig（nix 侧声明）+ 节点清单 + token 展开。
+        # 全部交给 mihomo-render —— 这是这段逻辑的唯一实现，导出工具用的是同一份。
+        # 合并语义与几个必须保持一致的细节（对象深合并、数组追加、rules 整份来自
+        # extra、base 里出现 rules 直接报错、__NETPOLICY_<键>__ 展开成多条）都写在
+        # 那个脚本里，这里只负责把四份运行时输入喂进去。
+        # 不把节点清单放进 nix 求值——那会把 server/密码落进世界可读的 /nix/store。
+        ${mihomoRender}/bin/mihomo-render \
+          --base /run/agenix/miho-conf \
+          --extra ${mihomoExtraConfigFile} \
+          --nodes-raw ${proxyNodesSecretPath} \
+          --nodes-jq ${proxyNodesJq} \
+          --tokens ${netPolicyTokensJson} \
+          --addresses ${netPolicy.addressTokenFile} \
+          --out /run/mihomo/config.merged.yaml
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，
         # sed 的替换串里不会出现需要转义的字符。
@@ -290,7 +238,7 @@ in
         CapabilityBoundingSet = lib.mkForce "CAP_NET_ADMIN CAP_NET_BIND_SERVICE";
       };
     };
-
-  };
+    })
+  ];
 
 }
