@@ -48,7 +48,10 @@ writeShellApplication {
     handoff - 加密投递一个文件，返回短时效取件链接
 
     用法:
-      handoff <文件路径 | URL> [选项]
+      handoff <文件路径 | URL | -> [选项]
+
+    位置参数写 `-` 表示从标准输入读，便于管道：
+      some-generator --stdout | handoff - -t 600
 
     选项:
       -b, --bucket <名>      对象存储 bucket（默认读 HANDOFF_BUCKET）
@@ -62,6 +65,7 @@ writeShellApplication {
     示例:
       handoff ./config.yaml -b mybucket -t 600
       handoff https://example.com/list.txt -b mybucket
+      handoff - -t 600 < ./config.yaml
 
     环境变量:
       HANDOFF_BUCKET / HANDOFF_ENDPOINT / HANDOFF_PROFILE / HANDOFF_TTL
@@ -77,6 +81,9 @@ writeShellApplication {
 
     while [ $# -gt 0 ]; do
       case "$1" in
+        # 单独的 `-` 是位置参数（表示 stdin），必须排在 `-*` 前面，
+        # 否则 `-*` 会先匹配上并报“未知选项”。
+        -)             src="$1"; shift ;;
         -b|--bucket)   BUCKET="$2"; shift 2 ;;
         -e|--endpoint) ENDPOINT="$2"; shift 2 ;;
         -p|--profile)  PROFILE="$2"; shift 2 ;;
@@ -106,6 +113,11 @@ writeShellApplication {
     # 1. 取内容
     plain="$workdir/plain"
     case "$src" in
+      # `-` 与 /dev/stdin 都是管道入口。注意 /dev/stdin 是字符设备，
+      # 用 -f 判断会直接当成“文件不存在”，这里不能按普通文件处理。
+      -|/dev/stdin|/dev/fd/0)
+        cat > "$plain"
+        ;;
       http://*|https://*)
         curl -fsSL --max-time 60 -A 'Mozilla/5.0' -o "$plain" "$src"
         ;;
