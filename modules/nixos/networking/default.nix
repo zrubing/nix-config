@@ -23,18 +23,41 @@
         set -u
         SERVERS="223.5.5.5#dns.alidns.com 223.6.6.6#dns.alidns.com"
 
-        # 只覆盖物理网卡的 link DNS。判据是 /sys/class/net/<if>/device：
-        # 只有真实硬件（PCI/USB 父设备）才有这个条目，tun / veth / cilium /
-        # lxc 等虚拟接口都没有。
+        # 职责：只给物理网卡的 link DNS 设加密兜底。
         #
-        # 必须跳过虚拟接口，尤其是代理的 tun：sing-box 会自己给 tun 宣告
-        # DNS（默认推导为 tun 地址的下一个 IP，如 172.19.0.1/30 → 172.19.0.2，
-        # 并自动劫持到自己的 DNS 模块返回 fakeip）。这里覆盖成公网 DNS 会
-        # 让域名解析成真实 IP，命中「非内网 → 直连」规则后走直连而超时。
-        # 2026-10-27 实测：该覆盖让 singtun0 的 DNS 变成阿里，fakeip 完全失效。
+        # 它与代理的分工：物理网卡的 DNS 是「没人管的时候用我」（代理停机时仍能
+        # 解析国内域名且不泄露明文）；代理 tun 的 DNS 是「所有查询都问我」，必须
+        # 指向代理自己。两者语义相反，不能合并。详见 docs/net-invariants.md
+        # 的「谁拥有接口的 DNS」。
+        #
+        # 判据见 apply() 内部的两道；2026-10-27 本脚本曾把 singtun0 的 DNS 改成
+        # 阿里，导致 fakeip 完全失效，域名答真实 IP 后命中「非内网 → 直连」。
         apply() {
           [ -n "''${1:-}" ] || return 0
+
+          # 判据一（语义）：带 ~. 路由域的接口是代理 tun——它接管了这台机器的
+          # 全部解析，DNS 必须由它自己提供。碰它等于剥夺 fakeip。
+          #
+          # 为什么这是主判据而不是「防未来」：sing-box 从 1.13.2 起（issue #3878，
+          # 至今 open）会在 TUN 起来后主动写 systemd-resolved 的 per-link DNS
+          #（推导 tun 地址的下一个 IP，如 172.19.0.1/30 → 172.19.0.2）并加 `~.`
+          # 域。这是它让 fakeip 生效的既定机制，不是副作用；官方给的控制点只有
+          # tun.dns_mode（disabled / native / hijack），而我们需要 hijack。
+          # 一旦这里改写，查询不再进 sing-box → 域名答真实 IP → 命中
+          #「非内网 → 直连」→ 本该走代理的流量变成直连超时。
+          #
+          # 它同时也是真实的运行时路径：Wi-Fi 重连、NetworkManager 重启都会再
+          # 触发 up 事件，那时 tun 早已带上 ~.，下面的结构判据看不到任何特征。
+          case "$(${pkgs.systemd}/bin/resolvectl domain "$1" 2>/dev/null)" in
+            *"~."*) return 0 ;;
+          esac
+
+          # 判据二（结构兜底）：sing-box 创建 tun 后先无 ~.、随后才设，dispatcher
+          # 可能赶在这两步中间。此时判据一看不到特征，只能靠接口本身的性质区分：
+          # /sys/class/net/<if>/device 只对真实硬件存在，tun / veth / cilium /
+          # lxc 都没有。
           [ -e "/sys/class/net/$1/device" ] || return 0
+
           ${pkgs.systemd}/bin/resolvectl dns "$1" $SERVERS 2>/dev/null || true
         }
 

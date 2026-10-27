@@ -134,6 +134,44 @@ let
       throw "net-policy: 未知 match ${r.match}";
 
   # 只有一条「生效中的客户端」需要核对；两个都没开（例如临时停机维护）就不建这个单元。
+  # 运行时断言：代理 tun 的 DNS 必须是本机或私网地址。
+  #
+  # 背景（2026-10-27）：resolved-dns-no-plaintext 的 dispatcher 对任何接口
+  # 一律覆盖，把 sing-box 自己宣告的 tun DNS（172.19.0.2）改成了公网 DoT。
+  # 后果是 fakeip 完全失效：域名解析成真实 IP，命中「非内网 → 直连」规则，
+  # 本该走代理的流量变成直连超时。当时日志里没有任何错误，只有超时。
+  #
+  # 这里验「结果」而不是「脚本有没有写对判据」：任何带 ~. 路由域的接口
+  # （= 代理接管了全部解析）它的 DNS 必须是代理自己的（私网/回环）。
+  # 公网地址就说明被外部覆盖了。
+  #
+  # 为什么这是代理的正当领地而非「被抢走的系统 DNS」：sing-box 从 1.13.2 起
+  # （issue #3878，至今 open）就在 TUN 起来后主动写 systemd-resolved 的 per-link
+  # DNS 并加 `~.` 域，这是 fakeip 生效的前提（查询必须真的进 sing-box）。
+  # 官方给的唯一控制点是tun.dns_mode；我们需要 hijack，所以不能让外部改走它。
+  # 参考：https://github.com/SagerNet/sing-box/issues/3878
+  tunDnsCheck = ''
+    for iface in /sys/class/net/*; do
+      dev=''${iface##*/}
+      case "$(${pkgs.systemd}/bin/resolvectl domain "$dev" 2>/dev/null)" in
+        *"~."*) ;;
+        *) continue ;;
+      esac
+      dns="$(${pkgs.systemd}/bin/resolvectl dns "$dev" 2>/dev/null | sed -E 's/^[^:]+: *//')"
+      for d in $dns; do
+        ip=''${d%%#*}
+        case "$ip" in
+          127.*|10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|fd*|fe80:*|::1) ;;
+          *)
+            echo "net-policy: 接口 $dev 带 ~. 路由域，但 DNS 指向公网地址 $d" >&2
+            echo "net-policy: 代理 tun 必须用代理自己的 DNS（私网/回环），否则 fakeip 失效、域名会被判定直连" >&2
+            bad=1
+            ;;
+        esac
+      done
+    done
+  '';
+
   clientCheck =
     if mihoEnabled then
       {
@@ -163,6 +201,8 @@ let
             jq -e --arg a "$a" 'index($a) != null' <<<"$excl" >/dev/null \
               || { echo "net-policy: miho 的 tun.route-exclude-address 缺 $a" >&2; bad=1; }
           done
+
+          ${tunDnsCheck}
           exit $bad
         '';
       }
@@ -196,6 +236,8 @@ let
               | index($a) != null' "$cfg" >/dev/null \
               || { echo "net-policy: sib 的 tun.route_exclude_address 缺 $a" >&2; bad=1; }
           done
+
+          ${tunDnsCheck}
           exit $bad
         '';
       }

@@ -20,6 +20,7 @@ NTP 直连规则只有 miho 有。靠纪律对齐三份配置不现实，只能�
 | tcp-forward 的 loopback 不进代理 | `bypassProxyLoopback = [ 127.0.0.2/32 127.0.0.3/32 ]` | 不排除 → 本机连不上自己的转发端口（test-mysql / prod-mysql） |
 | 代理入口域名走真实解析 | `dnsDirectDomainTokens`（token，值在密文） | 见「代理入口的两条闸门」 |
 | 代理服务器地址不进 TUN | `tunnelExcludeTokens`（token，值在密文） | 同上 |
+| tun 的 DNS 归创建者 | `resolved-dns-no-plaintext` 跳过带 `~.` 路由域的接口 | 代理 tun 接管了全部解析，它的 DNS 必须由它自己提供。被外部改成公网 DNS → 查询不进代理 → fakeip 失效 → 域名答真实 IP → 命中「非内网 → 直连」→ 超时。2026-10-27 实测 |
 
 具体值见 `modules/nixos/net-policy/default.nix`（不在文档里重复，避免第二份真相）。
 
@@ -126,6 +127,44 @@ v6 地址。设成 CIDR 才打开。三个前提：
 
 反面结论：**不要为了提速把全局改成 `prefer_ipv6`** —— 国内 v6 的路由质量普遍
 不如 v4，会把国内流量推到差路径上。
+
+## 谁拥有接口的 DNS
+
+resolved 把两个资源分给了两层，两层不能互相覆盖：
+
+| 接口 | DNS 所有者 | 值 | 失守后 |
+|---|---|---|---|
+| 物理网卡（wlp1s0） | `resolved-dns-no-plaintext` | 阿里 DoT（`223.5.5.5#dns.alidns.com`） | 代理停机时回落 DHCP DNS，明文泄露 |
+| 代理 tun（singtun0 / Meta） | 代理自己 | sing-box 推导 `172.19.0.2` + `~.` 路 | fakeip 失效，本该走代理的流量变直连超时 |
+
+**为什么不能合并成一套**：两者的语义相反。物理网卡的 DNS 是「没人管的时候用我」，
+所以必须是加密的公共上游；代理 tun 的 DNS 是「所有查询都问我」，所以必须指向代理
+自己。把后者改成前者，就等于把 fakeip 摘掉而保留了 TUN 路由——最难查的一种组合：
+解析成功、连接建立、但方向错了。
+
+**sing-box 侧的依据**：从 1.13.2 起（issue #3878，至今 open）它会在 TUN 起来后主动写
+systemd-resolved 的 per-link DNS（推导 tun 地址的下一个 IP）并加 `~.` 域。这是 fakeip
+生效的前提，不是副作用；官方唯一的控制点是 `tun.dns_mode`，而我们需要 `hijack`。
+社区里多数抱怨是反方向的（嫌它抢走系统 DNS），所以不要指望上游改。
+
+**判据有两条，主次不能反**：
+
+1. 带 `~.` 路由域 → 跳过。这是语义判据，而且覆盖了真实运行时路径：Wi-Fi 重连、
+   NetworkManager 重启都会再触发 up，那时 tun 早已带上 `~.`。
+2. `/sys/class/net/<if>/device` 不存在 → 跳过。这是结构兜底，只补一个窗口：
+   sing-box 创建 tun 后先无 `~.`、随后才设，dispatcher 可能赶在中间。
+
+只留第二条也能工作，但它解释不了「为什么」，下次有人改判据时很容易改错。
+
+**验结果，不只看脚本**：`net-policy-check` 里有一段运行时断言——任何带 `~.` 的接口，
+其 DNS 必须是私网/回环。违反时该单元变 failed。这是唯一能接住「判据写对了但被别
+的东西覆盖」的手段：
+
+```bash
+resolvectl status singtun0          # DNS Servers 应是 172.19.0.2 / fdfe:…，不是公网
+resolvectl query www.gstatic.com    # 应返回 fakeip（198.18.x.x），不是真实 IP
+systemctl status net-policy-check   # 失败时会直接标出哪个接口的 DNS 跑偏了
+```
 
 ## 待办
 
