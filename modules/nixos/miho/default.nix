@@ -81,11 +81,6 @@ in
 
   config = lib.mkIf cfg.enable {
 
-    # resolved 的上游就是本机的 mihomo DNS（listen 127.0.0.1:53，见
-    # build-node-extra-config.nix 里那条 listen 覆盖）。这个值属于「当前用哪个
-    # 代理」，所以由代理模块声明，不放在 modules/nixos/networking。
-    services.resolved.settings.Resolve.DNS = [ "127.0.0.1" ];
-
     environment.systemPackages = [ pkgs.${namespace}.mihomo ];
 
     age.secrets.miho-conf.file = "${mysecrets}/miho-conf/zen14-test.age";

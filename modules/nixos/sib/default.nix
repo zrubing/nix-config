@@ -353,10 +353,6 @@ in
 
     environment.systemPackages = [ cfg.package ];
 
-    # resolved 的上游就是 sib 自己（配置里的 dns inbound 监听 127.0.0.1:53）。
-    # 这个值属于「当前用哪个代理」，所以由代理模块声明，不放在 modules/nixos/networking。
-    services.resolved.settings.Resolve.DNS = [ "127.0.0.1" ];
-
     age.secrets."sib-conf" = {
       file = "${mysecrets}/${cfg.configSecretFile}";
     };
