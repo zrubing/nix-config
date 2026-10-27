@@ -15,7 +15,36 @@
     wifi.enable = mkEnableOption "Enable wifi";
   };
 
-  config = {
+  config =
+    let
+      # 唯一允许的兜底 DNS：加密（`IP#hostname` 要配合 DNSOverTLS != no 才生效）
+      # + 能解析国内域名。两处入口（dispatcher / oneshot）共用同一份。
+      dnsNoPlaintext = pkgs.writeShellScript "resolved-dns-no-plaintext" ''
+        set -u
+        SERVERS="223.5.5.5#dns.alidns.com 223.6.6.6#dns.alidns.com"
+
+        apply() {
+          [ -n "''${1:-}" ] || return 0
+          ${pkgs.systemd}/bin/resolvectl dns "$1" $SERVERS 2>/dev/null || true
+        }
+
+        # dispatcher 调用：$1=接口 $2=动作（只处理拿到地址的事件）
+        if [ "$#" -ge 2 ]; then
+          case "$2" in
+            up|dhcp4-change|dhcp6-change) apply "$1" ;;
+          esac
+          exit 0
+        fi
+
+        # 启动时调用：枚举能走 DHCP 的物理接口，把它们的 link DNS 全部覆盖。
+        # 不写死接口名：换网卡、换机器都不用改配置。
+        for dev in $(${pkgs.networkmanager}/bin/nmcli -t -f DEVICE,TYPE device status 2>/dev/null \
+                     | awk -F: '$2 ~ /^(802-11-wireless|802-3-ethernet|gsm|cdma)$/ {print $1}'); do
+          apply "$dev"
+        done
+      '';
+    in
+    {
 
     networking.firewall.enable = false;
 
@@ -74,21 +103,30 @@
     # 代理正常时查询被 tun 的 `~.` 接管，这段不影响；代理挂掉时它是唯一的解析
     # 路径，所以也不能留明文。
     # dae 不加：它靠截获明文 DNS 查询工作，覆盖 link DNS 反而会让它看不到查询。
+    #
+    # 两个入口用同一个脚本：
+    #   · dispatcher —— 处理 link 变化（换 Wi-Fi、DHCP 续租）；
+    #   · oneshot 服务 —— 处理开机和 rebuild。只有 dispatcher 不够：
+    #     nixos-rebuild 不会产生 DHCP 事件，实测 nova13 激活后 wlp1s0 仍挂着
+    #     DHCP 的 192.168.124.1，明文 53 継续在跑。
+    systemd.services.resolved-dns-no-plaintext = lib.mkIf
+      (config.${namespace}.sib.enable || config.${namespace}.miho.enable)
+      {
+        description = "Force encrypted DNS upstream on links that got DHCP DNS";
+        after = [ "NetworkManager.service" ];
+        wants = [ "NetworkManager.service" ];
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
+        serviceConfig.ExecStart = dnsNoPlaintext;
+        path = [ pkgs.networkmanager ]; # 脚本无参数时用 nmcli 枚举接口
+      };
+
     networking.networkmanager.dispatcherScripts = lib.optionals
       (config.${namespace}.sib.enable || config.${namespace}.miho.enable)
-      [
-        {
-          source = pkgs.writeShellScript "resolved-dns-no-plaintext" ''
-            case "$2" in
-              up|dhcp4-change|dhcp6-change) ;;
-              *) exit 0 ;;
-            esac
-            [ -n "$1" ] || exit 0
-            ${pkgs.systemd}/bin/resolvectl dns "$1" \
-              223.5.5.5#dns.alidns.com 223.6.6.6#dns.alidns.com 2>/dev/null || true
-          '';
-        }
-      ];
+      [ { source = dnsNoPlaintext; } ];
 
     # 1. NM 只管连接，不管 DNS
     networking.networkmanager.enable = true;
