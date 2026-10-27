@@ -199,7 +199,10 @@ in
             map(if test("^__NETPOLICY_") then np_lines($addr) else . end);
           { fake_ip_filter: (.dnsDirect | np_expand($a[0])),
             route_exclude: (.tunnelExclude | np_expand($a[0])),
-            fakeip6: .fakeip6 }
+            # fakeip v6 闸门：段在 jq 侧就算成一个可直接深合并的小对象。
+            # 不能在 yq 里写 if —— yq 的表达式只实现了 jq 的子集，遇到 `if`
+            # 直接 lexer 报错（2026-10-27 nova13 首次真正跑 miho 时炸出）。
+            dns_extra: (if .fakeip6 != null then { "fake-ip-range6": .fakeip6 } else {} end) }
         ' ${netPolicyTokensJson} > /run/mihomo/net-policy.json
 
         yq eval --null-input '
@@ -216,8 +219,9 @@ in
             # 连接被 TUN 反查回域名后走代理，QUIC 握手被塞进另一个代理的 UDP 通道。
             | .dns["fake-ip-filter"] = (((.dns["fake-ip-filter"] // []) + $np.fake_ip_filter) | unique)
             | .tun["route-exclude-address"] = (((.tun["route-exclude-address"] // []) + $np.route_exclude) | unique)
-            # fakeip v6 闸门：net-policy 声明了段才写 fake-ip-range6。
-            | (if $np.fakeip6 != null then .dns["fake-ip-range6"] = $np.fakeip6 else . end))
+            # fakeip v6 闸门：段在 jq 侧已算成 dns_extra（声明了段才有内容），
+            # 这里只做一次深合并；yq 不支持 if，见上面 jq 段的注释。
+            | .dns = ((.dns // {}) * $np.dns_extra))
         ' > /run/mihomo/config.merged.yaml
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，
