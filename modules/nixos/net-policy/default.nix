@@ -216,6 +216,37 @@ in
       '';
     };
 
+    forcedProxySocksPort = lib.mkOption {
+      type = lib.types.nullOr lib.types.port;
+      default = null;
+      description = ''
+        强制走代理的旁路 socks 端口（null = 不启用）。
+
+        与 bypassProxyPorts 是相反方向的两件事：那个是「这个端口的流量别进代理」，
+        这个是「这个端口收到的流量固定走 forcedProxyOutbound，完全不看 rules」。
+
+        为什么需要独立端口而不是改 rules：rules 把代理服务器自身的地址判成直连
+        （这是必须的 —— 客户端连节点时再被套一层会踩 fakeip 自指），于是经 7890
+        访问节点地址永远是直连，节点某个地址族被封时就没了可用路径。
+        同一个目标地址存在两种相反意图，只能靠入站端口区分。
+
+        实测 2026-10-27：某节点 v4 的 22 端口直连超时，经旁路端口可正常登录。
+      '';
+    };
+
+    forcedProxyOutbound = lib.mkOption {
+      type = lib.types.str;
+      default = "自动选择";
+      description = ''
+        旁路端口（forcedProxySocksPort）固定的出站，写代理组名或节点名。
+        必须与节点清单里的名字完全一致，否则客户端启动时报错。
+
+        默认用「自动选择」（url-test）而不是写死某个地区：旁路端口的用途是
+        「节点某地址族被封时的备用路径」，哪个节点通就走哪个，不该押注单点。
+        注意这里必须写代理组/节点名，不能写 direct 之类的内置出站 —— 那就失去意义了。
+      '';
+    };
+
     bypassProxyCidrs = lib.mkOption {
       type = with lib.types; listOf str;
       default = [

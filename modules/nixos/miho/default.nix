@@ -57,6 +57,16 @@ let
     tunnelExclude = netPolicy.tunnelExcludeTokens;
     # null = 关闭 fakeip v6（不写 fake-ip-range6）
     fakeip6 = netPolicy.fakeipInet6Range;
+    # 旁路 socks 端口：固定出站、不看 rules。null = 不开监听。
+    forcedProxy =
+      if netPolicy.forcedProxySocksPort == null then
+        null
+      else
+        {
+          port = netPolicy.forcedProxySocksPort;
+          name = "forced-proxy-in";
+          proxy = netPolicy.forcedProxyOutbound;
+        };
   };
 in
 {
@@ -202,7 +212,14 @@ in
             # fakeip v6 闸门：段在 jq 侧就算成一个可直接深合并的小对象。
             # 不能在 yq 里写 if —— yq 的表达式只实现了 jq 的子集，遇到 `if`
             # 直接 lexer 报错（2026-10-27 nova13 首次真正跑 miho 时炸出）。
-            dns_extra: (if .fakeip6 != null then { "fake-ip-range6": .fakeip6 } else {} end) }
+            dns_extra: (if .fakeip6 != null then { "fake-ip-range6": .fakeip6 } else {} end),
+            # 旁路 listener 同理：在这里拼成可直接追加的数组，yq 只做 +
+            listener_extra:
+              (if .forcedProxy != null
+               then [ { name: .forcedProxy.name, type: "socks",
+                        port: .forcedProxy.port, listen: "127.0.0.1",
+                        proxy: .forcedProxy.proxy } ]
+               else [] end) }
         ' ${netPolicyTokensJson} > /run/mihomo/net-policy.json
 
         yq eval --null-input '
@@ -221,7 +238,10 @@ in
             | .tun["route-exclude-address"] = (((.tun["route-exclude-address"] // []) + $np.route_exclude) | unique)
             # fakeip v6 闸门：段在 jq 侧已算成 dns_extra（声明了段才有内容），
             # 这里只做一次深合并；yq 不支持 if，见上面 jq 段的注释。
-            | .dns = ((.dns // {}) * $np.dns_extra))
+            | .dns = ((.dns // {}) * $np.dns_extra)
+            # 旁路 socks 端口：追加到 listeners，mihomo 的 proxy 字段表示
+            # 「不经过 rules，直接走这个出站」。
+            | .listeners = ((.listeners // []) + $np.listener_extra))
         ' > /run/mihomo/config.merged.yaml
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，

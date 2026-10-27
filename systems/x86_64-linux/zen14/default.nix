@@ -389,6 +389,12 @@ in
     # 真实网络不会出现，IsPrivate() 也返回 false。
     # 关闭：删掉这行（或设成 null）后 rebuild。
     netPolicy.fakeipInet6Range = "2001:db8:1::/48";
+    # 旁路 socks 端口（7899）：固定走代理组，完全不看 rules。
+    # 存在理由：rules 把代理服务器自身的地址判成直连，于是经 7890 访问节点
+    # 地址永远是直连；节点某地址族被封时就没了可用路径（2026-10-27 实测
+    # 某节点 v4 的 22 端口直连超时，经旁路端口可正常登录）。
+    # 只绑 127.0.0.1，不开成对外代理。出站默认「自动选择」，关闭：设成 null。
+    netPolicy.forcedProxySocksPort = 7899;
     # 服务端的 TUIC 都是 Itsusinn fork（v2 协议），mihomo 自带的 tuic 客户端
     # （v5）在认证阶段被拒（Invalid authentication）。这里跑同源客户端，
     # sib 只把每个实例当成一个本地 socks5 节点。

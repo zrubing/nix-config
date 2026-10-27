@@ -249,6 +249,10 @@ in
     # docs/net-invariants.md）。本机原生 v6 的国内路由质量明显优于对比机型，
     # 开闸后实际能用上 v6 的收益更大。关闭：设成 null 或删掉这行后 rebuild。
     netPolicy.fakeipInet6Range = "2001:db8:1::/48";
+    # 旁路 socks 端口（7899）：固定走代理组，完全不看 rules。
+    # 存在理由与 zen14 同处注释一致：rules 把代理服务器自身地址判成直连，
+    # 节点某地址族被封时只能靠独立端口绕过。只绑 127.0.0.1。
+    netPolicy.forcedProxySocksPort = 7899;
 
     # 代理客户端三选一：miho / sib / dae（互斥见各模块的断言）。
     miho = {

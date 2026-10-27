@@ -76,6 +76,16 @@ let
     tunnelExclude = netPolicy.tunnelExcludeTokens;
     # null = 关闭：不注入 inet6_range，AAAA 查询仍然 NODATA。
     fakeip6 = netPolicy.fakeipInet6Range;
+    # 旁路 socks 端口：固定出站、不看 rules。null = 不开监听。
+    forcedProxy =
+      if netPolicy.forcedProxySocksPort == null then
+        null
+      else
+        {
+          port = netPolicy.forcedProxySocksPort;
+          tag = "forced-proxy-in";
+          outbound = netPolicy.forcedProxyOutbound;
+        };
   };
 
   # 共享节点清单（私有仓的加密 JSON）是唯一事实源。节点定义刻意不经 nix 求值：
@@ -166,6 +176,9 @@ let
         else . end
       | .route.rules = (
           ([ (.route.rules // [])[] | select(.action != null) ])
+          # 旁路端口固定出站：必须排在分流规则之前，否则又被 IP-CIDR 直连抢走。
+          # 同时必须排在 sniff / hijack-dns 之后 —— 那两条是 mechanics，先动不得。
+          + ([ $p.forcedProxy | select(. != null) | { inbound: [ .tag ], outbound: .outbound } ])
           + $p.rules
           + ([ (.route.rules // [])[] | select(.action == null) ])
         )
@@ -205,6 +218,11 @@ let
       # 包进了队列，但判断命中排除后直接放行，不记日志、不进代理。
       | .inbounds = (
           .inbounds
+          # 旁路 socks 端口：只绑回环，避免开成对外代理。
+          + ([ $p.forcedProxy
+               | select(. != null)
+               | { type: "socks", tag: .tag, listen: "127.0.0.1", listen_port: .port }
+             ])
           | map(
               if .type == "tun"
               then .route_exclude_address = (
