@@ -274,6 +274,17 @@ in
         };
       };
     };
+    # 同理：miho-conf 里的「m4」(1086) 与「m3」(1087)
+    # 也是指向本机 xray-client 的 socks5。不启这个客户端，那两个节点在 nova13
+    # 上就是无人监听的死节点（xhttp 是 Xray 的传输层，mihomo 不原生实现）。
+    #
+    # userId 取 987：本机 980-986 已被 tuic-client/wpa_supplicant/k0s 组件占满，
+    # 983 尤其被 kube-apiserver 占用，不能和 zen14 用同一个值。
+    xray-client = {
+      enable = true;
+      configSecretFile = "xray-client-conf.json.age";
+      userId = 987;
+    };
     desktop-programs.enable = false;
     # nova13 是 k0s worker（build/proxy 角色），不需要桌面虚拟化栈（libvirtd/qemu/virt-manager）。
     # virt 模块默认启用，这里显式关闭。

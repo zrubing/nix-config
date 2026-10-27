@@ -247,7 +247,14 @@ in
     };
 
     systemd.services.mihomo = {
-      after = [ "mihomo-prepare-config.service" ];
+      # xray-client 提供 1086/1087 两个本地 socks5（xhttp 与 reality 节点靠它）。
+      # 用 wants 而不是 requires：xray 挂了不该连累整个代理起不来，那两条节点
+      # 交给 url-test 跳过即可；但启动顺序上先等它，缩短「代理已起、节点还没
+      # 监听」的窗口。只在启用了 xray-client 的机器上加，避免无意义依赖。
+      after =
+        [ "mihomo-prepare-config.service" ]
+        ++ lib.optional config.${namespace}.xray-client.enable "xray-client.service";
+      wants = lib.optional config.${namespace}.xray-client.enable "xray-client.service";
       requires = [ "mihomo-prepare-config.service" ];
       # 密文 / extraConfig 内容变了要重启。agenix 路径是稳定的 /run/agenix/...，
       # unit 文本不变时 nixos-rebuild 不会动服务；用内容哈希做触发器，避免
