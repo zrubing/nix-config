@@ -60,7 +60,15 @@ writeShellApplication {
       -t, --ttl <秒>         链接有效期，默认 600（10 分钟）
       --prefix <前缀>        对象路径前缀，默认 tmp
       -n, --name <名>        对象名（默认随机）
+      --plain                不加密，直接投放原文
       -h, --help             显示本帮助
+
+    --plain 的取舍：
+      不加密时内容对任何拿到链接的人都是明文，安全性完全靠两层外部约束——
+      对象 private（无签名不可访问）+ 链接短时效。适合接收方不支持解密的场合
+      （有些客户端不会处理 age armor，只会把密文当配置解析而报错）。
+      相反，默认的 age 加密即使链接泄露也打不开，但要求接收方认得 armor 格式
+      并能拿到私钥。
 
     示例:
       handoff ./config.yaml -b mybucket -t 600
@@ -78,6 +86,7 @@ writeShellApplication {
 
     src=""
     objname=""
+    encrypt=1
 
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -90,6 +99,7 @@ writeShellApplication {
         -t|--ttl)      TTL="$2"; shift 2 ;;
         --prefix)      PREFIX="$2"; shift 2 ;;
         -n|--name)     objname="$2"; shift 2 ;;
+        --plain)       encrypt=0; shift ;;
         -h|--help)     usage; exit 0 ;;
         -*)            echo "未知选项: $1" >&2; usage >&2; exit 2 ;;
         *)             src="$1"; shift ;;
@@ -129,12 +139,16 @@ writeShellApplication {
 
     [ -s "$plain" ] || { echo "输入内容为空，已中止" >&2; exit 1; }
 
-    # 2. age 加密。用消费方同款实现，保证格式（armor）能被其识别。
+    # 2. age 加密（默认）。--plain 时跳过，直接上传原文。
     enc="$workdir/enc"
-    mihomo age encrypt "$RECIPIENT" "$plain" "$enc"
-
-    head -n1 "$enc" | grep -q '^-----BEGIN AGE ENCRYPTED FILE-----$' \
-      || { echo "加密输出不是 age armor，已中止" >&2; exit 1; }
+    if [ "$encrypt" -eq 1 ]; then
+      # 用消费方同款实现，保证格式（armor）能被其识别。
+      mihomo age encrypt "$RECIPIENT" "$plain" "$enc"
+      head -n1 "$enc" | grep -q '^-----BEGIN AGE ENCRYPTED FILE-----$' \
+        || { echo "加密输出不是 age armor，已中止" >&2; exit 1; }
+    else
+      cp "$plain" "$enc"
+    fi
 
     # 3. 对象名默认随机：不含扩展名、不含语义词，避免从 URL 反推内容性质
     if [ -z "$objname" ]; then
@@ -159,10 +173,13 @@ writeShellApplication {
       printf '\n'
       printf '对象     : oss://%s/%s\n' "$BUCKET" "$objkey"
       printf '有效期   : %s 秒\n' "$TTL"
-      printf '解密要求 : 接收方需持有 age 私钥，无则内容不可读\n'
+      printf '解密要求 : %s\n' \
+        "$([ "$encrypt" -eq 1 ] && echo '接收方需持有 age 私钥，无则内容不可读' || echo '无（明文，仅靠链接短时效与对象私有保护）')"
       printf '访问控制 : 对象未设公开读，链接过期后需重新生成\n'
-      # 打印的是取私钥的命令，不是私钥本身——命令不含敏感值，可以直接截图/转发。
-      printf '取私钥   : clan vars get zen14 handoff-key/secret-key\n'
+      if [ "$encrypt" -eq 1 ]; then
+        # 打印的是取私钥的命令，不是私钥本身——命令不含敏感值，可以直接截图/转发。
+        printf '取私钥   : clan vars get zen14 handoff-key/secret-key\n'
+      fi
     } >&2
   '';
 
