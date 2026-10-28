@@ -372,13 +372,8 @@ in
       # 低于噪声，urltest 每轮都可能切换，而 interrupt_exist_connections=true
       # 让每次切换都掐断正在传输的连接。
       groupTuning = {
-        "自动选择" = {
-          tolerance = 50;
-          interval = "5m";
-          interruptExistConnections = false;
-          # 派生出来的 -v6 腿延迟波动最大，不该和主节点平等参与自动组。
-          excludeTagSuffixes = [ "-v6" ];
-        };
+        # 自动选择 已改成 selector（由 proxyQuality 驱动），不再调参：
+        # tolerance/interval 只属于 urltest，写进 selector 会被守卫丢弃。
         "美国" = {
           tolerance = 50;
           interval = "5m";
@@ -396,9 +391,14 @@ in
     proxyQuality = {
       enable = true;
       interval = "10min";
-      # 候选池是该组里除 -v6 外的节点（实测只有两个），评分差距 20 倍以上，
-      # 直接生效。想先只看不切就改成 true。
       dryRun = false;
+      # 全量评分 10min 一轮太慢，节点死了要等一轮才被发现；快速检查只测当前
+      # 节点，连续 2 次失败就切到历史最优，感知延迟压到 2 分钟内。
+      quickCheck = {
+        enable = true;
+        interval = "60s";
+        fails = 2;
+      };
     };
     dae.enable = false;
 

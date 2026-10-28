@@ -4,6 +4,7 @@
   jq,
   curl,
   coreutils,
+  util-linux,
   gawk,
 }:
 
@@ -28,6 +29,7 @@ writeShellApplication {
     jq
     curl
     coreutils
+    util-linux
     gawk
   ];
 
@@ -44,6 +46,8 @@ writeShellApplication {
     improvement=0.25
     alpha=0.4
     dry_run=0
+    quick=0
+    quick_fails=2
     excludes=()
 
     usage() {
@@ -65,6 +69,9 @@ writeShellApplication {
       --improvement <比例>    新节点需优于当前的比例才切（默认 0.25）
       --alpha <比例>          EWMA 系数（默认 0.4）
       --exclude-suffix <后缀> 跳过 tag 以该后缀结尾的候选（可重复，如 -v6）
+      --quick                只测当前节点做存活检查：正常就静默退出，
+                             连续失败 --quick-fails 次才切到历史评分最优
+      --quick-fails <次数>    快速模式下的失败阈值（默认 2）
       --dry-run              只测不切
 
     说明:
@@ -88,6 +95,8 @@ writeShellApplication {
         --improvement) improvement="$2"; shift 2 ;;
         --alpha)       alpha="$2"; shift 2 ;;
         --exclude-suffix) excludes+=("$2"); shift 2 ;;
+        --quick)       quick=1; shift ;;
+        --quick-fails) quick_fails="$2"; shift 2 ;;
         --dry-run)     dry_run=1; shift ;;
         -h|--help)     usage; exit 0 ;;
         *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
@@ -95,6 +104,13 @@ writeShellApplication {
     done
 
     [ -n "$config" ] || { echo "--config 必填" >&2; exit 2; }
+
+    # 全量评分和存活检查是两个 timer，会撞在同一秒；用文件锁把 state 的
+    # 读-改-写串行化，避免互相覆盖。
+    state_dir="$(dirname "$state")"
+    install -d -m 0700 "$state_dir"
+    exec 9>"$state_dir/lock"
+    flock -w 60 9 || { echo "另一个探测还在跑，跳过本次" >&2; exit 0; }
 
     # 组名解析：文件优先于 --group。文件不存在且没给 --group 时不算错误 ——
     # 这台机器可能还没决定要驱动哪个组，静默退出比每 10 分钟报一次警更合适。
@@ -142,8 +158,22 @@ writeShellApplication {
       exit 0
     fi
 
-    members="$(jq -r '.all[]?' <<<"$group_json")"
-    [ -n "$members" ] || { echo "组 $group 没有成员" >&2; exit 0; }
+    # 客户端里的真实选择才是事实来源：sib 重启后会回到配置里的默认节点，
+    # 而 state 里的 current 还停在上次切到的节点上。每轮都以 API 的 now 为准。
+    actual="$(jq -r '.now // empty' <<<"$group_json")"
+
+    if [ "$quick" = 1 ]; then
+      # 存活检查：只测当前节点，用来把「节点死了没人发现」的窗口从
+      # 一个全量周期（10min）压到一个快速周期（60s）。
+      if [ -z "$actual" ]; then
+        echo "组 $group 当前没有选中节点，快速检查无事可做" >&2
+        exit 0
+      fi
+      members="$actual"
+    else
+      members="$(jq -r '.all[]?' <<<"$group_json")"
+      [ -n "$members" ] || { echo "组 $group 没有成员" >&2; exit 0; }
+    fi
 
     now="$(date +%s)"
     tmp="$(mktemp -d)"
@@ -219,7 +249,6 @@ writeShellApplication {
     # 客户端里的真实选择才是事实来源：sib 重启后会回到配置里写的默认节点，
     # 而 state 里的 current 还停在上次切到的节点上。只在 state 为空时现读一次
     # 会漏掉这种重置 —— 之后一直以为自己在用 A、实际跑着 B。
-    actual="$(jq -r '.now // empty' <<<"$group_json")"
     prev="$(jq -r --arg g "$group" '.[$g].current // empty' "$state")"
     bypass=0
     if [ "$actual" != "$prev" ]; then
@@ -241,11 +270,6 @@ writeShellApplication {
       .[$g].nodes | to_entries | map(select(.value.ewma > 0))
       | sort_by(-.value.ewma) | .[0].key // empty' "$state")"
 
-    echo "组 $group 本次测量："
-    jq -r --arg g "$group" '
-      .[$g].nodes | to_entries | sort_by(-.value.ewma)[]
-      | "  \(.key)\t\(.value.ms)ms\tewma=\(.value.ewma|floor)\tfails=\(.value.fails)"' "$state"
-
     if [ -z "$best" ]; then
       echo "所有候选都失败，保持当前选择（$cur）"
       exit 0
@@ -255,9 +279,32 @@ writeShellApplication {
     cur_fails="$(jq -r --arg g "$group" --arg c "$cur" '.[$g].nodes[$c].fails // 0' "$state")"
     best_ewma="$(jq -r --arg g "$group" --arg b "$best" '.[$g].nodes[$b].ewma // 0' "$state")"
 
+    if [ "$quick" = 1 ]; then
+      # 正常就静默：这个 timer 每分钟跑一次，不该刷日志。
+      if [ "$cur_fails" -lt "$quick_fails" ]; then
+        exit 0
+      fi
+      # 连续失败才算死。切到历史评分最优（排除当前），不受驻留期约束。
+      best="$(jq -r --arg g "$group" --arg c "$cur" '
+        .[$g].nodes | to_entries
+        | map(select(.value.ewma > 0 and .key != $c))
+        | sort_by(-.value.ewma) | .[0].key // empty' "$state")"
+      if [ -z "$best" ]; then
+        echo "当前节点 $cur 连续失败 $cur_fails 次，且没有别的候选可用" >&2
+        exit 1
+      fi
+    else
+      echo "组 $group 本次测量："
+      jq -r --arg g "$group" '
+        .[$g].nodes | to_entries | sort_by(-.value.ewma)[]
+        | "  \(.key)\t\(.value.ms)ms\tewma=\(.value.ewma|floor)\tfails=\(.value.fails)"' "$state"
+    fi
+
     switch=0
     reason=""
-    if [ -z "$cur" ]; then
+    if [ "$quick" = 1 ]; then
+      switch=1; reason="存活检查连续失败 $cur_fails 次"
+    elif [ -z "$cur" ]; then
       switch=1; reason="没有当前选择"
     elif [ "$best" = "$cur" ]; then
       :

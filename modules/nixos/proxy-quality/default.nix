@@ -36,6 +36,32 @@ let
       null;
 
   sing-box = config.${namespace}.sib.package;
+
+  probe = pkgs.callPackage ../../../packages/proxy-quality { inherit sing-box; };
+
+  # 两个 timer 共用同一套参数，只在模式上分叉。
+  commonArgs = [
+    "${probe}/bin/proxy-quality"
+    "--config"
+    clientConfigPath
+    "--group-file"
+    cfg.groupFile
+    "--url"
+    cfg.probeUrl
+    "--bytes"
+    (toString cfg.probeBytes)
+    "--timeout"
+    (toString cfg.timeout)
+    "--min-dwell"
+    (toString cfg.minDwell)
+    "--improvement"
+    (toString cfg.improvement)
+    "--state"
+    "/var/lib/proxy-quality/state.json"
+  ]
+  ++ lib.concatMap (s: [ "--exclude-suffix" s ]) cfg.excludeTagSuffixes
+  ++ lib.optionals (cfg.group != "") [ "--group" cfg.group ]
+  ++ lib.optional cfg.dryRun "--dry-run";
 in
 {
   options.${namespace}.proxyQuality = {
@@ -121,6 +147,27 @@ in
       default = false;
       description = "只测量、不切换。用于观察评分是否符合直觉。";
     };
+
+    quickCheck = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          快速存活检查：只测当前选中的节点，连续失败若干次就切到历史评分最优。
+          用来把「节点死了没人发现」的窗口从一个全量周期压到一个短周期。
+        '';
+      };
+      interval = lib.mkOption {
+        type = lib.types.str;
+        default = "60s";
+        description = "快速存活检查的间隔。";
+      };
+      fails = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 2;
+        description = "连续失败多少次才判定当前节点已死。";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -143,30 +190,7 @@ in
       wants = [ "sib.service" ];
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = lib.escapeShellArgs (
-          [
-            "${pkgs.callPackage ../../../packages/proxy-quality { inherit sing-box; }}/bin/proxy-quality"
-            "--config"
-            clientConfigPath
-            "--group-file"
-            cfg.groupFile
-            "--url"
-            cfg.probeUrl
-            "--bytes"
-            (toString cfg.probeBytes)
-            "--timeout"
-            (toString cfg.timeout)
-            "--min-dwell"
-            (toString cfg.minDwell)
-            "--improvement"
-            (toString cfg.improvement)
-            "--state"
-            "/var/lib/proxy-quality/state.json"
-          ]
-          ++ lib.concatMap (s: [ "--exclude-suffix" s ]) cfg.excludeTagSuffixes
-          ++ lib.optionals (cfg.group != "") [ "--group" cfg.group ]
-          ++ lib.optional cfg.dryRun "--dry-run"
-        );
+        ExecStart = lib.escapeShellArgs commonArgs;
         # 读 /run/sib 下的运行时配置（含凭据），必须是 root。
         User = "root";
         # /var/lib/proxy-quality：组名文件和 EWMA/驻留状态都在这里（跨重启存活，不进仓库）。
@@ -185,6 +209,38 @@ in
         OnUnitActiveSec = cfg.interval;
         AccuracySec = "1min";
         Unit = "proxy-quality.service";
+      };
+    };
+
+    systemd.services."proxy-quality-quick" = lib.mkIf cfg.quickCheck.enable {
+      description = "代理节点存活检查（只测当前节点）";
+      after = [ "sib.service" ];
+      wants = [ "sib.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = lib.escapeShellArgs (
+          commonArgs
+          ++ [
+            "--quick"
+            "--quick-fails"
+            (toString cfg.quickCheck.fails)
+          ]
+        );
+        User = "root";
+        StateDirectory = "proxy-quality";
+        StateDirectoryMode = "0700";
+        PrivateNetwork = false;
+      };
+    };
+
+    systemd.timers."proxy-quality-quick" = lib.mkIf cfg.quickCheck.enable {
+      description = "定时检查当前代理节点是否还活着";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "90s";
+        OnUnitActiveSec = cfg.quickCheck.interval;
+        AccuracySec = "10s";
+        Unit = "proxy-quality-quick.service";
       };
     };
   };
