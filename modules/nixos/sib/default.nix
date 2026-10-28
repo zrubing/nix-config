@@ -86,6 +86,23 @@ let
           tag = "forced-proxy-in";
           outbound = netPolicy.forcedProxyOutbound;
         };
+    # 分组参数覆盖。组定义本身在密文里（可 review 性差），但「容差/间隔/是否
+    # 掐连接/排除哪些成员」是策略而不是秘密，放在这里才能 diff：
+    #   · tolerance 低于测量抖动时分组会跟着噪声横跳（实测抖动 190–1358ms，
+    #     配 10ms 容差等于每轮都可能切，而每次切都掐断现有连接）；
+    #   · interval 60s 在按流量计费的线路上是白烧流量；
+    #   · 派生出来的 -v6 腿延迟波动大，不该和主节点平等参与自动组。
+    groupTuning = lib.mapAttrs (
+      _: v:
+      lib.optionalAttrs (v.tolerance != null) { inherit (v) tolerance; }
+      // lib.optionalAttrs (v.interval != null) { inherit (v) interval; }
+      // lib.optionalAttrs (v.interruptExistConnections != null) {
+        interrupt_exist_connections = v.interruptExistConnections;
+      }
+      // lib.optionalAttrs (v.excludeTagSuffixes != [ ]) {
+        exclude_tag_suffixes = v.excludeTagSuffixes;
+      }
+    ) cfg.groupTuning;
   };
 
   # 共享节点清单（私有仓的加密 JSON）是唯一事实源。节点定义刻意不经 nix 求值：
@@ -141,6 +158,35 @@ let
       )
       | .outbounds = ((.outbounds // []) + $nodes)
     ' ${runtimeDir}/config.base.json > ${runtimeDir}/config.merged.json
+
+    # ── 分组参数覆盖（nix 声明，非秘密）────────────────────────────────
+    # 只改数值/布尔/成员过滤，不改组成员来源：成员仍由密文里的 sibGroups 决定。
+    # 顺序很关键 —— 必须在节点合并之后，否则被排除的成员还没加进来。
+    jq --slurpfile p ${policyJson} '
+      ($p[0].groupTuning // {}) as $t
+      | .outbounds |= map(
+          . as $o
+          | ($t[$o.tag] // null) as $cfg
+          | if $cfg == null then .
+            else
+              (reduce ($cfg | to_entries[]) as $e (.;
+                 if $e.key == "exclude_tag_suffixes" then .
+                 # tolerance/interval 只存在于 urltest；写进 selector 会让
+                 # sing-box check 直接报未知字段，整个服务起不来。
+                 elif ($e.key == "tolerance" or $e.key == "interval")
+                      and (.type != "urltest") then .
+                 else .[$e.key] = $e.value end))
+              | if (($cfg.exclude_tag_suffixes // []) | length) > 0 then
+                  .outbounds = [
+                    .outbounds[]
+                    | . as $m
+                    | select(([ $cfg.exclude_tag_suffixes[] as $s | $m | endswith($s) ] | any) | not)
+                  ]
+                else . end
+            end
+        )
+    ' ${runtimeDir}/config.merged.json > ${runtimeDir}/config.tuned.json
+    mv ${runtimeDir}/config.tuned.json ${runtimeDir}/config.merged.json
     rm -f ${runtimeDir}/nodes.json
 
     # ── 注入不变量（net-policy）────────────────────────────────────────
@@ -336,6 +382,46 @@ in
         inputs.mysecrets 下的加密 sing-box 配置。
         里面的中转密码写 `__RELAY_HYSTERIA_PASSWORD__`，启动时从
         relay/hysteria-password 注入。
+      '';
+    };
+
+    groupTuning = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            tolerance = mkOption {
+              type = types.nullOr types.int;
+              default = null;
+              description = "urltest 的容差（毫秒）。低于测量抖动就会横跳。";
+            };
+            interval = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "urltest 的健康检查间隔，如 \"5m\"。";
+            };
+            interruptExistConnections = mkOption {
+              type = types.nullOr types.bool;
+              default = null;
+              description = ''
+                切换节点时是否掐断现有连接。默认 null = 保持密文里的值。
+                设 false 后切换不再打断正在下载/播放的连接。
+              '';
+            };
+            excludeTagSuffixes = mkOption {
+              type = types.listOf types.str;
+              default = [ ];
+              description = ''
+                从该组成员里剔除 tag 以这些后缀结尾的节点（例如 "-v6"）。
+                用后缀而不是具体节点名，避免把节点信息写进公开仓库。
+              '';
+            };
+          };
+        }
+      );
+      default = { };
+      description = ''
+        按组名覆盖 urltest/selector 参数。只影响数值与成员过滤，不改变
+        成员来源（那仍由密文里的 sibGroups 决定）。
       '';
     };
   };

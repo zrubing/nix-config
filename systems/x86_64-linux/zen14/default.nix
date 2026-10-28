@@ -341,24 +341,9 @@ in
     };
     # 暂时关闭，避免 sops secret k8s_port_forward/commands 缺失导致系统构建失败。
     k8s-port-forward.enable = true;
-    kubefwd = {
-      enable = true;
-      sopsFile = "${mysecrets}/secrets/env.yaml";
-      forwards = {
-        "sg.postgres.test.local" = {
-          ip = "127.0.0.5";
-          service = "postgres";
-          namespace = "infra";
-          contextSecret = "kubefwd/contexts/sg";
-        };
-        "db.postgres.prod.local" = {
-          ip = "127.0.0.4";
-          service = "postgres";
-          namespace = "beauty";
-          contextSecret = "kubefwd/contexts/prod";
-        };
-      };
-    };
+    # kubefwd 先关：两个转发目标都要跨集群上下文维护，收益不抵成本。
+    # 重新启用时在下面写 forwards；主机名/上下文名不要带地名。
+    kubefwd.enable = false;
     networking.wifi.enable = true;
     tailscale.headscaleAuthkeyFile = "headscale-authkey-zen14.age";
     #builder.enable = true;
@@ -380,7 +365,41 @@ in
       # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
       extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
-    sib.enable = true;
+    sib = {
+      enable = true;
+      # 分组参数是策略不是秘密，放这里才能 review/diff（组定义本身仍在密文里）。
+      # 实测（2026-10-28）：节点延迟抖动 190–1358ms，密文里的 tolerance 10ms
+      # 低于噪声，urltest 每轮都可能切换，而 interrupt_exist_connections=true
+      # 让每次切换都掐断正在传输的连接。
+      groupTuning = {
+        "自动选择" = {
+          tolerance = 50;
+          interval = "5m";
+          interruptExistConnections = false;
+          # 派生出来的 -v6 腿延迟波动最大，不该和主节点平等参与自动组。
+          excludeTagSuffixes = [ "-v6" ];
+        };
+        "美国" = {
+          tolerance = 50;
+          interval = "5m";
+          interruptExistConnections = false;
+        };
+        "DNS" = {
+          interval = "5m";
+        };
+      };
+    };
+
+    # 按实测冷启动可用性驱动指定 selector 组：url-test 测的是热会话 RTT，
+    # 而真实代价是冷启动（实测 5.6s，拥塞时 20s 起不来）。
+    # 组名不在仓库里：从 /var/lib/proxy-quality/group 读（见模块选项说明）。
+    proxyQuality = {
+      enable = true;
+      interval = "10min";
+      # 候选池是该组里除 -v6 外的节点（实测只有两个），评分差距 20 倍以上，
+      # 直接生效。想先只看不切就改成 true。
+      dryRun = false;
+    };
     dae.enable = false;
 
     # fakeip v6 闸门（2026-10-27 实验性打开，先在 zen14 上验证）。
@@ -398,13 +417,14 @@ in
     # 服务端的 TUIC 都是 Itsusinn fork（v2 协议），mihomo 自带的 tuic 客户端
     # （v5）在认证阶段被拒（Invalid authentication）。这里跑同源客户端，
     # sib 只把每个实例当成一个本地 socks5 节点。
-    #   vps-a（美）→ 12190，对应 sib 的「m2」
-    #   上游 B → 12191，对应 sib 的「n2」
+    #   上游 A → 12190，对应 sib 的一个 tuic 节点
+    #   上游 B → 12191，对应 sib 的另一个 tuic 节点
+    # 服务商/机房/节点名都不写进仓库：唯一事实源是密文，这里只写端口和方向。
     # uuid/password 两台服务端相同，所以共用 relay/tuic-{uuid,password} 密文。
     tuic-client = {
       enable = true;
       instances = {
-        vps-a = {
+        us = {
           serverSecret = "relay/tuic-server";
           listen = "127.0.0.1:12190";
         };
@@ -580,9 +600,9 @@ in
     #    · 标签/tolerations 保持不变（新集群的 buildNodeLabelKey 同为
     #      node-role.kubernetes.io/build，故 buildkitd 能直接调度到本节点）
     #
-    # ⚠️ `--cluster-dns`（2026-10-12 加）：本节点在**本地**，不在云
-    #    SG VPC 内，而集群 CoreDNS 会把 COS 域名解析成 VPC 链路本地地址
-    #    `169.254.0.47`（VPC 外不可达）：
+    # ⚠️ `--cluster-dns`（2026-10-12 加）：本节点不在集群所在 VPC 内，而集群
+    #    CoreDNS 会把对象存储域名解析成 VPC 链路本地地址 `169.254.0.47`
+    #    （VPC 外不可达）：
     #        集群 kube-dns 10.112.0.10 → 169.254.0.47          ✗
     #        build-local DNS           → 公网地址               ✓
     #    故把本节点**所有** pod 的 DNS 指向本机的 build-local CoreDNS

@@ -278,19 +278,19 @@ in
     tuic-client = {
       enable = true;
       instances = {
-        vps-a = {
+        us = {
           serverSecret = "relay/tuic-server";
           listen = "127.0.0.1:12190";
         };
-        # 上游 B：mihomo 的「n2」节点指向 12191。
+        # 上游 B：mihomo 的一个 tuic 节点指向 12191（服务商/机房见密文）。
         jp = {
           serverSecret = "relay/tuic-server-jp";
           listen = "127.0.0.1:12191";
         };
       };
     };
-    # 同理：miho-conf 里的「m4」(1086) 与「m3」(1087)
-    # 也是指向本机 xray-client 的 socks5。不启这个客户端，那两个节点在 nova13
+    # 同理：miho-conf 里的两个 vless 节点（1086 / 1087）也是指向本机
+    # xray-client 的 socks5。不启这个客户端，那两个节点在 nova13
     # 上就是无人监听的死节点（xhttp 是 Xray 的传输层，mihomo 不原生实现）。
     #
     # userId 取 987：本机 980-986 已被 tuic-client/wpa_supplicant/k0s 组件占满，
@@ -527,7 +527,7 @@ in
     #      故 buildkitd 能直接调度到本节点）。
     #
     # ⚠️ `--cluster-dns`（2026-10-12 加）：与 zen14 完全同因同值 ——
-    #    本节点不在集群 VPC 内，集群 CoreDNS 会把 COS 域名解析成
+    #    本节点不在集群所在 VPC 内，集群 CoreDNS 会把对象存储域名解析成
     #    VPC 链路本地地址 `169.254.0.47`（不可达），必须让本节点所有 pod
     #    用本机的 build-local CoreDNS（10.119.194.33，internalTrafficPolicy:
     #    Local ⇒ 命中本机实例）；第二值 10.112.0.10 是兜底。

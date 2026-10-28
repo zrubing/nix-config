@@ -124,7 +124,7 @@ in
 
             contextSecret = lib.mkOption {
               type = lib.types.str;
-              example = "kubefwd/contexts/sg";
+              example = "kubefwd/contexts/test";
               description = "SOPS key containing the Kubernetes context.";
             };
           };
