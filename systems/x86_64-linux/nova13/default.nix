@@ -277,14 +277,14 @@ in
     };
     sib = {
       enable = true;
-      # pod 出网捕获：pod 的 TCP 新连接被 DNAT 到本机 nodeIp:15001，由 podEgress
-      # 注入的 redirect 入站接手（Dockerfile 的 RUN 不读 proxy 变量也能出网）。
-      # ⚠️ 前提：该节点的 cilium 已关 bpf host routing（CiliumNodeConfig
-      #    enable-host-legacy-routing=true，声明在本仓 kubenix/build-node-egress.nix）。
-      podEgress = {
-        enable = true;
-        dnatTarget = nodeIp;
-      };
+    };
+    # pod 出网捕获：与客户端无关，见 modules/nixos/pod-egress（nft 规则、DNAT
+    # 目标、固定端口都在那里；sib / miho 只负责在同一端口开重定向入站）。
+    # ⚠️ 前提：该节点的 cilium 已关 bpf host routing（CiliumNodeConfig
+    #    enable-host-legacy-routing=true，声明在本仓 kubenix/build-node-egress.nix）。
+    podEgress = {
+      enable = true;
+      dnatTarget = nodeIp;
     };
     dae.enable = false;
     # 主线组是 selector，成员固定、选择由探针写；没有探针就会一直停在

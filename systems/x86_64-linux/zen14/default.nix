@@ -366,25 +366,17 @@ in
     #              先按 docs/dae-cilium-tcx.md 处理 cilium（bpf.enableTCX=false）
     #              再切，同时在 sops 的 dsh.env 里删掉 HTTP_PROXY/HTTPS_PROXY。
     miho = {
-      enable = false;
+      enable = true;
       # build 节点共用配置（zen14 与 nova13 同源，避免两份漂移）。
       extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
     sib = {
-      enable = true;
-      # pod 出网捕获：pod 的 TCP 新连接被 DNAT 到本机 nodeIp:15001，由 podEgress
-      # 注入的 redirect 入站接手 → 不读 proxy 变量的进程（Dockerfile 的 RUN）也能出网。
-      # ⚠️ 前提是该节点的 cilium 已关 bpf host routing（CiliumNodeConfig
-      #    enable-host-legacy-routing=true，声明在本仓 kubenix/build-node-egress.nix），
-      #    否则 pod 的包到不了 netfilter，规则计数器永远 0。
-      podEgress = {
-        enable = true;
-        dnatTarget = nodeIp;
-      };
+      enable = false;
       # 分组参数是策略不是秘密，放这里才能 review/diff（组定义本身仍在密文里）。
       # 实测（2026-10-28）：节点延迟抖动 190–1358ms，密文里的 tolerance 10ms
       # 低于噪声，urltest 每轮都可能切换，而 interrupt_exist_connections=true
       # 让每次切换都掐断正在传输的连接。
+      # sib 关掉时这段不参与求值，保留只为回切时不多一步。
       groupTuning = {
         # 自动选择 已改成 selector（由 proxyQuality 驱动），不再调参：
         # tolerance/interval 只属于 urltest，写进 selector 会被守卫丢弃。
@@ -399,11 +391,26 @@ in
       };
     };
 
+    # pod 出网捕获：与客户端无关，见 modules/nixos/pod-egress（nft 规则、DNAT
+    # 目标、固定端口都在那里；sib / miho 只负责在同一端口开重定向入站）——
+    # 不读 proxy 变量的进程（Dockerfile 的 RUN）因此也能出网。
+    # ⚠️ 前提是该节点的 cilium 已关 bpf host routing（CiliumNodeConfig
+    #    enable-host-legacy-routing=true，声明在本仓 kubenix/build-node-egress.nix），
+    #    否则 pod 的包到不了 netfilter，规则计数器永远 0。
+    podEgress = {
+      enable = true;
+      dnatTarget = nodeIp;
+    };
+
     # 按实测冷启动可用性驱动指定 selector 组：url-test 测的是热会话 RTT，
     # 而真实代价是冷启动（实测 5.6s，拥塞时 20s 起不来）。
     # 组名不在仓库里：从 /var/lib/proxy-quality/group 读（见模块选项说明）。
+    #
+    # ⚠️ 2026-10-28 起在 zen14 上关闭：探针是拿 sing-box 起临时实例去比节点，
+    # 只支持 sib（模块里有断言）。miho 模式下的代价是 selector 组停在配置里
+    # 的第一个成员上，不会按实测自动切换。回切 sib 时一起打开。
     proxyQuality = {
-      enable = true;
+      enable = false;
       interval = "10min";
       dryRun = false;
       # 全量评分 10min 一轮太慢，节点死了要等一轮才被发现；快速检查只测当前

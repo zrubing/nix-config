@@ -21,6 +21,22 @@ let
   netPolicy = config.${namespace}.netPolicy;
   policyAddresses = netPolicy.bypassProxyAddresses;
 
+  # pod 出网捕获（可选）。nft 规则、DNAT 目标与固定端口住在
+  # modules/nixos/pod-egress —— 那条规则与客户端无关，留在客户端模块里会让
+  # 「切客户端」把规则一起带走（2026-10-28 在 sib 上实测过这个静默失效）。
+  # 这里只负责在同一个端口上开一个 redir 入站。
+  #
+  # 为什么 redir 入站能接住 DNAT 过来的连接：它靠 SO_ORIGINAL_DST 从 conntrack
+  # 取原始目的地址，DNAT 与 REDIRECT 都会留下这条记录（sib 的 redirect 入站同理，
+  # 二者对 netfilter 的要求完全一样）。
+  podEgress = config.${namespace}.podEgress;
+  podEgressListeners = lib.optional podEgress.enable {
+    name = "pod-redirect-in";
+    type = "redir";
+    listen = "0.0.0.0";
+    port = podEgress.listenPort;
+  };
+
   # 共享节点清单（私有仓的加密 JSON）是唯一事实源。节点定义刻意不经 nix 求值：
   # 一旦渲染成 store 文件，server/跳端口/密码/SNI 就是世界可读的 /nix/store 明文。
   # 进 store 的只有方言转换器 lib/proxy-nodes.jq，prepare 服务在运行时
@@ -40,6 +56,10 @@ let
         policyAddresses ++ (cfg.extraConfig.tun.route-exclude-address or [ ])
       );
     };
+  }
+  // lib.optionalAttrs (podEgressListeners != [ ]) {
+    # 与 base 里可能存在的 listeners 追加合并（mihomo-render 用 `*+`，数组是追加）。
+    listeners = (cfg.extraConfig.listeners or [ ]) ++ podEgressListeners;
   };
 
   mihomoExtraConfigFile = (pkgs.formats.yaml { }).generate "mihomo-extra.yaml" mergedExtraConfig;
@@ -112,6 +132,11 @@ in
     }
 
     (lib.mkIf cfg.enable {
+
+    # 捕获面契约（modules/nixos/pod-egress 据此断言：nft 规则 DNAT 的端口真的
+    # 有人监听）。这里是那个端口的**唯一**声明点 —— 上面 podEgressListeners
+    # 也读同一个值。
+    ${namespace}.podEgress.capture.tcpRedirectPort = lib.mkIf podEgress.enable podEgress.listenPort;
 
     environment.systemPackages = [ pkgs.${namespace}.mihomo ];
 

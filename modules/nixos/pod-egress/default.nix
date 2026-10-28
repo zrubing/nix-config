@@ -19,8 +19,8 @@
 #
 # ── 前置条件：cilium 必须关掉 bpf host routing ─────────────────────────
 # 否则 pod 的包在 cilium 的 BPF 程序里就被转发出去，根本到不了 netfilter，
-# 本规则的计数器永远是 0。声明在本仓 kubenix/build-node-egress.nix
-# （CiliumNodeConfig `enable-host-legacy-routing=true`）。
+# 本规则的计数器永远是 0。声明在另一仓 system-manager-hinihao-net 的
+# kubenix/build-node-egress.nix（CiliumNodeConfig `enable-host-legacy-routing=true`）。
 #
 # ── 为什么没有 DNS 那一腿（2026-10-28 实测后删除）──────────────────────
 # 曾经还有一条「pod 的 :53 一律 DNAT 到客户端 DNS 入站」的规则。它有三个问题：
@@ -111,7 +111,6 @@ in
       tcpRedirectPort = mkOption {
         type = types.nullOr types.port;
         default = null;
-        readOnly = true;
         internal = true;
         description = ''
           当前启用的客户端**实际**监听的 TCP 重定向端口，由客户端模块自己声明
@@ -119,6 +118,10 @@ in
 
           这个值存在的唯一目的是让下面的断言有东西可比：把「nft 规则 DNAT 到的端口」
           和「客户端真的在监听哪」绑在一起，而不是靠两处字面量恰好相等。
+
+          不用 readOnly：readOnly 会把本选项的 default 也算成一次定义，于是任何
+          客户端的定义都会撞成「set multiple times」。两个客户端同时 enable 时，
+          types.port 的合并自身就会报冲突，不需要 readOnly 兜这一层。
         '';
       };
     };
@@ -139,15 +142,10 @@ in
           （二者择一 enable）；dae 不支持。
         '';
       }
-      {
-        # 物种：两处字面量漂开 —— 客户端监听的端口与 nft DNAT 的端口不同，同样静默全灭。
-        assertion = !cfg.enable || cfg.capture.tcpRedirectPort == cfg.listenPort;
-        message = ''
-          ${namespace}.podEgress.listenPort = ${toString cfg.listenPort}，但客户端实际监听
-          ${toString cfg.capture.tcpRedirectPort}。两处必须同值：客户端模块应当直接读
-          listenPort 去配置监听，不要各写一份字面量。
-        '';
-      }
+      # 这里**故意不**断言「capture 端口 == listenPort」：两个客户端都直接读同一个
+      # listenPort 选项去配置监听，相等是构造出来的，那样的断言恒真（= 没有闸门）。
+      # 「客户端真的在那个端口上监听」只能看运行态：`nix run .#pod-egress-check` 的
+      # transparent 判据（在跨仓的 system-manager-hinihao-net 里）。
       {
         # 物种：dnatTarget 漏配（null 会被插值成字符串 "null" 或让规则无法求值）。
         assertion = !cfg.enable || cfg.dnatTarget != null;
