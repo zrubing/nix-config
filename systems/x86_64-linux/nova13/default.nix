@@ -18,6 +18,10 @@ let
   '';
   piPackage = inputs.llm-agents.packages.${system}.pi;
   mysecrets = inputs.mysecrets;
+
+  # 本机在集群 ET 网络（sg-prod）里的地址 = kubelet 的 --node-ip。
+  # 两个消费者必须同值：kubelet 注册地址、pod 出网捕获的 DNAT 目标（sib.podEgress）。
+  nodeIp = "10.144.150.4";
   multicaPackage = pkgs.${namespace}.multica;
   tradingagentsPackage = pkgs.${namespace}.tradingagents;
   tradingagentsWrapped = pkgs.writeShellScriptBin "tradingagents" ''
@@ -271,7 +275,17 @@ in
       # 保留引用是为了回切时不多一步：mihomo 不启用时它不参与求值。
       extraConfig = import ../../../modules/nixos/miho/build-node-extra-config.nix;
     };
-    sib.enable = true;
+    sib = {
+      enable = true;
+      # pod 出网捕获：pod 的 TCP 新连接被 DNAT 到本机 nodeIp:15001，由 podEgress
+      # 注入的 redirect 入站接手（Dockerfile 的 RUN 不读 proxy 变量也能出网）。
+      # ⚠️ 前提：该节点的 cilium 已关 bpf host routing（CiliumNodeConfig
+      #    enable-host-legacy-routing=true，声明在本仓 kubenix/build-node-egress.nix）。
+      podEgress = {
+        enable = true;
+        dnatTarget = nodeIp;
+      };
+    };
     dae.enable = false;
     # 主线组是 selector，成员固定、选择由探针写；没有探针就会一直停在
     # 配置里的第一个成员上。两台客户端用同一份 sib 密文，所以这里必须同步开。
@@ -548,7 +562,7 @@ in
     #    Local ⇒ 命中本机实例）；第二值 10.112.0.10 是兜底。
     #    完整理由、k0s 不支持 worker profile 覆盖 clusterDNS 的依据、
     #    以及另一仓库的对应声明，见 zen14/default.nix 同一处的注释。
-    extraArgs = ''--kubelet-extra-args="--cluster-dns=10.119.194.33 --node-ip=10.144.150.4 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=nova13:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
+    extraArgs = ''--kubelet-extra-args="--cluster-dns=10.119.194.33 --node-ip=${nodeIp} --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=nova13:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
     spec.api.address = "0.0.0.0";
     spec.workerProfiles = [
       {
