@@ -399,7 +399,11 @@ in
 
   systemd.services.multica-k0s-apply = {
     description = "Deploy Multica to k0s cluster via Helm";
-    wantedBy = [ "multi-user.target" ];
+    # k0s API（6443）从 2026-10-28 起 TLS 握手超时，这个 oneshot 无限重试，
+    # 而它挂在 multi-user.target 下：每次 switch 的 activation 都会被拖住，
+    # 并一直持有 /run/nixos/switch-to-configuration.lock，后续 rebuild 也会卡。
+    # 集群恢复后把下面改回 [ "multi-user.target" ] 并手动 start 一次。
+    wantedBy = lib.mkForce [ ];
     after = [
       "network-online.target"
       "sops-install-secrets.service"
