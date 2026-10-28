@@ -59,7 +59,7 @@ writeShellApplication {
 
     选项:
       --group-file <路径>     从文件读组名（默认 /var/lib/proxy-quality/group）。
-                              优先于 --group：组名不该写进公开仓库。
+                              每行一个，全部处理；优先于 --group。
       --url <探测 URL>        默认 https://www.gstatic.com/generate_204
       --bytes <字节数>        探测负载大小，用于把耗时换算成速率（默认 65536）
       --timeout <秒>          单个节点超时（默认 8）
@@ -112,13 +112,15 @@ writeShellApplication {
     exec 9>"$state_dir/lock"
     flock -w 60 9 || { echo "另一个探测还在跑，跳过本次" >&2; exit 0; }
 
-    # 组名解析：文件优先于 --group。文件不存在且没给 --group 时不算错误 ——
-    # 这台机器可能还没决定要驱动哪个组，静默退出比每 10 分钟报一次警更合适。
+    # 组名：文件每行一个，全部处理。--group 只在这台机器还没落组名文件时兜底 ——
+    # 组名不进仓库，所以文件优先。
     if [ -s "$group_file" ]; then
-      group="$(head -n1 "$group_file" | tr -d '\r\n')"
+      groups="$(tr -d '\r' < "$group_file" | grep -v '^[[:space:]]*$')"
       echo "组名来自 $group_file"
+    else
+      groups="$group"
     fi
-    if [ -z "$group" ]; then
+    if [ -z "$groups" ]; then
       echo "没有组名：$group_file 不存在/为空，也没给 --group，跳过本次探测" >&2
       exit 0
     fi
@@ -146,40 +148,51 @@ writeShellApplication {
       sleep 2
     done
 
-    # 组名可能含非 ASCII，路径段必须百分号编码。
-    enc="$(jq -rn --arg s "$group" '$s|@uri')"
-    if ! group_json="$(curl -fsS "''${auth[@]}" "$base/proxies/$enc" 2>/dev/null)"; then
-      echo "Clash API 已就绪，但取不到组 $group（组名不对，或该组不存在）" >&2
-      exit 1
-    fi
-    gtype="$(jq -r '.type' <<<"$group_json")"
-    if [ "$gtype" != "Selector" ]; then
-      echo "组 $group 是 $gtype，只有 selector 能被外部切换；换个组或把它改成 selector" >&2
-      exit 0
-    fi
-
-    # 客户端里的真实选择才是事实来源：sib 重启后会回到配置里的默认节点，
-    # 而 state 里的 current 还停在上次切到的节点上。每轮都以 API 的 now 为准。
-    actual="$(jq -r '.now // empty' <<<"$group_json")"
-
-    if [ "$quick" = 1 ]; then
-      # 存活检查：只测当前节点，用来把「节点死了没人发现」的窗口从
-      # 一个全量周期（10min）压到一个快速周期（60s）。
-      if [ -z "$actual" ]; then
-        echo "组 $group 当前没有选中节点，快速检查无事可做" >&2
-        exit 0
-      fi
-      members="$actual"
-    else
-      members="$(jq -r '.all[]?' <<<"$group_json")"
-      [ -n "$members" ] || { echo "组 $group 没有成员" >&2; exit 0; }
-    fi
-
-    now="$(date +%s)"
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
-    results="$tmp/results.jsonl"
-    : > "$results"
+
+    # 一个组跑一遍：候选、评分、驻留都按组隔离（state 以组名为 key）。
+    process_group() {
+      group="$1"
+      local enc="" group_json="" gtype="" actual="" members="" now=0
+      local results="$tmp/results.jsonl"
+      local tag="" skip=0 suf="" t0=0 t1=0 ok=0 ms=0 score=0 row=""
+      local prev="" bypass=0 cur="" since=0 best="" best_ewma=0 cur_ewma=0 cur_fails=0
+      local switch=0 reason=""
+
+      # 组名可能含非 ASCII，路径段必须百分号编码。
+      enc="$(jq -rn --arg s "$group" '$s|@uri')"
+      if ! group_json="$(curl -fsS "''${auth[@]}" "$base/proxies/$enc" 2>/dev/null)"; then
+        echo "Clash API 已就绪，但取不到组 $group（组名不对，或该组不存在）" >&2
+        return 1
+      fi
+      gtype="$(jq -r '.type' <<<"$group_json")"
+      if [ "$gtype" != "Selector" ]; then
+        echo "组 $group 是 $gtype，只有 selector 能被外部切换；跳过" >&2
+        return 0
+      fi
+
+      # 客户端里的真实选择才是事实来源：sib 重启后会回到配置里的默认节点，
+      # 而 state 里的 current 还停在上次切到的节点上。每轮都以 API 的 now 为准。
+      actual="$(jq -r '.now // empty' <<<"$group_json")"
+
+      if [ "$quick" = 1 ]; then
+        # 存活检查：只测当前节点，把「节点死了没人发现」的窗口压到快速周期。
+        if [ -z "$actual" ]; then
+          echo "组 $group 当前没有选中节点，快速检查无事可做" >&2
+          return 0
+        fi
+        members="$actual"
+      else
+        members="$(jq -r '.all[]?' <<<"$group_json")"
+        if [ -z "$members" ]; then
+          echo "组 $group 没有成员" >&2
+          return 0
+        fi
+      fi
+
+      now="$(date +%s)"
+      : > "$results"
 
     while IFS= read -r tag; do
       [ -n "$tag" ] || continue
@@ -223,8 +236,7 @@ writeShellApplication {
         '{tag:$t, score:$s, ms:$ms, ok:$ok}' >> "$results"
     done <<< "$members"
 
-    install -d -m 0755 "$(dirname "$state")"
-    [ -f "$state" ] || echo '{}' > "$state"
+      [ -f "$state" ] || echo '{}' > "$state"
 
     while IFS= read -r row; do
       tag="$(jq -r '.tag' <<<"$row")"
@@ -272,7 +284,7 @@ writeShellApplication {
 
     if [ -z "$best" ]; then
       echo "所有候选都失败，保持当前选择（$cur）"
-      exit 0
+      return 0
     fi
 
     cur_ewma="$(jq -r --arg g "$group" --arg c "$cur" '.[$g].nodes[$c].ewma // 0' "$state")"
@@ -282,7 +294,7 @@ writeShellApplication {
     if [ "$quick" = 1 ]; then
       # 正常就静默：这个 timer 每分钟跑一次，不该刷日志。
       if [ "$cur_fails" -lt "$quick_fails" ]; then
-        exit 0
+        return 0
       fi
       # 连续失败才算死。切到历史评分最优（排除当前），不受驻留期约束。
       best="$(jq -r --arg g "$group" --arg c "$cur" '
@@ -291,7 +303,7 @@ writeShellApplication {
         | sort_by(-.value.ewma) | .[0].key // empty' "$state")"
       if [ -z "$best" ]; then
         echo "当前节点 $cur 连续失败 $cur_fails 次，且没有别的候选可用" >&2
-        exit 1
+        return 1
       fi
     else
       echo "组 $group 本次测量："
@@ -321,13 +333,13 @@ writeShellApplication {
 
     if [ "$switch" = 0 ]; then
       echo "保持 $cur"
-      exit 0
+      return 0
     fi
 
     echo "切换 $cur -> $best（$reason）"
     if [ "$dry_run" = 1 ]; then
       echo "dry-run：不实际切换"
-      exit 0
+      return 0
     fi
 
     if curl -fsS -X PUT "''${auth[@]}" -H 'Content-Type: application/json' \
@@ -338,8 +350,16 @@ writeShellApplication {
         && mv "$state.next" "$state"
     else
       echo "切换失败" >&2
-      exit 1
+      return 1
     fi
+    }
+
+    rc=0
+    while IFS= read -r g; do
+      [ -n "$g" ] || continue
+      process_group "$g" || rc=1
+    done <<< "$groups"
+    exit "$rc"
   '';
 
   meta = {

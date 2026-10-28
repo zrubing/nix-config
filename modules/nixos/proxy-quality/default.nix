@@ -134,11 +134,12 @@ in
 
     excludeTagSuffixes = lib.mkOption {
       type = lib.types.listOf lib.types.str;
-      default = [ "-v6" ];
+      default = [ ];
       description = ''
-        候选里剔除 tag 以这些后缀结尾的节点。默认剔 -v6：派生出来的 v6 腿
-        延迟波动最大，且在 net-policy 里与主节点不是同一条路径。
-        用后缀而不是节点名，避免把节点信息写进公开仓库。
+        候选里剔除 tag 以这些后缀结尾的节点。默认不剔：v6 腿和 v4 腿走的是
+        不同路径，但都能被测量，冷启动/吞吐实测差距（0.48s vs 2.3s）靠评分
+        表达即可，不需要按拓扑先验排除。用后缀而不是节点名，避免把节点信息
+        写进公开仓库。
       '';
     };
 
