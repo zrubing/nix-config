@@ -510,6 +510,17 @@ in
           kind = "domain";
           target = "Spotify";
         }
+        # 境外对象存储例外：build 节点把镜像推到 SG 桶（registry-sg-upstream →
+        # cos.ap-singapore.myqcloud.com）。geosite-cn 按「公司」收录 myqcloud.com，
+        # 于是这条流量被判成「国内」走直连。2026-10-28 实测：直连上行到 5–6MB 后
+        # 再无 ACK（rwnd_limited 99.9%、backoff 8、lastrcv 200s+），COS 侧报
+        # UserNetworkTooSlow → registry 500 → buildkit 重试 → 416 invalid content
+        # range；同一条 40MB 上传改走代理 8.6s 完成。必须排在下面的 rule-set cn 之前。
+        {
+          match = "domain-suffix";
+          value = [ "cos.ap-singapore.myqcloud.com" ];
+          target = "自动选择";
+        }
         {
           match = "rule-set";
           set = "cn";
