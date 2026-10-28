@@ -425,8 +425,12 @@ in
 
     # fakeip v6 闸门（2026-10-27 实验性打开，先在 zen14 上验证）。
     # 段刻意不用 sing-box 默认的 fc00::/18：那是 ULA，会被 net-policy 里
-    # `ip_is_private → 直连` 那条规则当成内网地址。2001:db8::/32 是文档保留段，
-    # 真实网络不会出现，IsPrivate() 也返回 false。
+    # `ip_is_private → 直连` 那条规则当成内网地址。
+    # ⚠️ 这里有个 hack：用的是 **RFC 5737/3849 的文档保留段**（2001:db8::/32），
+    #    等于拿「示例地址」当生产配置。之所以能用：真实网络不会路由它，
+    #    IsPrivate() 也返回 false。干净的做法是 ULA + 让 net-policy 把 fakeip 段
+    #    从「私有地址直连」那条规则里排除（需要给 net-policy 加一个假想网段的入口），
+    #    为一个实验性开关不值当，所以先这样并在这里挑明。
     # 关闭：删掉这行（或设成 null）后 rebuild。
     netPolicy.fakeipInet6Range = "2001:db8:1::/48";
     # 旁路 socks 端口（7899）：固定走代理组，完全不看 rules。
@@ -581,7 +585,7 @@ in
     # 故直接 mirror 到本机 NodePort（upstream DaemonSet 与 build 节点同机，
     # internalTrafficPolicy=Local ⇒ 只有本节点跑着 upstream pod 时该 NodePort 才应答）。
     #
-    # ⚠️ 2026-10-11 zen14 迁入新集群 acme-prod，此处从 旧集群(30003) 改为 新集群(30002)。
+    # ⚠️ 2026-10-11 zen14 迁入新集群 hinihao-sg-prod，此处从 旧集群(30003) 改为 新集群(30002)。
     #    改错的表现：pull 被转到本机一个**不存在的** NodePort → 连接被拒 →
     #    clone/deploy step ImagePullBackOff，而镜像名看起来完全正常。
     #
@@ -595,7 +599,7 @@ in
     #      section which is the containerd v1 CRI plugin format
     #    并直接拒绝启动（Error: pre-flight checks failed）。
     #    这与 zen14 本次升级 1.35→1.36 直接相关；对照实现见
-    #    system-manager-acme-net/systems/x86_64-linux/acme-net/k0s.nix。
+    #    system-manager-hinihao-net/systems/x86_64-linux/hinihao-sg-prod-net/k0s.nix。
     [plugins."io.containerd.cri.v1.images".registry.mirrors."registry-sg-upstream.registry.svc.cluster.local:5000"]
       endpoint = ["http://127.0.0.1:30002"]
 
@@ -607,7 +611,7 @@ in
     enable = true;
     # ⚠️ 显式 pin 到 1.36，**不用** `inputs.k0s-nix.packages.${system}.k0s`：
     #    那个默认值当时是 k0s_1_35，而集群主体（老集群 net/world/test、
-    #    新集群 acme-prod-net/world）全是 **1.36.3+k0s**。
+    #    新集群 hinihao-sg-prod-net/world）全是 **1.36.3+k0s**。
     #    zen14 迁入新集群后应与它一致 —— k0s 要求 worker 版本与 controller
     #    相差不超过 1 个 minor，且此处是迁移，对齐版本消除一个变量。
     #    用显式属性名也给 nova13（仍在老集群、刻意不升）留出独立选择。
@@ -616,7 +620,7 @@ in
     # 首次 join 需要提前放置 token 文件到 /var/lib/k0s/k0stoken
     tokenFile = "/var/lib/k0s/k0stoken";
     dataDir = "/var/lib/k0s";
-    # ⚠️ 2026-10-11 zen14 迁入新集群 acme-prod：
+    # ⚠️ 2026-10-11 zen14 迁入新集群 hinihao-sg-prod：
     #    · node-ip 从 10.144.200.2（老 Build ET）改为 10.144.150.3（新集群 ET）
     #    · 标签/tolerations 保持不变（新集群的 buildNodeLabelKey 同为
     #      node-role.kubernetes.io/build，故 buildkitd 能直接调度到本节点）
@@ -640,9 +644,9 @@ in
     #       configuration from this file」⇒ flag 能压过 k0s 生成的
     #       `clusterDNS: ["10.112.0.10"]`。
     #
-    #    对应声明在另一仓库：system-manager-acme-net 的
+    #    对应声明在另一仓库：system-manager-hinihao-net 的
     #    kubenix/helm/build-local-dns.nix（文件头「三、谁用它」）与
-    #    systems/x86_64-linux/acme-prod-net/manifests.nix。
+    #    systems/x86_64-linux/hinihao-sg-prod-net/manifests.nix。
     #    ⚠️ 10.119.194.33 与那边的 `buildLocalDnsServiceIP` **必须一致**。
     extraArgs = ''--kubelet-extra-args="--cluster-dns=10.119.194.33 --node-ip=${nodeIp} --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=zen14:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
     spec.api.address = "0.0.0.0";

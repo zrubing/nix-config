@@ -17,14 +17,35 @@
 # 客户端的重定向入站接住；客户端靠 SO_ORIGINAL_DST（conntrack 保留的原始目的）
 # 还原 pod 想连的地址。
 #
+# ── 为什么需要这条规则（客户端自己的捕获在转发路径上会丢包）───────────
+# 两家客户端都想抓转发流量，但都抓不住 TCP：
+#   · mihomo 在 `table inet mihomo` 的 prerouting（priority dstnat+1）装
+#     `meta l4proto tcp redirect to :45669`；
+#   · sing-box 在 `table inet sing-box` 的 prerouting_prematch 装 nfqueue。
+# 前者对**从 veth 进来**的 TCP 无处投递（veth 没有 IPv4 地址），包被静默丢弃。
+# 实测（2026-10-28，zen14，删掉本表后）：pod 的 SYN 出现在 `lxc*` 上，之后既没有
+# Meta 出向、也没有任何回包，pod 侧 20s 超时。
+# 本规则优先级更高（dstnat-5），抢在前面把 TCP DNAT 到本机端口，客户端才接得住。
+# ⚠️ 所以这条规则是**绕开客户端 REDIRECT 在转发路径失效**的绕法，不是理论最优。
+#    标准解法是让客户端用 tproxy 监听 + `ip rule fwmark` + `ip route local ... table 100`；
+#    没采用的原因：那套策略路由要和 cilium 的 fwmark 规则、EasyTier 的路由表共存，
+#    两台客户端都要重验，收益只是省掉 dnatTarget 一个配置项。
+#
 # ── 前置条件：cilium 必须关掉 bpf host routing ─────────────────────────
 # 否则 pod 的包在 cilium 的 BPF 程序里就被转发出去，根本到不了 netfilter，
 # 本规则的计数器永远是 0。声明在另一仓 system-manager-hinihao-net 的
 # kubenix/build-node-egress.nix（CiliumNodeConfig `enable-host-legacy-routing=true`）。
 #
+# ── 没有 DNS 那一腿，UDP 也不在本规则里 ────────────────────────────────
+# 本规则只管 TCP。pod 的 UDP（含 DNS）由客户端的 `ip rule … lookup 2022` 送进 TUN，
+# 在 TUN 里被 DNS hijack / 代理接住（实测：pod 查 8.8.8.8 的包在 `Meta` 上以
+# 198.18.0.1 为源出现，回包是 fakeip 应答）。
+# 也就是说 pod 出网实际由**两套机制**拼起来：TCP 走本规则 + 客户端 redir 入站，
+# UDP 走客户端 auto-route + TUN。原因见上一节（客户端抓不住转发的 TCP）。
+#
 # ── 为什么没有 DNS 那一腿（2026-10-28 实测后删除）──────────────────────
 # 曾经还有一条「pod 的 :53 一律 DNAT 到客户端 DNS 入站」的规则。它有三个问题：
-#   1. 它**抓不到聚类 DNS 的原样查询**：pod → ClusterIP 的包在 cilium 的 TC 层
+#   1. 它**抓不到集群 DNS 的原样查询**：pod → ClusterIP 的包在 cilium 的 TC 层
 #      就已翻译成 CoreDNS 的 pod IP，规则的 dport 53 于是照样命中，把「已经翻译
 #      好的」包又劫走一次 —— 结果每个客户端都必须自己实现「cluster 域名转发回
 #      build-local CoreDNS」，谁漏了谁就把整个节点的 pod DNS 弄坏；
@@ -51,6 +72,14 @@ let
     table inet pod-egress {
       chain prerouting {
         type nat hook prerouting priority dstnat - 5; policy accept;
+        # priority 必须小于客户端的捕获链：mihomo 是 dstnat+1、sing-box 是 dstnat-1，
+        # 用 dstnat-5 保证本规则先跑（改大就会退化成「客户端先丢包」）。
+        #
+        # ⚠️ `iifname "lxc*"` 匹配的是 cilium 的 veth **命名约定**，不是语义
+        #    （前缀由 cilium 的 --veth-prefix 决定，默认 lxc）。换成按 pod CIDR 匹配
+        #    要把集群拓扑事实写进本模块，而且 VXLAN 入向还得额外排除 cilium_vxlan，
+        #    所以保留约定匹配。兜底判据：pod-egress-check 的 transparent（前缀一变，
+        #    这条规则不再命中，pod 出网立刻退回「全部超时」，那条判据当场红）。
         iifname "lxc*" ip daddr != { ${lib.concatStringsSep ", " netPolicy.bypassProxyAddresses} } \
           meta l4proto tcp counter dnat ip to ${cfg.dnatTarget}:${toString cfg.listenPort}
       }

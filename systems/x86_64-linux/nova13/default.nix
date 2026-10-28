@@ -510,7 +510,7 @@ in
 
     # CI infra 镜像（kubectl-shell-runner / git-cache-clone-runner）。
     #
-    # ⚠️ 2026-10-12 nova13 迁入新集群 acme-prod：mirror 从
+    # ⚠️ 2026-10-12 nova13 迁入新集群 hinihao-sg-prod：mirror 从
     #    registry-bj-upstream(30003) 改为 registry-sg-upstream(30002)。
     #    改错的表现：pull 被转到本机一个**不存在的** NodePort → 连接被拒 →
     #    clone/deploy step ImagePullBackOff，而镜像名看起来完全正常。
@@ -538,7 +538,7 @@ in
 
   services.k0s = {
     enable = true;
-    # ⚠️ 显式 pin 到 1.36（2026-10-12 随迁入新集群 acme-prod 从 1.35 升级）。
+    # ⚠️ 显式 pin 到 1.36（2026-10-12 随迁入新集群 hinihao-sg-prod 从 1.35 升级）。
     #    k0s 要求 worker 与 controller 相差不超过 1 个 minor，且集群主体
     #    （老集群 net/world/test、新集群两节点、zen14）全是 **1.36.3+k0s**。
     #    不用 `inputs.k0s-nix.packages.${system}.k0s`：它的默认值当时是 k0s_1_35。
@@ -547,7 +547,7 @@ in
     # 首次 join 需要提前放置 token 文件到 /var/lib/k0s/k0stoken
     tokenFile = "/var/lib/k0s/k0stoken";
     dataDir = "/var/lib/k0s";
-    # ⚠️ 2026-10-12 nova13 迁入新集群 acme-prod：
+    # ⚠️ 2026-10-12 nova13 迁入新集群 hinihao-sg-prod：
     #    · node-ip 从 10.144.200.3（老 Build ET）改为 **10.144.150.4**（新集群 ET）
     #      —— 该地址由 modules/nixos/easytier/default.nix 的 etNetworksByHost
     #      分配，两处必须一致，否则 kubelet 注册的 InternalIP 在 ET 网络里不可达。

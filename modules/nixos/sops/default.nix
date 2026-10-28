@@ -35,7 +35,7 @@ in
     sopsFile = "${mysecrets}/secrets/env.yaml";
   };
 
-  # 新集群 acme-prod 的 EasyTier 网络（2026-10-11 起，zen14 加入该集群）。
+  # 新集群 hinihao-sg-prod 的 EasyTier 网络（2026-10-11 起，zen14 加入该集群）。
   #
   # ⚠️ 为什么这三个值（含 peer 的公网 IP）放 sops 而不是 lib/constants.nix：
   #    本仓库是**公开 GitHub 仓库**（git@github.com:zrubing/nix-config.git），

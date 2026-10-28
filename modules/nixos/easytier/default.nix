@@ -35,7 +35,7 @@ let
   #    两台都是家用机，需要经 ali 中转互通，故让它们共处 ali 网络。
   etNetworksByHost = {
     zen14 = [
-      # 新集群 acme-prod 的集群 ET（网关 acme-prod-net）。
+      # 新集群 hinihao-sg-prod 的集群 ET（网关 hinihao-sg-prod-net）。
       # kubelet 的 --node-ip 用的是这个地址，**不可随意改动**。
       {
         network = "sg-prod";
