@@ -216,17 +216,27 @@ writeShellApplication {
       ' "$state" > "$state.next" && mv "$state.next" "$state"
     done < "$results"
 
-    cur="$(jq -r --arg g "$group" '.[$g].current // empty' "$state")"
-    # 首次运行（state 为空）时，当前选择要从客户端现读，否则会误判成“没有当前
-    # 选择”而无条件切换 —— 那等于把驻留/迟滞在第一次就绕过去了。
-    if [ -z "$cur" ]; then
-      cur="$(jq -r '.now // empty' <<<"$group_json")"
-      if [ -n "$cur" ]; then
-        jq --arg g "$group" --arg c "$cur" '.[$g].current = $c' "$state" > "$state.next" \
+    # 客户端里的真实选择才是事实来源：sib 重启后会回到配置里写的默认节点，
+    # 而 state 里的 current 还停在上次切到的节点上。只在 state 为空时现读一次
+    # 会漏掉这种重置 —— 之后一直以为自己在用 A、实际跑着 B。
+    actual="$(jq -r '.now // empty' <<<"$group_json")"
+    prev="$(jq -r --arg g "$group" '.[$g].current // empty' "$state")"
+    bypass=0
+    if [ "$actual" != "$prev" ]; then
+      # 选择被外部改过（客户端重启、手工切换）：以实际为准，重置驻留起点，
+      # 但本轮跳过驻留检查 —— 驻留期只防我们自己抖动，不该拦住「回到当前最优」。
+      if [ -n "$actual" ]; then
+        jq --arg g "$group" --arg c "$actual" --argjson now "$now" \
+          '.[$g].current = $c | .[$g].since = $now' "$state" > "$state.next" \
           && mv "$state.next" "$state"
       fi
+      cur="$actual"
+      since="$now"
+      bypass=1
+    else
+      cur="$actual"
+      since="$(jq -r --arg g "$group" '.[$g].since // 0' "$state")"
     fi
-    since="$(jq -r --arg g "$group" '.[$g].since // 0' "$state")"
     best="$(jq -r --arg g "$group" '
       .[$g].nodes | to_entries | map(select(.value.ewma > 0))
       | sort_by(-.value.ewma) | .[0].key // empty' "$state")"
@@ -255,7 +265,7 @@ writeShellApplication {
       switch=1; reason="当前节点连续失败 $cur_fails 次"
     elif awk -v b="$best_ewma" -v c="$cur_ewma" -v i="$improvement" \
            'BEGIN{exit !(b > c * (1 + i))}'; then
-      if [ $(( now - since )) -ge "$min_dwell" ]; then
+      if [ "$bypass" = 1 ] || [ $(( now - since )) -ge "$min_dwell" ]; then
         switch=1; reason="优于当前 $(awk -v b="$best_ewma" -v c="$cur_ewma" 'BEGIN{printf "%.0f%%", (b/c-1)*100}')"
       else
         echo "$best 更快但还在驻留期（$(( now - since ))s / ''${min_dwell}s）"
