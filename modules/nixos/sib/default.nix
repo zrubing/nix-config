@@ -51,6 +51,32 @@ let
   secretPath = config.age.secrets."sib-conf".path;
   hy2PasswordPath = config.age.secrets."relay/hysteria-password".path;
 
+  # ── pod 出网捕获的 nft 规则文件（由 nix 生成，不手写）──────────────────
+  #
+  # 为什么用 DNAT 而不是 REDIRECT：pod 的包是**转发**流量，宿主侧 veth（lxc*）
+  # 没有 IPv4 地址，netfilter 的 REDIRECT 找不到可投递的本机地址 → 包被丢弃、
+  # sing-box 收不到连接（2026-10-28 实测：DNAT/REDIRECT 计数器都在涨，但 pod
+  # 侧一律超时）。DNAT 到本机某个确定地址才能进 INPUT 并被 redirect 入站接住。
+  #
+  # 为什么先删后建：nft -f 是 add 语义，重复执行会重复追加规则。
+  podEgressNft = pkgs.writeText "sib-pod-egress.nft" ''
+    table inet pod-egress {
+      chain prerouting {
+        type nat hook prerouting priority dstnat - 5; policy accept;
+        # ① DNS 必须先接管，且**不看目的地址**：build 容器里的 rootlesskit/slirp
+        #    会把查询转发到宿主解析器（路由器 192.168.x），那条路径返回污染应答；
+        #    目的地址一旦落进下面的排除集就再也纠正不了（2026-10-28 实测：
+        #    docker.io 解析到 100.30.151.116 / 116.89.243.8 → TLS 握手超时）。
+        iifname "lxc*" meta l4proto { tcp, udp } th dport 53 \
+          counter dnat ip to ${cfg.podEgress.dnatTarget}:${toString cfg.podEgress.dnsPort}
+
+        # ② 其余 TCP 新连接：目标排除集与 tun 的 route_exclude_address 同源。
+        iifname "lxc*" ip daddr != { ${lib.concatStringsSep ", " config.${namespace}.netPolicy.bypassProxyAddresses} } \
+          meta l4proto tcp counter dnat ip to ${cfg.podEgress.dnatTarget}:${toString cfg.podEgress.listenPort}
+      }
+    }
+  '';
+
   # ── 不变量渲染器（单一事实源：modules/nixos/net-policy）────────────────
   #
   # 密文里只该放「节点 / 凭据 / 域名规则」；「哪些流量永不进代理」是 nix 侧的
@@ -284,6 +310,30 @@ let
     ' ${runtimeDir}/config.merged.json ${policyJson} > ${tmpConfigPath}
     rm -f ${runtimeDir}/config.base.json ${runtimeDir}/config.merged.json
 
+    # ── pod 出网捕获入站（可选，见 podEgress 选项）─────────────────────
+    # 与宿主自己的流量走不同路径：宿主的 output 由 tun 的 auto_redirect 抓，
+    # pod 的**转发**流量抓不到（宿主侧 veth 没有 IPv4 地址，REDIRECT 无处可投，
+    # 实测 2026-10-28）。所以给它一条独立的 redirect 入站 + 一条 DNAT 规则
+    # （DNAT 目标是本机地址，见 podEgress.dnatTarget）。
+    ${lib.optionalString cfg.podEgress.enable ''
+      jq '
+        .inbounds += [
+          { "type": "redirect", "tag": "pod-redirect-in",
+            "listen": "0.0.0.0", "listen_port": ${toString cfg.podEgress.listenPort} },
+          { "type": "direct", "tag": "pod-dns-in",
+            "listen": "0.0.0.0", "listen_port": ${toString cfg.podEgress.dnsPort} }
+        ]
+        # DNS 入站接到的查询交给内部 DNS 模块（与宿主的 dns-in 同一套规则）。
+        | .route.rules = ([{ "inbound": ["pod-dns-in"], "action": "hijack-dns" }] + .route.rules)
+        # 集群域名必须直连回集群 DNS，否则劫持后 svc 名解析全坏。
+        | .dns.servers += [{ "tag": "dns-cluster", "type": "udp",
+                             "server": ${builtins.toJSON cfg.podEgress.clusterDnsServer} }]
+        | .dns.rules = ([{ "domain_suffix": ${builtins.toJSON cfg.podEgress.clusterDnsSuffixes},
+                           "server": "dns-cluster" }] + .dns.rules)
+      ' ${tmpConfigPath} > ${tmpConfigPath}.pod
+      mv ${tmpConfigPath}.pod ${tmpConfigPath}
+    ''}
+
     # ── 注入密码 ───────────────────────────────────────────────────────
     # 必须作用在**最终配置**上，不能只替换 base：hy2 节点的 password 字段也写
     # 同一个占位符，而节点是上一步才从 proxy-nodes 密文注入的。之前只替换 base
@@ -351,11 +401,72 @@ let
 
     chmod 0600 ${tmpConfigPath}
     mv ${tmpConfigPath} ${configPath}
+
+    # ── pod 出网捕获：nft 规则（可选）──────────────────────────────────
+    # 先删后建，避免重复追加；规则文件由 nix 生成（排除集 = net-policy 的
+    # bypassProxyAddresses，与 tun 的 route_exclude_address 同源）。
+    ${pkgs.nftables}/bin/nft delete table inet pod-egress 2>/dev/null || true
+    ${lib.optionalString cfg.podEgress.enable ''
+      ${pkgs.nftables}/bin/nft -f ${podEgressNft}
+    ''}
   '';
 in
 {
   options.${namespace}.sib = with lib; {
     enable = mkEnableOption "sing-box client (sib)";
+
+    # ── pod 出网捕获（可选）──────────────────────────────────────────
+    # 用途：让本机所有 pod 的出向 TCP 走 sing-box（Dockerfile 的 RUN 不读任何
+    # proxy 变量也能出网）。前提是该节点的 cilium 已按节点关闭 bpf host
+    # routing（CiliumNodeConfig enable-host-legacy-routing=true），否则 pod 的
+    # 包根本到不了 netfilter，本规则的计数器会永远是 0。
+    podEgress = {
+      enable = mkEnableOption "把本机 pod 的出向 TCP 透明接管到 sing-box";
+
+      listenPort = mkOption {
+        type = types.port;
+        default = 15001;
+        description = ''
+          redirect 入站的固定端口。**必须固定**：nft 规则在 prepare 阶段就要
+          写好，读不到 sing-box 运行时自动分配的端口。
+        '';
+      };
+
+      dnsPort = mkOption {
+        type = types.port;
+        default = 15353;
+        description = ''
+          pod DNS 接管的监听端口（sing-box 的 pod-dns-in 入站）。
+          接管原因：build 容器里的 DNS 走 rootlesskit/slirp → 宿主解析器，
+          那条链路返回污染应答；只接管连接层无法纠正。
+        '';
+      };
+
+      clusterDnsServer = mkOption {
+        type = types.str;
+        default = "10.119.194.33";
+        description = ''
+          集群 DNS（build-local CoreDNS）地址。接管 pod DNS 后，集群域名必须
+          转发回它，否则 *.svc.cluster.local 全部解析不出来。
+        '';
+      };
+
+      clusterDnsSuffixes = mkOption {
+        type = types.listOf types.str;
+        default = [ ".cluster.local" ".svc" ];
+        description = "这些后缀的查询转发给 clusterDnsServer（不经代理）。";
+      };
+
+      dnatTarget = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "10.144.150.3";
+        description = ''
+          DNAT 目标：本机的一个 IPv4 地址（通常就是 kubelet 的 --node-ip）。
+          必须是本机地址 —— 宿主侧 veth 没有地址，REDIRECT 无处投递（实测）。
+        '';
+      };
+    };
 
     package = mkOption {
       type = types.package;
@@ -433,6 +544,14 @@ in
         message = ''
           ${namespace}.sib 与 ${namespace}.miho 不能同时启用：两者都要接管 TUN、
           127.0.0.1:53 和 nftables。切换时在主机配置里一开一关。
+        '';
+      }
+      {
+        assertion = !cfg.podEgress.enable || cfg.podEgress.dnatTarget != null;
+        message = ''
+          ${namespace}.sib.podEgress.enable 需要同时给 podEgress.dnatTarget
+          （本机的一个 IPv4 地址）。宿主侧 veth 没有地址，REDIRECT 无法用于
+          转发的 pod 流量，只能用 DNAT 指向本机地址。
         '';
       }
     ];

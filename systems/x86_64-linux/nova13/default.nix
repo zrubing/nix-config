@@ -548,7 +548,7 @@ in
     #    Local ⇒ 命中本机实例）；第二值 10.112.0.10 是兜底。
     #    完整理由、k0s 不支持 worker profile 覆盖 clusterDNS 的依据、
     #    以及另一仓库的对应声明，见 zen14/default.nix 同一处的注释。
-    extraArgs = ''--kubelet-extra-args="--cluster-dns=10.119.194.33,10.112.0.10 --node-ip=10.144.150.4 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=nova13:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
+    extraArgs = ''--kubelet-extra-args="--cluster-dns=10.119.194.33 --node-ip=10.144.150.4 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=nova13:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
     spec.api.address = "0.0.0.0";
     spec.workerProfiles = [
       {

@@ -292,19 +292,30 @@ in
     bypassProxyCidrs = lib.mkOption {
       type = with lib.types; listOf str;
       default = [
+        # ── 只放「协议常量」，不放集群拓扑事实 ──────────────────────
         # 这些包如果被 TUN 劫持，症状离真因很远（历史上都踩过）：
         #   · ET 把自己的虚拟地址当 P2P 候选广播 → 自指链路 → 100% 丢包
         #   · cilium vxlan 端点（节点 InternalIP）进代理 → 跨节点 pod 全断
         #     → 解析不了 kube-dns → build pod ImagePullBackOff
-        "10.144.0.0/16" # EasyTier overlay
-        "10.3.0.0/22" # acme-prod-net VPC
-        "10.3.4.0/22" # acme-prod-world VPC
-        "10.3.12.0/22" # world 节点 VPC 子网
-        "10.246.0.0/16" # cilium overlay（cilium_host / cilium_health 地址）
-        "10.96.0.0/12" # 老集群 serviceCIDR（已失效，留着让迁移痕迹可见）
-        "10.244.0.0/16" # 老集群 podCIDR（同上）
+        #
+        # 为什么不再逐条列集群网段（2026-10-28 改）：那些是**拓扑事实**，
+        # 存在本仓库之外的 k8s 里（serviceCIDR / podCIDR / VPC 子网），写在这里
+        # 必然漂 —— 实测已漂两次：10.96.0.0/12 与 10.244.0.0/16 是旧集群残值，
+        # 而当前集群的 serviceCIDR 10.112.0.0/12 从未在列表里。
+        # 私有段是协议常量，不随集群重建变化，且覆盖全部集群内目标。
+        # 需要「私网目标走代理」时用 forcedProxySocksPort 旁路端口，不要改这里。
+        "10.0.0.0/8" # RFC1918：pod/service CIDR、ET overlay、云 VPC 都在其中
+        "100.64.0.0/10" # CGNAT（Tailscale 类段）
+        "169.254.0.0/16" # link-local：云 metadata、VPC 内网地址
+        "172.16.0.0/12" # RFC1918：含 sing-box 自己的 tun 网关段 172.19.0.0/30
+        "192.168.0.0/16" # RFC1918：家里 LAN
+        "127.0.0.0/8"
       ];
-      description = "这些目标网段永不进代理 —— 由本机路由表负责送达。";
+      description = ''
+        这些目标网段永不进代理 —— 由本机路由表负责送达。
+        只放协议常量：集群拓扑事实（serviceCIDR/podCIDR/VPC）不进这里，
+        否则集群重建后必然漂（已发生过两次）。
+      '';
     };
 
     bypassProxyLoopback = lib.mkOption {

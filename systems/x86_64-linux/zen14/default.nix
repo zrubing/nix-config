@@ -12,6 +12,11 @@ let
   mysecrets = inputs.mysecrets;
   proxysqlEnabled = false;
 
+  # 本机在集群 ET 网络（sg-prod）里的地址 = kubelet 的 --node-ip。
+  # 两个消费者必须同值：kubelet 注册用的节点地址、pod 出网捕获的 DNAT 目标
+  # （见 hinihao.sib.podEgress）。只在这里写一次。
+  nodeIp = "10.144.150.3";
+
   # 临时开关：true = jojo 免密码 sudo（规则与 nova13 一致），false = 回到 GUI askpass。
   #
   # 保持 true 的前提：agent 必须从 agent-shell 启动。bwrap 默认设 no_new_privs，
@@ -367,6 +372,15 @@ in
     };
     sib = {
       enable = true;
+      # pod 出网捕获：pod 的 TCP 新连接被 DNAT 到本机 nodeIp:15001，由 podEgress
+      # 注入的 redirect 入站接手 → 不读 proxy 变量的进程（Dockerfile 的 RUN）也能出网。
+      # ⚠️ 前提是该节点的 cilium 已关 bpf host routing（CiliumNodeConfig
+      #    enable-host-legacy-routing=true，声明在本仓 kubenix/build-node-egress.nix），
+      #    否则 pod 的包到不了 netfilter，规则计数器永远 0。
+      podEgress = {
+        enable = true;
+        dnatTarget = nodeIp;
+      };
       # 分组参数是策略不是秘密，放这里才能 review/diff（组定义本身仍在密文里）。
       # 实测（2026-10-28）：节点延迟抖动 190–1358ms，密文里的 tolerance 10ms
       # 低于噪声，urltest 每轮都可能切换，而 interrupt_exist_connections=true
@@ -623,7 +637,7 @@ in
     #    kubenix/helm/build-local-dns.nix（文件头「三、谁用它」）与
     #    systems/x86_64-linux/acme-prod-net/manifests.nix。
     #    ⚠️ 10.119.194.33 与那边的 `buildLocalDnsServiceIP` **必须一致**。
-    extraArgs = ''--kubelet-extra-args="--cluster-dns=10.119.194.33,10.112.0.10 --node-ip=10.144.150.3 --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=zen14:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
+    extraArgs = ''--kubelet-extra-args="--cluster-dns=10.119.194.33 --node-ip=${nodeIp} --node-labels=wants-role/build=,wants-role/proxy= --register-with-taints=dedicated=zen14:NoSchedule --eviction-hard=memory.available<100Mi,nodefs.available<5%,nodefs.inodesFree<5%,imagefs.available<5% --image-gc-high-threshold=95 --image-gc-low-threshold=90 --eviction-pressure-transition-period=5m"'';
     spec.api.address = "0.0.0.0";
     spec.workerProfiles = [
       {
