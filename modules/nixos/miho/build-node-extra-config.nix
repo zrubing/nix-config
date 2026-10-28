@@ -15,11 +15,11 @@
 #    miho 模块会把 net-policy 的条目合并进来（rules 前置、地址取并集）。
 {
   dns = {
-    # ⚠️ 这条理由已经过期（2026-10-28 核对）：`modules/nixos/networking` 现在**不**把
-    #    resolved 的上游指到 127.0.0.1:53（它用 DoT 到 223.x + TUN 的 `~.` 路由域），
-    #    所以「基础配置 listen 0.0.0.0:1053 与 resolved 错配」不再是问题。
-    #    保留 127.0.0.1:53 只是为了本机 `dig @127.0.0.1` 这类诊断习惯；
-    #    pod 不使用这个监听（pod DNS 走集群 DNS，出网 :53 由 TUN hijack 接住）。
+    # resolved 上游配置为 127.0.0.1:53（由 miho 模块声明），基础配置里
+    # listen 0.0.0.0:1053 与之错配导致 DNS 链路断裂（mihomo 收不到 resolved 查询）。
+    # 此处覆盖回 127.0.0.1:53。
+    # 现状（2026-10-28 核对）：`modules/nixos/networking` 不再把 resolved 的上游指到
+    # 这里（走 DoT + TUN 的 `~.` 路由域），所以这个监听现在只服务本机诊断查询。
     listen = "127.0.0.1:53";
     # ⚠️ 不要在这里加 +.cluster.local 的 nameserver-policy：
     # mihomo 的 DNS 上游查询带 fwmark 绕过 cilium 的 ClusterIP 负载均衡
