@@ -56,6 +56,8 @@ let
     (toString cfg.minDwell)
     "--improvement"
     (toString cfg.improvement)
+    "--samples"
+    (toString cfg.samples)
     "--state"
     "/var/lib/proxy-quality/state.json"
   ]
@@ -124,6 +126,12 @@ in
       type = lib.types.int;
       default = 1200;
       description = "切换后的最小驻留时间（秒）。期间即使别的节点更快也不切。";
+    };
+
+    samples = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 2;
+      description = "每个候选采样几次取最短。单次采样抖动大（同一节点 0.9s/4.3s 都出现过）。";
     };
 
     improvement = lib.mkOption {

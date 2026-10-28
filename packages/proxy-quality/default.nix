@@ -11,9 +11,14 @@
 # 代理节点质量探针：按「真实可用性」而不是 RTT 选节点。
 #
 # 为什么不能用客户端自带健康检查：url-test / urltest 只发一个 204，跑在**已建立**
-# 的会话上，测到的是 200–300ms 的热会话；而实际体验的分水岭是冷启动——实测同一
-# 节点冷会话 5.6s、拥塞时 20s 起不来。本脚本每个候选都新起一个 sing-box 实例，
-# 等于强制走一次冷启动，测出来的才是用户真正会遇到的代价。
+# 的会话上，测到的是 200–300ms 的热会话；而首次连接要付握手代价。本脚本每个候选
+# 都新起一个 sing-box 实例，等于强制走一次冷启动。
+#
+# 2026-10-28 修正一条早期结论：一度测出域名节点「冷启动 5.9s」，抓包发现进程
+# 启动到首个 UDP 包之间有 5 秒空档 —— 那段时间花在 DNS 上，而本机 DNS 走 TUN
+# （fakeip），查询被绕回运行中的客户端。在探测配置里显式指定直连解析器后，
+# 同一节点从 5.9s 降到 0.7–0.9s。也就是说「冷启动慢」有八成是探测自己造成的。
+# 现在每个候选的探测配置都带 dns.servers + route.default_domain_resolver。
 #
 # 输入只有两样：运行中的客户端配置（含 Clash API 地址/密钥，root 可读）和组名。
 # 候选节点从 API 现读，不写死在 nix 里 —— 节点名、协议、地区都不进公开仓库。
@@ -42,6 +47,8 @@ writeShellApplication {
     timeout_s=8
     state=/var/lib/proxy-quality/state.json
     api_wait=60
+    dns_server=223.5.5.5
+    samples=2
     min_dwell=1200
     improvement=0.25
     alpha=0.4
@@ -65,6 +72,10 @@ writeShellApplication {
       --timeout <秒>          单个节点超时（默认 8）
       --state <路径>          状态文件（默认 /var/lib/proxy-quality/state.json，跨重启保留）
       --api-wait <秒>         等 Clash API 就绪的上限（默认 60）
+      --samples <次数>        每个候选采样几次取最短（默认 2）
+      --dns-server <地址>     探测时解析节点域名的 DNS（默认 223.5.5.5）。
+                              必须显式指定：系统解析器走 TUN，会把查询绕回
+                              运行中的客户端，实测给每个域名节点加 5 秒。
       --min-dwell <秒>        切换后最小驻留时间（默认 1200）
       --improvement <比例>    新节点需优于当前的比例才切（默认 0.25）
       --alpha <比例>          EWMA 系数（默认 0.4）
@@ -91,6 +102,8 @@ writeShellApplication {
         --timeout)     timeout_s="$2"; shift 2 ;;
         --state)       state="$2"; shift 2 ;;
         --api-wait)    api_wait="$2"; shift 2 ;;
+        --dns-server)  dns_server="$2"; shift 2 ;;
+        --samples)     samples="$2"; shift 2 ;;
         --min-dwell)   min_dwell="$2"; shift 2 ;;
         --improvement) improvement="$2"; shift 2 ;;
         --alpha)       alpha="$2"; shift 2 ;;
@@ -210,26 +223,46 @@ writeShellApplication {
         echo "跳过 $tag：配置里没有这个出站" >&2
         continue
       fi
-      jq --arg t "$tag" '{
+      # 显式指定解析器：本机的 DNS 走 TUN（fakeip），用系统解析器解析节点域名
+      # 会绕回运行中的客户端。实测这一步能给 hy2 加 5 秒（5900ms → 790ms），
+      # 于是「冷启动慢」有一大半是探测自己造成的，不是节点。
+      jq --arg t "$tag" --arg dns "$dns_server" '{
         log: { level: "error" },
+        dns: { servers: [ { tag: "probe-dns", type: "udp", server: $dns } ] },
         outbounds: [ (.outbounds[]|select(.tag==$t)), { type: "direct", tag: "direct" } ],
-        route: { final: "direct" }
+        route: { final: "direct", default_domain_resolver: "probe-dns" }
       }' "$config" > "$tmp/probe.json"
 
-      t0="$(date +%s%N)"
+      # 单次采样抖动很大（同一节点实测 0.9s 与 4.3s 都出现过），
+      # 所以每个候选跑 --samples 次取最短：节点"能不能快"比"这次快不快"更能
+      # 反映可用性，偶发拥塞交给上层 EWMA 平滑。
       ok=0
-      if timeout "$timeout_s" sing-box tools fetch -c "$tmp/probe.json" \
-           --outbound "$tag" "$url" >/dev/null 2>&1; then
-        ok=1
-      fi
-      t1="$(date +%s%N)"
-      ms=$(( (t1 - t0) / 1000000 ))
-      [ "$ms" -gt 0 ] || ms=1
+      ms=0
+      i=0
+      while [ "$i" -lt "$samples" ]; do
+        i=$((i + 1))
+        t0="$(date +%s%N)"
+        sample_ok=0
+        if timeout "$timeout_s" sing-box tools fetch -c "$tmp/probe.json" \
+             --outbound "$tag" "$url" >/dev/null 2>&1; then
+          sample_ok=1
+        fi
+        t1="$(date +%s%N)"
+        s_ms=$(( (t1 - t0) / 1000000 ))
+        [ "$s_ms" -gt 0 ] || s_ms=1
+        if [ "$sample_ok" = 1 ]; then
+          ok=1
+          if [ "$ms" = 0 ] || [ "$s_ms" -lt "$ms" ]; then
+            ms="$s_ms"
+          fi
+        fi
+      done
+      [ "$ok" = 1 ] || ms=0
 
       # 分数 = 字节/秒（失败为 0）。大文件探测时它逼近吞吐，小文件时它同时惩罚
       # 冷启动：同样 64KB，热会话 0.2s 与冷启动 5.6s 差 28 倍。
       score="$(awk -v b="$bytes" -v m="$ms" -v ok="$ok" 'BEGIN{
-        if (ok == 1) printf "%.0f", b * 1000 / m; else printf "0"
+        if (ok == 1 && m > 0) printf "%.0f", b * 1000 / m; else printf "0"
       }')"
 
       jq -cn --arg t "$tag" --argjson s "$score" --argjson ms "$ms" --argjson ok "$ok" \
