@@ -38,7 +38,8 @@ writeShellApplication {
     url="https://www.gstatic.com/generate_204"
     bytes=65536
     timeout_s=8
-    state=/run/proxy-quality/state.json
+    state=/var/lib/proxy-quality/state.json
+    api_wait=60
     min_dwell=1200
     improvement=0.25
     alpha=0.4
@@ -58,7 +59,8 @@ writeShellApplication {
       --url <探测 URL>        默认 https://www.gstatic.com/generate_204
       --bytes <字节数>        探测负载大小，用于把耗时换算成速率（默认 65536）
       --timeout <秒>          单个节点超时（默认 8）
-      --state <路径>          状态文件（默认 /run/proxy-quality/state.json）
+      --state <路径>          状态文件（默认 /var/lib/proxy-quality/state.json，跨重启保留）
+      --api-wait <秒>         等 Clash API 就绪的上限（默认 60）
       --min-dwell <秒>        切换后最小驻留时间（默认 1200）
       --improvement <比例>    新节点需优于当前的比例才切（默认 0.25）
       --alpha <比例>          EWMA 系数（默认 0.4）
@@ -76,11 +78,12 @@ writeShellApplication {
       case "$1" in
         --config)      config="$2"; shift 2 ;;
         --group)       group="$2"; shift 2 ;;
-      --group-file)  group_file="$2"; shift 2 ;;
+        --group-file)  group_file="$2"; shift 2 ;;
         --url)         url="$2"; shift 2 ;;
         --bytes)       bytes="$2"; shift 2 ;;
         --timeout)     timeout_s="$2"; shift 2 ;;
         --state)       state="$2"; shift 2 ;;
+        --api-wait)    api_wait="$2"; shift 2 ;;
         --min-dwell)   min_dwell="$2"; shift 2 ;;
         --improvement) improvement="$2"; shift 2 ;;
         --alpha)       alpha="$2"; shift 2 ;;
@@ -115,11 +118,23 @@ writeShellApplication {
     auth=()
     [ -n "$secret" ] && auth=(-H "Authorization: Bearer $secret")
 
+    # sib 是 Type=simple：systemd 认为「已启动」时进程可能还没监听端口。
+    # 开机或重建时本服务与 sib 同一秒被拉起，会扑空；先等 API 就绪，
+    # 别把「还没起来」误报成「没这个组」。
+    deadline=$(( $(date +%s) + api_wait ))
+    until curl -fsS --max-time 2 "''${auth[@]}" "$base/version" >/dev/null 2>&1; do
+      if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "Clash API $base 等了 ''${api_wait}s 仍不可达，跳过本次探测" >&2
+        exit 1
+      fi
+      sleep 2
+    done
+
     # 组名可能含非 ASCII，路径段必须百分号编码。
     enc="$(jq -rn --arg s "$group" '$s|@uri')"
     if ! group_json="$(curl -fsS "''${auth[@]}" "$base/proxies/$enc" 2>/dev/null)"; then
-      echo "Clash API 里没有组 $group" >&2
-      exit 0
+      echo "Clash API 已就绪，但取不到组 $group（组名不对，或该组不存在）" >&2
+      exit 1
     fi
     gtype="$(jq -r '.type' <<<"$group_json")"
     if [ "$gtype" != "Selector" ]; then

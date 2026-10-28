@@ -161,7 +161,7 @@ in
             "--improvement"
             (toString cfg.improvement)
             "--state"
-            "/run/proxy-quality/state.json"
+            "/var/lib/proxy-quality/state.json"
           ]
           ++ lib.concatMap (s: [ "--exclude-suffix" s ]) cfg.excludeTagSuffixes
           ++ lib.optionals (cfg.group != "") [ "--group" cfg.group ]
@@ -169,7 +169,7 @@ in
         );
         # 读 /run/sib 下的运行时配置（含凭据），必须是 root。
         User = "root";
-        # /var/lib/proxy-quality：组名文件的落点（跨重启存活，不进仓库）。
+        # /var/lib/proxy-quality：组名文件和 EWMA/驻留状态都在这里（跨重启存活，不进仓库）。
         StateDirectory = "proxy-quality";
         StateDirectoryMode = "0700";
         # 探测要发真流量，不做网络命名空间隔离。
