@@ -273,6 +273,17 @@ in
     };
     sib.enable = true;
     dae.enable = false;
+    # 主线组是 selector，成员固定、选择由探针写；没有探针就会一直停在
+    # 配置里的第一个成员上。两台客户端用同一份 sib 密文，所以这里必须同步开。
+    proxyQuality = {
+      enable = true;
+      interval = "10min";
+      quickCheck = {
+        enable = true;
+        interval = "60s";
+        fails = 2;
+      };
+    };
     # 同一个 miho-conf 两台机器共用，里面的中转节点指向本机 socks5，
     # 所以 nova13 也得起这个客户端，否则那个节点在 nova13 上是死的。
     tuic-client = {
