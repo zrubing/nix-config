@@ -44,6 +44,9 @@ let
   proxyNodesSecretPath = config.age.secrets."proxy-nodes".path;
   proxyNodesJq = ../../../lib/proxy-nodes.jq;
 
+  # v6 探测（脚本、状态路径、是否启用）都在 proxy-v6 模块，sib / miho 共用一份。
+  proxyV6 = config.${namespace}.proxyV6;
+
   mergedExtraConfig = cfg.extraConfig // {
     # 规则主干整份来自 net-policy（单一事实源，含 bypassProxyPorts 的直连规则）。
     # 顺序：不变量 → extraConfig 偏好 → 兜底 MATCH。MATCH 必须最后一条，
@@ -200,6 +203,21 @@ in
 
         install -d -m 0700 /run/mihomo
 
+        # ── v6 可用性探测 ─────────────────────────────────────────────
+        # 目标取节点清单里所有 v6 字面量（server6 与本身就是 v6 的 server）。
+        # socks 节点是 127.0.0.1，不会命中 test(":")。
+        drop_suffix=()
+        ${lib.optionalString proxyV6.enable ''
+          install -d -m 0700 ${proxyV6.stateDir}
+          jq -r '.nodes[] | ((.server6 // empty), (.server // empty)) | select(test(":"))' \
+            ${proxyNodesSecretPath} | sort -u > ${proxyV6.targetsPath}
+          v6="$(${proxyV6.checkScript})"
+          printf '%s\n' "$v6" > ${proxyV6.availablePath}
+          if [ "$v6" = 0 ]; then
+            drop_suffix=(--drop-suffix '-v6')
+          fi
+        ''}
+
         # 渲染：base（age 密文）+ extraConfig（nix 侧声明）+ 节点清单 + token 展开。
         # 全部交给 mihomo-render —— 这是这段逻辑的唯一实现，导出工具用的是同一份。
         # 合并语义与几个必须保持一致的细节（对象深合并、数组追加、rules 整份来自
@@ -213,6 +231,7 @@ in
           --nodes-jq ${proxyNodesJq} \
           --tokens ${netPolicyTokensJson} \
           --addresses ${netPolicy.addressTokenFile} \
+          "''${drop_suffix[@]}" \
           --out /run/mihomo/config.merged.yaml
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，

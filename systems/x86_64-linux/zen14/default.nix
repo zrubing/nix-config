@@ -440,6 +440,9 @@ in
     # sib 只把每个实例当成一个本地 socks5 节点。
     #   上游 A → 12190，对应 sib 的一个 tuic 节点
     #   上游 B → 12191，对应 sib 的另一个 tuic 节点
+    #   上游 A/B 的 v6 腿 → 12192 / 12193，同一台服务端、只换地址族。
+    #   v6 腿用 ipSecret 把 server 固定到 v6 地址：server 仍写主机名（SNI
+    #   从它推导），地址族在密文里，公开仓库看不到 v6 字面量。
     # 服务商/机房/节点名都不写进仓库：唯一事实源是密文，这里只写端口和方向。
     # uuid/password 两台服务端相同，所以共用 relay/tuic-{uuid,password} 密文。
     tuic-client = {
@@ -452,6 +455,16 @@ in
         jp = {
           serverSecret = "relay/tuic-server-jp";
           listen = "127.0.0.1:12191";
+        };
+        us6 = {
+          serverSecret = "relay/tuic-server";
+          ipSecret = "relay/tuic-server-v6-ip";
+          listen = "127.0.0.1:12192";
+        };
+        jp6 = {
+          serverSecret = "relay/tuic-server-jp";
+          ipSecret = "relay/tuic-server-jp-v6-ip";
+          listen = "127.0.0.1:12193";
         };
       };
     };

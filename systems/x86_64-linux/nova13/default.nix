@@ -312,6 +312,17 @@ in
           serverSecret = "relay/tuic-server-jp";
           listen = "127.0.0.1:12191";
         };
+        # v6 腿：同一台服务端、只换地址族（ipSecret 里是 v6 字面量）。
+        us6 = {
+          serverSecret = "relay/tuic-server";
+          ipSecret = "relay/tuic-server-v6-ip";
+          listen = "127.0.0.1:12192";
+        };
+        jp6 = {
+          serverSecret = "relay/tuic-server-jp";
+          ipSecret = "relay/tuic-server-jp-v6-ip";
+          listen = "127.0.0.1:12193";
+        };
       };
     };
     # 同理：miho-conf 里的两个 vless 节点（1086 / 1087）也是指向本机

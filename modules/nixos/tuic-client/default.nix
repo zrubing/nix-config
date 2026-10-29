@@ -23,6 +23,16 @@ let
         '';
       };
 
+      ipSecret = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = ''
+          mysecrets 下存放单个 IP 字面量的 age 密文名（不含 .age）。
+          用于把同一台上游固定到某一地址族：server 仍写主机名（SNI 从它
+          推导），ip 覆盖实际连接的地址，避免在公开仓库里写 v6 字面量。
+        '';
+      };
+
       listen = lib.mkOption {
         type = lib.types.str;
         default = "127.0.0.1:12190";
@@ -43,6 +53,9 @@ let
       umask 077
       {
         printf 'server = "%s"\n' "$(tr -d '\n' < ${config.age.secrets.${inst.serverSecret}.path})"
+        ${lib.optionalString (inst.ipSecret != null) ''
+          printf 'ip = "%s"\n' "$(tr -d '\n' < ${config.age.secrets.${inst.ipSecret}.path})"
+        ''}
         printf 'uuid = "%s"\n' "$(tr -d '\n' < ${config.age.secrets."relay/tuic-uuid".path})"
         printf 'password = "%s"\n' "$(tr -d '\n' < ${config.age.secrets."relay/tuic-password".path})"
         printf 'log_level = "%s"\n' ${lib.escapeShellArg cfg.logLevel}
@@ -114,7 +127,16 @@ in
       # 服务端地址不写进公开仓库的 nix 文件，和 uuid/password 一样走密文。
       // lib.mapAttrs' (
         _: inst: lib.nameValuePair inst.serverSecret { file = "${mysecrets}/${inst.serverSecret}.age"; }
-      ) cfg.instances;
+      ) cfg.instances
+      // lib.foldl' (
+        acc: inst:
+        acc
+        // lib.optionalAttrs (inst.ipSecret != null) {
+          ${inst.ipSecret} = {
+            file = "${mysecrets}/${inst.ipSecret}.age";
+          };
+        }
+      ) { } (lib.attrValues cfg.instances);
 
     users.groups.${cfg.group} = { };
     users.users.${cfg.user} = {
@@ -140,7 +162,8 @@ in
           (builtins.hashFile "sha256" "${mysecrets}/${inst.serverSecret}.age")
           (builtins.hashFile "sha256" "${mysecrets}/relay/tuic-uuid.age")
           (builtins.hashFile "sha256" "${mysecrets}/relay/tuic-password.age")
-        ];
+        ]
+        ++ lib.optional (inst.ipSecret != null) (builtins.hashFile "sha256" "${mysecrets}/${inst.ipSecret}.age");
 
         serviceConfig = {
           Type = "simple";

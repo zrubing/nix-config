@@ -111,6 +111,26 @@ inbound 日志。
 只要别的 v4 节点还活着且更快，就不会用到同节点的 v6。要「宁可慢也留在同一台」
 得用 `fallback` 出站，语义不同。
 
+## v6 腿的自动剔除（`proxy-v6` 模块）
+
+v6 腿在只有 v4 的网络里是一条永远失败的候选，而「有没有 v6」取决于当前网络。
+构建期决定不了，所以改成运行时判断：
+
+1. 客户端 prepare 阶段把节点清单里的 v6 字面量写进 `/run/proxy-v6/targets`，
+   再调用 `proxyV6.checkScript`：stdout `1` = 有可用 v6。
+2. 判据是「能不能真的用」：非 ULA 全局地址 + 默认路由，且能 ICMPv6 到任一节点
+   v6 服务器（全部失败时退到公共 v6 目标的 TCP 443）。只看地址会在路由黑洞时
+   误判成有 v6。
+3. 结果 `0` 时，两个客户端各自剔除 tag 以 `-v6` 结尾的节点：
+   - sib：jq 删出站 + 每个分组成员；组被删空退回「直连」
+   - miho：`mihomo-render --drop-suffix '-v6$'`；组被删空退回 `DIRECT`
+4. `proxy-v6-watch.timer` 每分钟重测；连续两次结果翻转才重启客户端 unit
+   （`clientService` 自动取 sib / miho 中启用的那个），避免丢一个 ICMP 包就
+   掐断全部连接。
+
+命名约定是这套机制的前提：**v6 腿的 tag 一律以 `-v6` 结尾**，派生腿
+（`server6`）和显式 socks 腿（如 tuic 的 v6 上游）都遵守。
+
 ## fakeip 的 IPv6 闸门
 
 `fakeipInet6Range` 默认 `null`（关闭），此时 AAAA 查询返回空，应用侧拿不到任何

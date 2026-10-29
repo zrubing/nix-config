@@ -122,6 +122,9 @@ let
   # net-policy 的 rules 里只留 __NETPOLICY_<键>__ token，真值在这里。
   netPolicyAddressPath = config.${namespace}.netPolicy.addressTokenFile;
 
+  # v6 探测（脚本、状态路径、是否启用）都在 proxy-v6 模块，sib / miho 共用一份。
+  proxyV6 = config.${namespace}.proxyV6;
+
   prepareConfigScript = pkgs.writeShellScript "sib-prepare-config" ''
     set -euo pipefail
 
@@ -153,6 +156,17 @@ let
     # 转换器（lib/proxy-nodes.jq）一次产出 sib / sibGroups / miho 三份视图，
     # 两家客户端共用同一份事实源，只在这里各取所需。
     jq -f ${proxyNodesJq} ${proxyNodesSecretPath} > ${runtimeDir}/nodes.json
+
+    # ── v6 可用性探测（本机网络，非密文内容）──────────────────────────
+    # 探测目标取自节点清单里的 v6 字面量：socks 节点是 127.0.0.1，不会被选中。
+    ${lib.optionalString proxyV6.enable ''
+      install -d -m 0700 ${proxyV6.stateDir}
+      jq -r '.sib[] | select((.server // "") | test(":")) | .server' \
+        ${runtimeDir}/nodes.json | sort -u > ${proxyV6.targetsPath}
+      v6="$(${proxyV6.checkScript})"
+      printf '%s\n' "$v6" > ${proxyV6.availablePath}
+    ''}
+
     jq --slurpfile p ${runtimeDir}/nodes.json '
       ($p[0].sib) as $nodes
       | ($p[0].sibGroups) as $groups
@@ -164,6 +178,29 @@ let
       )
       | .outbounds = ((.outbounds // []) + $nodes)
     ' ${runtimeDir}/config.base.json > ${runtimeDir}/config.merged.json
+
+    # ── 没有可用 v6 时剔除 v6 腿 ──────────────────────────────────────
+    # 命名约定：v6 腿的 tag 一律以 -v6 结尾（派生腿和显式 socks 腿都一样）。
+    # 出站和所有分组里的成员都要删 —— 只删出站会在 prepare 末尾的引用检查里
+    # 报「组 → 不存在的出站」，服务直接起不来。某个组被删空时退回「直连」，
+    # 保证 selector 至少有一个成员。
+    ${lib.optionalString proxyV6.enable ''
+      if [ "$v6" = 0 ]; then
+        jq '
+          ([.outbounds[].tag | select(endswith("-v6"))]) as $v6
+          | .outbounds |= map(select(.tag as $t | ($v6 | index($t)) | not))
+          | .outbounds |= map(
+              if .outbounds == null then .
+              else
+                .outbounds |= map(select(. as $m | ($v6 | index($m)) | not))
+                | if (.outbounds | length) == 0 then .outbounds = ["直连"] else . end
+              end
+            )
+        ' ${runtimeDir}/config.merged.json > ${runtimeDir}/config.nov6.json
+        mv ${runtimeDir}/config.nov6.json ${runtimeDir}/config.merged.json
+        echo "sib: 本机没有可用 v6，已剔除所有 -v6 节点" >&2
+      fi
+    ''}
 
     # ── 分组参数覆盖（nix 声明，非秘密）────────────────────────────────
     # 只改数值/布尔/成员过滤，不改组成员来源：成员仍由密文里的 sibGroups 决定。
@@ -480,7 +517,13 @@ in
     systemd.services.sib-prepare-config = {
       description = "Prepare sib (sing-box) config";
       before = [ "sib.service" ];
-      after = [ "run-agenix.d.mount" ];
+      # network-online 排在这里：v6 探测要读地址/路由/ICMP，网络没起来会
+      # 误判成「没有 v6」，于是白白剔掉 v6 腿，直到 watcher 下一轮才发现。
+      after = [
+        "network-online.target"
+        "run-agenix.d.mount"
+      ];
+      wants = [ "network-online.target" ];
       # 注意：agenix 在本仓库是 activation script 安装的（/run/agenix 指向
       # /run/agenix.d/<generation>），没有 agenix.service 单元。
       requires = [ "run-agenix.d.mount" ];

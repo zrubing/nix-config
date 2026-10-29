@@ -36,7 +36,7 @@ writeShellApplication {
     用法:
       mihomo-render --base <yaml> --extra <yaml> --nodes-raw <json> \
                     --nodes-jq <jq> --tokens <json> --addresses <json> \
-                    --out <yaml>
+                    [--drop-suffix <suffix>] --out <yaml>
 
     必需参数:
       --base       加密的 base 配置（mihomo 方言 YAML）
@@ -45,6 +45,8 @@ writeShellApplication {
       --nodes-jq   节点清单到 mihomo 方言的转换器（lib/proxy-nodes.jq）
       --tokens     net-policy 的 token 声明 JSON
       --addresses  net-policy 的敏感地址表 JSON（token 展开来源）
+      --drop-suffix 后缀：proxies 名字以它结尾就从 proxies 与 proxy-groups
+                    成员里删掉（本机没有 v6 时传 -v6；默认不删）
       --out        输出文件路径（- 表示 stdout）
 
     环境变量:
@@ -52,7 +54,7 @@ writeShellApplication {
     EOF
     }
 
-    base="" extra="" nodes_raw="" nodes_jq="" tokens="" addresses="" out=""
+    base="" extra="" nodes_raw="" nodes_jq="" tokens="" addresses="" out="" drop_suffix=""
 
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -62,6 +64,7 @@ writeShellApplication {
         --nodes-jq)  nodes_jq="$2"; shift 2 ;;
         --tokens)    tokens="$2"; shift 2 ;;
         --addresses) addresses="$2"; shift 2 ;;
+        --drop-suffix) drop_suffix="$2"; shift 2 ;;
         --out)       out="$2"; shift 2 ;;
         -h|--help)   usage; exit 0 ;;
         *) echo "未知参数: $1" >&2; usage >&2; exit 2 ;;
@@ -138,6 +141,24 @@ writeShellApplication {
         | .dns = ((.dns // {}) * \$np.dns_extra)
         | .listeners = ((.listeners // []) + \$np.listener_extra))
     " > "$workdir/out.yaml"
+
+    # 按后缀剔除节点（本机没有可用 v6 时用）。
+    # 用 jq 而不是 yq：这份 yq 构建不支持 if/then（仓库里另有注释记过同一坑），
+    # 而 include-all 组没有 proxies 字段，必须能「有就过滤、没有就原样保留」。
+    # 先转 JSON 再转回 YAML，语义不变；注释与锚点在这份生成物里本来就没有。
+    if [ -n "$drop_suffix" ]; then
+      yq -o=json "$workdir/out.yaml" > "$workdir/out.json"
+      jq --arg sfx "$drop_suffix" '
+        def drop: map(select(endswith($sfx) | not));
+        .proxies = ((.proxies // []) | map(select((.name // "") | endswith($sfx) | not)))
+        | ."proxy-groups" = ((."proxy-groups" // []) | map(
+            if has("proxies") then
+              .proxies = (.proxies | drop)
+              | if (.proxies | length) == 0 then .proxies = ["DIRECT"] else . end
+            else . end))
+      ' "$workdir/out.json" > "$workdir/out.filtered.json"
+      yq -P "$workdir/out.filtered.json" > "$workdir/out.yaml"
+    fi
 
     if [ "$out" = "-" ]; then
       cat "$workdir/out.yaml"
