@@ -385,6 +385,52 @@ rec {
       };
     };
 
+    # DB MCP：LLDAP 组 → 只读库查询（服务端 `https://db-mcp.example.invalid`，
+    # 见 system-manager 仓库的 `docs/db-mcp.md`）。
+    #
+    # 与 agent-docs 的差别在凭据形态：这里不是用户名/密码，而是**一个 OpenBao
+    # token**（`bao login -method=oidc role=db-mcp -token-only` 的输出）。那个
+    # token 绑定了集群 pod 网段，在开发机上直接打 OpenBao 会被拒 —— 它只能交给
+    # db-mcp 服务端换动态数据库账号，所以凭据不会进模型上下文。
+    #
+    # 头名用 X-DB-MCP-Token 而不是 Authorization: Bearer：服务端刻意不实现
+    # OAuth 发现（Authelia 不支持动态客户端注册），用 Bearer 会让客户端在 401
+    # 时去走 OAuth 流程，报错方向全错。
+    #
+    # token 是 3 天 periodic，服务端在剩余不足 48h 时自动续，正常不需要动；
+    # 只有被 revoke 或连续 3 天不用过期才重跑 login 覆盖 clan var
+    # （clan/zen14.nix 的 db-mcp-token）。
+    db = {
+      description = "DB MCP（LLDAP 组 → 只读库查询，OpenBao token 鉴权）";
+      pi = {
+        type = "http";
+        # pi 不插值 url（必须是合法 http(s) 字面量）⇒ 走 sops 占位符；var 供
+        # Claude Code 复用本视图时降级成 ${DB_MCP_URL}。
+        url = {
+          sops = "db-mcp/url";
+          var = "DB_MCP_URL";
+        };
+        headers.X-DB-MCP-Token = "\${DB_MCP_TOKEN}";
+      };
+      dsh = {
+        transport = "streamable-http";
+        url = {
+          env = "DB_MCP_URL";
+        };
+        headers.X-DB-MCP-Token = {
+          env = "DB_MCP_TOKEN";
+        };
+      };
+      codex = {
+        url = {
+          sops = "db-mcp/url";
+        };
+        headers.X-DB-MCP-Token = {
+          sops = "db-mcp/token";
+        };
+      };
+    };
+
     # --------------------------------------------------------- pi + codex 侧
     # chrome-devtools 需要 DISPLAY + 系统 Chrome，dsh-web 是 systemd user 服务
     # （实测 Environment 只有 PATH/BROWSER，无 DISPLAY）→ dsh 侧不启用。

@@ -252,6 +252,24 @@ in
       format = "binary";
     };
 
+    # DB MCP 端点与 token（2026-10-31）：密文由 clan vars 管理
+    # （clan/zen14.nix 的 db-mcp-url / db-mcp-token generator）。渲染进
+    # dsh.env 与 default.env 的 DB_MCP_URL / DB_MCP_TOKEN；pi 与 codex 的 MCP
+    # 配置里以 sops 占位符直接内联（pi 不插值 url）。
+    #
+    # ⚠️ token 不是长期凭据：`bao login -method=oidc role=db-mcp -token-only` 的输出，
+    # 3 天 periodic（服务端在剩余不足 48h 时自动续）。只有被 revoke 或连续 3 天
+    # 没用过期才需要重跑 login 覆盖本 secret。
+    sops.secrets."db-mcp/url" = {
+      sopsFile = ../../../vars/per-machine/zen14/db-mcp-url/url/secret;
+      format = "binary";
+    };
+
+    sops.secrets."db-mcp/token" = {
+      sopsFile = ../../../vars/per-machine/zen14/db-mcp-token/token/secret;
+      format = "binary";
+    };
+
     # 全局 agent 指令（~/.agents/AGENTS.md，当前内容为通用协作偏好：先对齐
     # 再输出 / KISS / 优先根源重构 / 多步骤用有序列表 等）：全文 sops 加密
     # （仓库内 .sops.yaml zen14 规则，
@@ -398,6 +416,11 @@ in
         export BAO_ADDR="${config.sops.placeholder."openbao-addr/addr"}"
         # 平台文档 MCP 端点（终端 agent 的 MCP 配置读取）
         export AGENT_DOCS_MCP_URL="${config.sops.placeholder."agent-docs/url"}"
+        # DB MCP：pi 的 mcp.json 里 X-DB-MCP-Token 用 ''${DB_MCP_TOKEN} 插值，
+        # 所以终端 shell 必须有这个变量；codex 走 config.toml 的 sops 占位符，
+        # 不依赖 env（两处同源同一份 secret）。
+        export DB_MCP_URL="${config.sops.placeholder."db-mcp/url"}"
+        export DB_MCP_TOKEN="${config.sops.placeholder."db-mcp/token"}"
       '';
     };
 
@@ -432,6 +455,8 @@ in
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
         BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}
         AGENT_DOCS_MCP_URL=${config.sops.placeholder."agent-docs/url"}
+        DB_MCP_URL=${config.sops.placeholder."db-mcp/url"}
+        DB_MCP_TOKEN=${config.sops.placeholder."db-mcp/token"}
         # woodpecker-cli 凭据：bashrc 只 export 进交互 shell（WOODPECKER_TOKEN
         # 会被 dsh subprocess 的敏感名 scrub 擦除），dsh 侧经 shell-env 受信通道
         # 以 DSH_WOODPECKER_* 注入（见 modules/home/dsh 的 woodpecker-shell-env

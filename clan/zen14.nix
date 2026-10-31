@@ -275,6 +275,41 @@
     '';
   };
 
+  # DB MCP 端点（2026-10-31）。消费方：home sops 渲染进 dsh.env / default.env 的
+  # DB_MCP_URL；pi 与 codex 侧以 sops 占位符直接写进配置文件（pi 的 url 不做
+  # ${VAR} 插值）。换值：clan vars set zen14 db-mcp-url/url
+  clan.core.vars.generators.db-mcp-url = {
+    prompts.url = {
+      description = "DB MCP 端点（HTTPS URL，形如 https://<host>/mcp）";
+    };
+    files.url.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/url > $out/url
+    '';
+  };
+
+  # DB MCP 的 OpenBao token（2026-10-31）。不是 API key，而是
+  # `bao login -method=oidc role=db-mcp -token-only` 的输出：3 天 periodic，
+  # 只要 3 天内用过一次就由服务端自动续期，正常不需要换。
+  #
+  # ⚠️ 什么时候要换：被 `bao token revoke -accessor` 撤销、或连续 3 天没用过期。
+  #   换法就是重跑那条 login，把 stdout 整行粘过来：
+  #     bao login -method=oidc role=db-mcp -token-only | clan vars set zen14 db-mcp-token/token
+  #   注意 `clan vars set` 是「原样写入」，管道里的换行会进值里（config.toml 会
+  #   因此拒绝加载）—— 用 $() 或 printf '%s' 去掉结尾换行。
+  clan.core.vars.generators.db-mcp-token = {
+    prompts.token = {
+      description = "DB MCP 的 OpenBao token（bao login -method=oidc role=db-mcp -token-only 的输出）";
+      type = "hidden";
+    };
+    files.token.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/token > $out/token
+    '';
+  };
+
   # GitHub 远程 MCP server 的 PAT（github_pat_... 或 ghp_...，至少 repo scope）。
   # 消费方：home sops 渲染进 dsh.env 的 GITHUB_MCP_TOKEN，dsh 的 mcp-client 插件
   # （mcp-github）以 process.env.GITHUB_MCP_TOKEN 拼 Bearer 头。换 key：
