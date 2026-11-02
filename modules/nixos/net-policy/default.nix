@@ -440,6 +440,7 @@ in
             "grok.com"
             "x.ai"
             "chatgpt.com"
+            "opencode.ai"
           ] ++ [ addressTokens.usDomains ];
           target = "美国";
         }
