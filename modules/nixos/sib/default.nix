@@ -167,13 +167,20 @@ let
       printf '%s\n' "$v6" > ${proxyV6.availablePath}
     ''}
 
+    # 组成员只由节点清单的 sibGroups 决定；base 里的节点组只留 ["直连"] 占位。
+    # 有成员时丢掉占位（否则 selector 的默认项会变成"直连"，等于默认不走代理），
+    # 一个成员都没有时退回 ["直连"]，保证组永远非空。
     jq --slurpfile p ${runtimeDir}/nodes.json '
       ($p[0].sib) as $nodes
       | ($p[0].sibGroups) as $groups
       | .outbounds |= map(
         . as $o
-        | if ($groups | has($o.tag)) then
-            .outbounds = (((.outbounds // []) + ($groups[$o.tag] - (.outbounds // []))))
+        | ($groups[$o.tag] // []) as $add
+        | if ($add | length) > 0 then
+            .outbounds = (
+              (((.outbounds // []) | map(select(. != "直连"))) + ($add - (.outbounds // [])))
+              | if length == 0 then ["直连"] else . end
+            )
           else . end
       )
       | .outbounds = ((.outbounds // []) + $nodes)
