@@ -333,6 +333,10 @@
           doCheckByDefault = false;
           # pnpm 9.15.9 (openspec) 在新 nixpkgs 中被标记为 insecure。
           permittedInsecurePackages = [ "pnpm-9.15.9" ];
+          # androidenv 的 SDK/NDK/platform 包在求值阶段检查此项。放在这里而不是
+          # 系统模块里：模块的 nixpkgs.config 对已实例化的 pkgs 不生效；靠环境
+          # 变量 NIXPKGS_ACCEPT_ANDROID_SDK_LICENSE 则会在重建系统时丢失。
+          android_sdk.accept_license = true;
         };
 
       };
