@@ -28,32 +28,31 @@
     # 本仓库已无消费方。要恢复 crate 级构建，按上游方式「插件与 nix 成对」使用，
     # 参考 nix-config-vps 仓库的 apps.nix-cargo。
 
-    # deepseek-harness 源码。npm 上 @deepseek-ai/dsh 长期滞后（llm-agents 只打包
-    # npm 版），想提前用就得从源码构建。flake=false 让 flake.lock 锁住 rev；
-    # nix flake update deepseek-harness-src 可拉新。
-    # 消费方 = modules/home/dsh 的 dsh-blackhole 构建（esbuild 打 pi-blackhole
-    # 适配器所需的 workspace 检查，见 plugins/dsh-blackhole/build.nix）。
-    # 构建 dsh 本体已改走上游打包仓库（见下方 deepseek-harness input）。
+    # deepseek-harness 上游源码，只给 dsh-blackhole 适配器用（esbuild 打
+    # pi-blackhole 所需的 workspace 检查，见 plugins/dsh-blackhole/build.nix）。
+    # flake=false 让 flake.lock 锁住 rev；nix flake update deepseek-harness-src
+    # 可拉新。dsh 本体不再从这里构建，见下方 deepseek-harness input。
     deepseek-harness-src = {
       url = "github:deepseek-ai/deepseek-harness?ref=dsh-v0.1.7-rc.1";
       flake = false;
     };
 
-    # 社区 Nix 打包层（Moraxyc/deepseek-harness.nix）。
+    # 社区 Nix 打包层（Moraxyc/deepseek-harness.nix）—— dsh 的唯一来源。
     #
-    # 2026-10-22 起**只用作装配层的 Nix 代码**，不再从它构建 dsh 本体：
-    #   · kernel 换成 llm-agents 打包的 npm 产物（见 pkgs/dsh-local 顶部注释）；
-    #   · base/headless/web-app/tui 与 12 个 experimental bundle 改为
-    #     「npm 包目录 → bundle 布局」的搬运，同样零编译。
-    # 仍然依赖它的是三样纯 Nix 的东西：
-    #   1. pkgs/dsh 的装配逻辑（symlinkJoin + profile 播种 + launcher）；
-    #   2. lib/resolve-dsh-bundles.mjs（dshBundleResolver，生成 bundle 清单）；
-    #   3. pkgs/dsh-workspace/optional-bundles.json（可选 bundle 的 attr 名映射）。
+    # 2026-10-29 起 kernel、官方 bundle、装配代码、bundle 清单全部取自这一个 rev：
+    #   · kernel  = packages.<system>.dsh-kernel（源码构建产物，有 cachix）；
+    #   · bundles = legacyPackages.<system>.bundles（base/headless/web-app/tui +
+    #     16 个可选，与 kernel 同 rev，版本恒自洽）。
+    # 此前 kernel 取自 llm-agents 的 npm 产物，两个 input 跟的版本线不同
+    # （llm-agents 跟 npm `next`，本仓库跟 GitHub main）—— 0.2.2-alpha.2 新增的
+    # 4 个 bundle 在 npm 上没有对应版本，一次 update 就把构建打断。
     #
-    # 为什么当初引它而不是 vendored（2026-09-29 决策）：本仓库此前把它的
+    # 缓存：deepseek-harness-nix.cachix.org（已在本机 substituters 里）实测有效，
+    # kernel 与全部 bundle 命中，`nix flake update` 是下载不是编译（2026-10-29
+    # 核查：0.2.2-alpha.2 的 kernel/dsh/5 个抽查 bundle narinfo 全 200）。
+    #
+    # 为什么引它而不是 vendored（2026-09-29 决策）：本仓库此前把它的
     # pkgs/ + lib/ 复制进 pkgs/dsh-moraxyc*（26 个文件），只能手工跟上游。
-    # 它的官方 cachix 实测是空的（kernel/bundle/pnpm-deps/src 全 404），
-    # 所以「不 follows 本仓库 nixpkgs」这条约束已无意义 —— 反正也不构建了。
     # 消费方式见 modules/home/dsh 与 pkgs/dsh-local。
     deepseek-harness = {
       url = "github:Moraxyc/deepseek-harness.nix";

@@ -14,10 +14,11 @@
 #
 # ## 两条 nixpkgs
 #
-# 用上游自带那份（`inputs.nixpkgs-dsh`）而不是本仓库的 nixos-26.05：bundle 哈希按
-# 上游 rev 计算，换 rev 会让 kernel 与全部 bundle 缓存 miss（本地实测 76 个
-# derivation 需重建）。overlay 只作用于这一份 pkgs，不进主 pkgs —— 上游 overlay 会
-# 包装 fetchPnpmDeps，扩散到无关包上不是我们想要的。
+# 用上游自带那份（`inputs.deepseek-harness.inputs.nixpkgs`）而不是本仓库的
+# nixos-26.05：本地 bundle 用它的 `buildDshBundle` 构建，`dsh-bundles.json` 的清单
+# 结构、node_modules 链接策略都按那份实现；混用两套 pkgs 会让本地 bundle 与上游
+# 预构建 bundle 的契约出现细微差异。overlay 只作用于这一份 pkgs，不进主 pkgs ——
+# 上游 overlay 会包装 fetchPnpmDeps，扩散到无关包上不是我们想要的。
 {
   lib,
   inputs,
@@ -27,8 +28,8 @@
 }:
 
 let
-  # 上游自带那份 nixpkgs：bundle 哈希按它算，换成本仓库的 nixos-26.05 会让 kernel
-  # 与全部 bundle 缓存 miss（本地实测 76 个 derivation 需重建）。
+  # 上游自带那份 nixpkgs：本地 bundle 的构建工具与清单格式以它为准。kernel 与官方
+  # bundle 不走这里，直接用 inputs.deepseek-harness 的输出（含其 cachix 缓存）。
   upstreamPkgs = import inputs.deepseek-harness.inputs.nixpkgs {
     inherit system;
     overlays = [ inputs.deepseek-harness.overlays.default ];
@@ -37,27 +38,25 @@ let
   inherit (upstreamPkgs.dsh) buildDshBundle;
   inherit (buildDshBundle) dshBundleResolver;
 
-  # ── 底座：llm-agents 打包的 npm 产物 ─────────────────────────────────────
+  # ── 底座：kernel + bundle 都来自 inputs.deepseek-harness（单一来源）──────────
   #
-  # 2026-10-22 换源：kernel 从「上游从 workspace 源码 buildNpmPackage」改成
-  # 「llm-agents 从 npm 正式发布的 @deepseek-ai/dsh 装出来」，理由：
-  #   · 版本相同：npm 的 latest/next 都是 0.2.1-rc.2，与源码构建同版本，没有滞后；
-  #   · 命中二进制缓存：llm-agents 推在 cache.numtide.com（本机 substituters 已含）；
-  #   · 消掉 76 个 derivation —— 源码构建要跑整个 monorepo 的 pnpm build，
-  #     而 npm 产物是官方构建好的，`nix flake update` 从「编一小时」变成「下载」。
+  # 2026-10-29 换源：此前 kernel 取自 llm-agents 的 npm 产物、装配代码与 bundle
+  # 清单取自这里，两个 input 跟的版本线不同（llm-agents 跟 npm `next`，本仓库跟
+  # GitHub main）。0.2.2-alpha.2 的 optional-bundles.json 新增 4 个包，npm 上只有
+  # 同版本 alpha，rc.4 的依赖树里没有 → 一次 `nix flake update` 就把构建打断在
+  # `cp: cannot stat ... dsh-cua-bundle`。现在 kernel/bundle/装配代码同一 rev，
+  # 版本恒自洽。
   #
-  # 上游 cache（deepseek-harness-nix）实测是空的（kernel/bundle/pnpm-deps/src
-  # 全 404），指望不上，见 2026-10-22 的核查记录。
+  # 代价是 kernel 变成源码构建产物，但有 cachix（deepseek-harness-nix，已在本机
+  # substituters 里）：0.2.2-alpha.2 实测 kernel 与 65 个 bundle 全部命中，只下载
+  # 不编译。npm 那条线反而没有缓存可用（cache.numtide.com 上只有 llm-agents 的
+  # 产物，与本仓库的补丁/组合无关）。
   #
-  # 布局差异只在这一层吸收：npm 把应用放在
-  #   <dsh>/lib/node_modules/@deepseek-ai/dsh/{lib,node_modules,package.json}
-  # 上游 kernel 的契约是
+  # 布局正好是本文件下游各层一直假设的那份：
   #   <kernel>/lib/deepseek-harness/{lib,config,node_modules,package.json}
-  # 下面 kernelPatched 负责整形，kernel 之后的每一层（bundle 装配、profile、
-  # tui host shim）都不用改。
-  npmDsh = inputs.llm-agents.packages.${system}.dsh;
-  npmDshApp = "${npmDsh}/lib/node_modules/@deepseek-ai/dsh";
-  npmDshNodeModules = "${npmDshApp}/node_modules";
+  # 所以 kernelPatched 只剩「复制 + 打三个补丁」，不再做布局整形。
+  dshKernel = inputs.deepseek-harness.packages.${system}.dsh-kernel;
+  dshVersion = dshKernel.version;
 
   # ── kernel 本地补丁 ─────────────────────────────────────────────────────
   #
@@ -123,7 +122,7 @@ let
   # 字符串，那个顺序问题不再有触发面。
   kernelPatched =
     let
-      version = npmDsh.version;
+      version = dshVersion;
       rel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js";
       configEditorRel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-config-editor/lib/index.js";
       piAiRel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js";
@@ -154,42 +153,34 @@ let
       }
       ''
         app="$out/lib/deepseek-harness"
-        mkdir -p "$app/config/examples" "$out/bin"
+        src=${dshKernel}/lib/deepseek-harness
+        mkdir -p "$app" "$out/bin"
 
-        # ── npm 布局 → 上游 kernel 布局 ────────────────────────────────────
-        # lib 必须**真副本**：node 的 import.meta.url / 模块解析都按 realpath 走，
-        # 软链会让 $app/lib/bin.js 回到 npm 那份 node_modules，绕过本目录的补丁
-        # 与装配包的 symlinkJoin。lib 只有 96KB，复制无成本。
-        cp -r ${npmDshApp}/lib "$app/lib"
-        cp ${npmDshApp}/package.json "$app/package.json"
-        chmod -R u+w "$app/lib" "$app/package.json"
+        # lib / config / package.json 取真副本：node 的 import.meta.url 与模块解析都按
+        # realpath 走，软链会让 $app/lib/bin.js 回到 kernel 那份目录，绕过下面的补丁。
+        # 两者合计 124KB，复制无成本。
+        cp -r "$src/lib" "$app/lib"
+        cp -r "$src/config" "$app/config"
+        cp "$src/package.json" "$app/package.json"
+        chmod -R u+w "$app/lib" "$app/config" "$app/package.json"
 
-        # llm-agents 用 buildNpmPackage 装，patchShebangs 把 bin.js 首行写成完整 nodejs
-        # 路径 —— 装配包的 `disallowedReferences = [ nodejs ]` 会因此拒收整个输出
-        # （实测：output is not allowed to refer to nodejs-24.21.0）。入口由装配包用
-        # `node --expose-internals $app/lib/bin.js` 显式调用，shebang 不参与运行。
-        sed -i '1s|^#!.*/bin/node$|#!/usr/bin/env node|' "$app/lib/bin.js"
-
-        # config/ 是上游从 apps/cli 搬来的示例目录（只有 examples/mcp-memory），
-        # npm 包不带；装配包要 `ln -s $kernelApp/config`，所以留一个空壳占位。
-        # 实测 dsh 运行时不读这个目录（npm 全体包 grep 无 config/examples 引用）。
-
-        # node_modules 855MB / 300+ 包：逐包软链，不复制。
+        # node_modules 445MB / 189 个 @deepseek-ai 包：逐条软链，不复制。真路径落在
+        # kernel 自己的 store 目录里，包之间的解析仍走那份完整树（hoisted 单层）。
         mkdir -p "$app/node_modules/@deepseek-ai"
-        for p in ${npmDshNodeModules}/*; do
+        for p in "$src"/node_modules/*; do
           name=$(basename "$p")
           [ "$name" = "@deepseek-ai" ] && continue
           ln -s "$p" "$app/node_modules/$name"
         done
-        for p in ${npmDshNodeModules}/@deepseek-ai/*; do
+        for p in "$src"/node_modules/@deepseek-ai/*; do
           ln -s "$p" "$app/node_modules/@deepseek-ai/$(basename "$p")"
         done
-        [ -e ${npmDshNodeModules}/.bin ] && ln -s ${npmDshNodeModules}/.bin "$app/node_modules/.bin"
+        [ -e "$src"/node_modules/.bin ] && ln -s "$src"/node_modules/.bin "$app/node_modules/.bin"
 
         # 只有要打补丁的三个包取真副本（store 只读，不能就地改）。
         for pkg in dsh-client-connection dsh-config-editor dsh-llm-pi-ai; do
           rm "$app/node_modules/@deepseek-ai/$pkg"
-          cp -r "${npmDshNodeModules}/@deepseek-ai/$pkg" "$app/node_modules/@deepseek-ai/$pkg"
+          cp -r "$src/node_modules/@deepseek-ai/$pkg" "$app/node_modules/@deepseek-ai/$pkg"
           chmod -R u+w "$app/node_modules/@deepseek-ai/$pkg"
         done
 
@@ -288,98 +279,21 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
         ${lib.getExe upstreamPkgs.nodejs-slim} --check "$pa"
       '';
 
-  # ── 官方 + 可选 bundle：直接用 npm 包，不再 buildDshBundle ─────────────────
+  # ── 官方 + 可选 bundle：直接用上游打包好的那一套 ──────────────────────────
   #
-  # 上游把 base/headless/web-app/tui 和 12 个 experimental 全部走 pnpm 构建，是 76 个
-  # derivation 的大头。npm 发布的 @deepseek-ai/dsh 依赖树里已带着同样的包
-  # （package.json 的 dsh.bundle 声明、cordis.patch.yml、web-app 的 presets/ 都在），
-  # 按 bundle 布局重新打包即可，零编译。
+  # inputs.deepseek-harness 的 legacyPackages.bundles 是与 kernel 同一 rev 构建的
+  # 全套 bundle（base/headless/web-app/tui + 16 个可选），布局就是装配包的契约：
+  #   $out/lib/node_modules/<包名> + nix-support/dsh-bundles.json
   #
-  # bundle 契约 = $out/lib/node_modules/<包名> + package.json 的 dsh.bundle.patch
-  #             + nix-support/dsh-bundles.json（装配包 merge 所有 bundle 的清单）
-  mkNpmBundle =
-    {
-      name,
-      src,
-    }:
-    upstreamPkgs.runCommand "dsh-bundle-${lib.replaceStrings [ "@" "/" ] [ "" "-" ] name}"
-      {
-        pname = name;
-        passthru = {
-          runtimeDeps = [ ];
-          dshBundle = true;
-          # 装配包/校验器按这两个字段判定「这是个 bundle」。
-          dshBundleHelper = "buildDshBundle";
-        };
-        meta.description = "dsh bundle ${name}（npm 产物）";
-      }
-      ''
-        dest="$out/lib/node_modules/${name}"
-        mkdir -p "$(dirname "$dest")"
-        cp -r ${src} "$dest"
-        chmod -R u+w "$dest"
-
-        # 与上游 buildDshBundle 的 linkKernelNodeModules 一致：裸 @deepseek-ai/*
-        # 导入靠这份软链解析（peer 全在 kernel 里），同一运行时包只存在一份。
-        if [ ! -e "$dest/node_modules" ] && [ ! -L "$dest/node_modules" ]; then
-          ln -s ${kernelPatched}/lib/deepseek-harness/node_modules "$dest/node_modules"
-        fi
-
-        mkdir -p "$out/nix-support"
-        ${lib.getExe dshBundleResolver} manifest \
-          "$out/nix-support/dsh-bundles.json" "$out/lib/node_modules"
-      '';
-
-  # tui 不在 @deepseek-ai/dsh 的依赖里，单独发在 npm（版本独立：0.16.1）。
-  # 上游那份从 ccch1mneyyy/dsh-TUI 源码构建，3 个本地补丁全部只改 scripts/verify-*，
-  # 是构建期自检，不影响运行时 —— 用 npm 产物不丢功能。
-  npmTuiSrc = upstreamPkgs.stdenvNoCC.mkDerivation {
-    pname = "dsh-tui-src";
-    version = "0.16.1";
-    src = upstreamPkgs.fetchurl {
-      url = "https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.16.1.tgz";
-      hash = "sha256-IUSzF9DCWuTSaI8e8sc7wsleEhCFrFl30AQH3NKxM24=";
-    };
-    dontBuild = true;
-    installPhase = ''
-      mkdir -p $out
-      tar -xzf $src -C $out --strip-components=1
-    '';
-  };
-
-  # 可选 bundle 的 attr 名 ↔ 包名来自上游清单：装配包按 attr 取用
-  # （`bundles.<attr>`），少一个就是 "attribute 'xxx' missing"。
-  optionalBundles = lib.importJSON "${inputs.deepseek-harness}/pkgs/dsh-workspace/optional-bundles.json";
-
-  # 作为 `bundles` 传给 dsh：装配包的 `defaultBundles ? with bundles; [headless web-app]`
-  # 与内部 profiles.nix（webBundle/tuiBundle/headlessBundle）都从这个参数取值，
-  # 所以一次覆盖全链生效。
-  upstreamBundles =
-    {
-      base = mkNpmBundle {
-        name = "@deepseek-ai/dsh-base";
-        src = "${npmDshNodeModules}/@deepseek-ai/dsh-base";
-      };
-      headless = mkNpmBundle {
-        name = "@deepseek-ai/dsh-headless";
-        src = "${npmDshNodeModules}/@deepseek-ai/dsh-headless";
-      };
-      web-app = mkNpmBundle {
-        name = "@deepseek-ai/dsh-web-app";
-        src = "${npmDshNodeModules}/@deepseek-ai/dsh-web-app";
-      };
-      tui = mkNpmBundle {
-        name = "@deepseek-harness-tui/dsh-tui";
-        src = npmTuiSrc;
-      };
-    }
-    // lib.mapAttrs' (
-      pkgName: meta:
-      lib.nameValuePair meta.attr (mkNpmBundle {
-        name = pkgName;
-        src = "${npmDshNodeModules}/${pkgName}";
-      })
-    ) optionalBundles;
+  # 必须给全量：装配包自己按 optional-bundles.json 的 attr 名从这里取（上游
+  # pkgs/dsh/package.nix 的 `bundles.${entry.attr}`），少一个就是 "attribute
+  # 'xxx' missing"。
+  #
+  # 原样传 scope，不要 filterAttrs 过滤：scope 里除了 bundle 还有 callPackage 等
+  # 辅助属性，以及 removed-bundles.nix 注入的「已移除」条目（值是 throw，为的是
+  # 给人话错误）。任何遍历式过滤（isDerivation 也要先求值）都会强制这些 throw，
+  # 于是求值期就炸在一条用户根本没引用的 bundle 上。装配层只按名字取，不遍历。
+  upstreamBundles = inputs.deepseek-harness.legacyPackages.${system}.bundles;
 
   mkBundle = import ./mk-bundle.nix {
     inherit lib dshBundleResolver kernelPatched;
@@ -453,7 +367,6 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
   # bundle，插入 acp 行）。这里按 **kernel 版本**抓 npm tarball —— core 升级时对应
   # 版本要么同时存在（正常），要么抓取直接失败（上游漏发），不会出现「core 升了、
   # acp 还是旧版」的静默错配。
-  dshVersion = npmDsh.version;
 
   # npm tarball → 裸包目录（含 package.json），与 mkBundle 的 src 约定一致。
   npmSrc =
@@ -490,7 +403,7 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
     ];
     src = upstreamPkgs.fetchurl {
       url = "https://registry.npmjs.org/@deepseek-ai/dsh-acp/-/dsh-acp-${dshVersion}.tgz";
-      hash = "sha256-+CC7VFRo7pPKrSj83eJSwFCyRay4NDSg4KLSYCZP9tY=";
+      hash = "sha256-93h/plwL0P//lv2QCYPYCtKqkod0Kug+8YZiLIu8avE=";
     };
   } ''
     mkdir -p $out
@@ -528,7 +441,7 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
   acpAppSrc = npmSrc {
     name = "@deepseek-ai/dsh-acp-app";
     version = dshVersion;
-    hash = "sha256-jIA/Ru2+qFMzjFtPJ88GQ4/W8mjE2ZGvArWNLTwqPYY=";
+    hash = "sha256-FAyMCEQ77FS8RQpqKGRQZwZeS/OmGFoeoEehl0s8BDg=";
   };
 
   # 给一个 bundle 的 node_modules 补上它自己 import 的**非 peer** 依赖。
@@ -1165,7 +1078,7 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
     upstreamPkgs.runCommand "dsh-host-package"
       {
         pname = "dsh-host-package";
-        inherit (npmDsh) version;
+        version = dshVersion;
         meta.description = "Host package shim that lets dsh-tui's own entry host the launch";
       }
       ''
