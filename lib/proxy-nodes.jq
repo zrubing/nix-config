@@ -4,6 +4,8 @@
 #   hysteria2: { kind, name, server, server6?, port, hopPorts{start,end}, password, sni, sibGroups? }
 #   vless-reality: { kind, name, server, port, uuid, publicKey, shortId?, sni, sibGroups? }
 #   socks    : { kind, name, port }          —— 本机 provider 提供的 socks5 上游
+#   vless-xhttp: { kind, name, server, port, uuid, sni, alpn?, fingerprint?, xhttpOpts, sibGroups? }
+#              —— mihomo 原生 xhttp；sing-box 不支持该传输，sib 侧会跳过
 #
 # 输出：{ sib: [...outbounds], sibGroups: { 组名: [节点名] }, miho: [...proxies] }
 # 三家方言差异只在这里收敛：
@@ -46,7 +48,7 @@ def sib_outbound:
     require("port")
     | { type: "socks", tag: .name, server: "127.0.0.1", server_port: .port }
   elif .kind == "vless-reality" then
-    # 服务端没配 flow，这里也不设（两边必须一致，否则握手失败）。
+    # flow 必须与服务端一致：服务端没配就不要写，配了就必须带，否则握手失败。
     require("port") | require("uuid") | require("publicKey") | require("sni")
     | {
         type: "vless",
@@ -54,6 +56,7 @@ def sib_outbound:
         server: .server,
         server_port: .port,
         uuid: .uuid,
+        flow: (.flow // null),
         tls: {
           enabled: true,
           server_name: .sni,
@@ -65,6 +68,11 @@ def sib_outbound:
           }
         }
       }
+    | with_entries(select(.value != null))
+  elif .kind == "vless-xhttp" then
+    # sing-box 的 V2Ray transport 只有 http/ws/quic/grpc/httpupgrade，没有 xhttp。
+    # 这类节点在 sib 上继续走清单里那条 socks（本机 xray-client），这里跳过。
+    empty
   else
     error("proxy-nodes: 未知 kind \(.kind)（节点 \(.name // "?")）")
   end;
@@ -96,12 +104,35 @@ def miho_proxy:
         tls: true,
         servername: .sni,
         udp: true,
+        flow: (.flow // null),
         "client-fingerprint": "chrome",
-        "reality-opts": {
+        "reality-opts": ({
           "public-key": .publicKey,
-          "short-id": (.shortId // "")
-        }
+          "short-id": (.shortId // ""),
+          # 新版 Xray 服务端要求客户端带 ML-KEM key share，只发纯 X25519 时
+          # 服务端解不开 sessionId（日志 processed invalid connection）。
+          # 旧服务端如果不认，就不要给那条节点设 mlkem。
+          "support-x25519mlkem768": (if .mlkem then true else null end)
+        } | with_entries(select(.value != null)))
       }
+    | with_entries(select(.value != null))
+  elif .kind == "vless-xhttp" then
+    require("port") | require("uuid") | require("xhttpOpts")
+    | {
+        name: .name,
+        type: "vless",
+        server: .server,
+        port: .port,
+        uuid: .uuid,
+        network: "xhttp",
+        tls: true,
+        udp: true,
+        servername: .sni,
+        alpn: .alpn,
+        "client-fingerprint": (.fingerprint // "chrome"),
+        "xhttp-opts": .xhttpOpts
+      }
+    | with_entries(select(.value != null))
   else
     error("proxy-nodes: 未知 kind \(.kind)（节点 \(.name // "?")）")
   end;

@@ -393,6 +393,7 @@
               proxyNodesRel = "proxy-nodes.json.age";
               relayPasswordRel = "relay/hysteria-password.age";
               addressesRel = "net-policy-addresses.json.age";
+              mobileExtraRel = "miho-conf/mobile-extra.yaml.age";
             }
           }/bin/clash-export";
         };
