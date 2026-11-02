@@ -55,6 +55,17 @@
 #      上游是 DoT，答案不污染），而 stray 的出网 :53 由客户端 TUN 的 dns-hijack
 #      接住（sib 实测：删掉本规则后 pod 查 8.8.8.8 拿到 fakeip 应答）。
 # 结论：DNS 不属于这个模块的职责。集群内解析靠集群 DNS，别让代理客户端参与。
+#
+# ── 启动顺序：dnatTarget 是「别的单元创建的地址」 ─────────────────────────
+# dnatTarget 通常是 EasyTier 的 tun 地址，开机时由 `easytier-<实例>.service`
+# 建出来，与本单元没有任何先后关系。2026-11-01 nova13 冷启动实测：两个单元
+# 同在 `before=k0sworker.service` 集合里并发起跑，本单元的地址校验先执行 →
+# 「不是本机 IPv4 地址」→ 直接 failed，oneshot 不重试。
+# 后果不是「这台机器的代理没了」而是**该节点 pod 出向 TCP 全灭**：cilium
+# 转发路径上的 TCP 被客户端 nfqueue 抓住却无处投递（见上文 REDIRECT 一节），
+# 包静默丢弃 → coredns 上游 DoT 超时 → registry 读 S3 失败 → CI 拉镜像
+# ImagePullBackOff。
+# 所以提供该地址的单元必须在 `afterUnits` 里显式声明（不猜、不 sleep）。
 {
   config,
   lib,
@@ -102,6 +113,15 @@ let
       nft delete table inet pod-egress 2>/dev/null || true
 
       ${lib.optionalString cfg.enable ''
+        # afterUnits 只能保证顺序：EasyTier 是 Type=simple，systemd 认为它 active 的
+        # 那一刻 tun 地址可能还没落盘（它没有 sd_notify 可用）。所以再有界等一下，
+        # 实测窗口 < 1s；30s 是上限，超了才当真问题报错（再由 Restart 兜底）。
+        for _ in $(seq 1 60); do
+          ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 \
+            | grep -Fxq ${cfg.dnatTarget} && break
+          sleep 0.5
+        done
+
         # DNAT 目标必须是本机地址。写成别的节点/写错一位数时，包会被送到别处或
         # 直接黑洞，而 nft 与 systemd 都不会报错 —— 唯一的征兆是「pod 连不上」。
         if ! ip -4 -o addr show scope global | awk '{print $4}' | cut -d/ -f1 | grep -Fxq ${cfg.dnatTarget}; then
@@ -133,6 +153,19 @@ in
       description = ''
         客户端重定向入站的固定端口。**必须固定**：nft 规则在客户端启动前就要写好，
         读不到运行时自动分配的端口。
+      '';
+    };
+
+    afterUnits = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      example = [ "easytier-zen14-sg-prod.service" ];
+      description = ''
+        创建 `dnatTarget` 地址的 systemd 单元（通常是对应网络的 EasyTier 实例）。
+
+        本单元启动时校验 `dnatTarget` 是本机地址；地址还没建出来就失败，而 oneshot
+        不会自己重试。顺序只能在这里声明，不能靠 sleep 或「地址很早就有了」的假设。
+        留空 = 该地址在开机早期就已存在（loopback 之类），不需要等待。
       '';
     };
 
@@ -191,11 +224,20 @@ in
       # 规则要在 kubelet 起 pod 之前就位，否则开机后的一小段时间里 pod 出网是直连
       # （能通，但不经代理，且看不出来）。
       before = [ "k0sworker.service" ];
+      # 地址由 afterUnits 里的单元创建（见模块头部「启动顺序」一节）。
+      after = cfg.afterUnits;
+      wants = cfg.afterUnits;
+      # 万一起跑时地址还没落盘（例如 sops 渲染慢），按 10s 间隔重试 60 次
+      # （10 分钟）后放弃 —— 这种持续失败属于真问题，不该永久刷日志。
+      startLimitIntervalSec = 600;
+      startLimitBurst = 60;
       # 脚本里嵌了规则文件的 store 路径，规则内容一变脚本路径就变 —— 它自己就是触发器。
       restartTriggers = [ apply ];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
+        Restart = "on-failure";
+        RestartSec = 10;
         ExecStart = lib.getExe apply;
       };
     };

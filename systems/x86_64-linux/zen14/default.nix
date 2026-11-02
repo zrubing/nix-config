@@ -318,6 +318,10 @@ in
     # 所以不再各写一遍（过去 zen14 内联、nova13 没有，是漂移的源头）。
     kernel.cachyos.enable = true;
 
+    # Android/Flutter 构建链：SDK + NDK + JDK17 + Gradle + gomobile + apktool。
+    # 用途见 modules/nixos/android-dev：从源码重编手机端客户端（改包名）。
+    android-dev.enable = true;
+
     proxysql = {
       enable = proxysqlEnabled;
       configFile = lib.mkIf proxysqlEnabled config.sops.templates."proxysql.cnf".path;
@@ -400,6 +404,13 @@ in
     podEgress = {
       enable = true;
       dnatTarget = nodeIp;
+      # nodeIp 是 sg-prod 网络的 EasyTier 地址（tun0），两个 ET 实例都在
+      # `before=k0sworker.service` 集合里并发启动，必须显式排在本单元之前；
+      # 否则冷启动时地址还没落盘 → 本单元校验失败 → pod 出向 TCP 全灭。
+      afterUnits = [
+        "easytier-zen14-sg-prod.service"
+        "easytier-zen14-ali.service"
+      ];
     };
 
     # 按实测冷启动可用性驱动指定 selector 组：url-test 测的是热会话 RTT，

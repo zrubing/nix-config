@@ -285,6 +285,14 @@ in
     podEgress = {
       enable = true;
       dnatTarget = nodeIp;
+      # nodeIp 是 sg-prod 网络的 EasyTier 地址（tun0），两个 ET 实例都在
+      # `before=k0sworker.service` 集合里并发启动，必须显式排在本单元之前；
+      # 否则冷启动时地址还没落盘 → 本单元校验失败 → pod 出向 TCP 全灭
+      # （2026-11-01 冷启动踩到：CI clone step ImagePullBackOff）。
+      afterUnits = [
+        "easytier-nova13-sg-prod.service"
+        "easytier-nova13-ali.service"
+      ];
     };
     dae.enable = false;
     # 主线组是 selector，成员固定、选择由探针写；没有探针就会一直停在
