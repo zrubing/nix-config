@@ -694,6 +694,41 @@ in
       file = "${mysecrets}/net-policy-addresses.json.age";
     };
 
+    # IPv6 版的 route-exclude。
+    #
+    # miho 的 tun 开了 strict-route 且没有 inet6-address 时，会加一条
+    # `ip -6 rule ... unreachable`（优先级 9000）挡住整机 v6，防泄漏。
+    # 这条规则排在 main 前面，`tun.route-exclude-address` 管不到它——
+    # 结果是清单里的 v6 服务器地址（SSH、监控）全被黑洞。
+    #
+    # 这里把 directCidrs 里的 v6 条目镜像成优先级 8999 的 lookup main 规则：
+    # 只放行清单内的地址，其余 v6 仍然被 9000 挡住，防泄漏不受影响。
+    # 地址从解密后的 addressTokenFile 读，公开仓库里不出现明文。
+    systemd.services.net-policy-v6-bypass = {
+      description = "Keep direct IPv6 destinations routable outside the TUN";
+      wantedBy = [ "multi-user.target" ];
+      wants = [ clientCheck.unit ];
+      after = [ clientCheck.unit ];
+      # 客户端重启会重建它自己的规则（含 9000），这里跟着重建一次。
+      partOf = [ clientCheck.unit ];
+      path = with pkgs; [
+        coreutils
+        iproute2
+        jq
+      ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        while ip -6 rule del priority 8999 2>/dev/null; do :; done
+        jq -r '.directCidrs[] | select(test(":"))' ${cfg.addressTokenFile} |
+          while read -r cidr; do
+            ip -6 rule add to "$cidr" lookup main priority 8999
+          done
+      '';
+    };
+
     systemd.services.net-policy-check = {
       description = "Verify proxy bypass invariants against the live client config";
       wantedBy = [ "multi-user.target" ];
