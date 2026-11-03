@@ -721,11 +721,20 @@ in
         RemainAfterExit = true;
       };
       script = ''
+        set -eu
         while ip -6 rule del priority 8999 2>/dev/null; do :; done
         jq -r '.directCidrs[] | select(test(":"))' ${cfg.addressTokenFile} |
           while read -r cidr; do
             ip -6 rule add to "$cidr" lookup main priority 8999
           done
+        # 自检：少一条就让单元变红，别静默留下一个黑洞地址。
+        missing=0
+        for cidr in $(jq -r '.directCidrs[] | select(test(":"))' ${cfg.addressTokenFile}); do
+          # ip 对 /128 会省略前缀，比较前先归一化。
+          probe="''${cidr%/128}"
+          ip -6 rule show | grep -qF "to $probe " || { echo "缺少 8999 规则：$cidr" >&2; missing=1; }
+        done
+        [ "$missing" -eq 0 ]
       '';
     };
 
