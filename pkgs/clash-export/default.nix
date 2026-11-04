@@ -58,8 +58,9 @@ writeShellApplication {
                          移动端额外合并这份 YAML：rules 前置，其余键覆盖。
                          可重复给多次，按出现顺序依次合并。用于声明手机专属
                          项，避免手改产物后下次导出又漂回去。与 --raw 互斥。
-                         含内网主机名等不该入库的规则请放仓库外文件，用这个
-                         参数叠加，不要写进仓库内的 mobile-extra.yaml。
+                         仓库里的手机端覆盖只有加密那一份（miho-conf/
+                         mobile-extra.yaml.age，自动合并）；仓库内不放明文
+                         覆盖文件。
       -h, --help         显示本帮助
 
     说明:
@@ -249,9 +250,9 @@ writeShellApplication {
               else . end))
       ' "$workdir/mobile.json" > "$workdir/mobile.final.json"
 
-      # 手机专属覆盖：rules 前置，其余键覆盖。放在这里而不是塞进 base，
-      # 是为了让「主机不成立、手机需要」的项只有一处声明，且不污染 --raw 产物。
-      # 加密的手机端私有覆盖。放在最后合并，规则因此排在最前。
+      # 加密的手机端私有覆盖（miho-conf/mobile-extra.yaml.age）：rules 前置，
+      # 其余键覆盖。放在这里而不是塞进 base，是为了不污染 --raw 产物。
+      # 合并语义是浅覆盖，覆盖项不要写嵌套结构（如 dns），否则整段被顶掉。
       mobile_extra_rel="${mobileExtraRel}"
       if [ -n "$mobile_extra_rel" ]; then
         decrypt "$mobile_extra_rel" "$workdir/mobile-secret.yaml"
