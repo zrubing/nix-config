@@ -35,9 +35,16 @@ let
     else
       null;
 
-  sing-box = config.${namespace}.sib.package;
+  # 探针按客户端方言选后端：sib 用 sing-box 起临时实例，mihomo 用 mihomo 本身。
+  # 只装被启用的那个，另一个传 null（包内据此裁剪 runtimeInputs）。
+  clientPackage = if sibEnabled then config.${namespace}.sib.package else null;
+  mihomoPackage = if mihoEnabled then pkgs.${namespace}.mihomo else null;
+  clientService = if sibEnabled then "sib.service" else "mihomo.service";
 
-  probe = pkgs.callPackage ../../../packages/proxy-quality { inherit sing-box; };
+  probe = pkgs.callPackage ../../../packages/proxy-quality {
+    sing-box = clientPackage;
+    mihomo = mihomoPackage;
+  };
 
   # 两个 timer 共用同一套参数，只在模式上分叉。
   commonArgs = [
@@ -157,6 +164,15 @@ in
       description = "只测量、不切换。用于观察评分是否符合直觉。";
     };
 
+    quickUrl = lib.mkOption {
+      type = lib.types.str;
+      default = "https://www.gstatic.com/generate_204";
+      description = ''
+        存活检查用的 URL。每分钟一次，必须便宜；吞吐探测放 probeUrl，
+        两个 timer 各用各的，否则快速检查会把全量探测的流量再烧一遍。
+      '';
+    };
+
     quickCheck = {
       enable = lib.mkOption {
         type = lib.types.bool;
@@ -186,17 +202,17 @@ in
         message = "${namespace}.proxyQuality 需要 miho 或 sib 之一启用：探针要读运行中的客户端配置拿 Clash API 地址。";
       }
       {
-        # 探针用 sing-box 起临时实例；miho 模式下没有 sing-box 包，先不支持。
-        assertion = sibEnabled;
-        message = "${namespace}.proxyQuality 目前只支持 sib（sing-box）客户端。";
+        # 探针要驱动一个运行中的客户端；两个都没启用时没有可测对象。
+        assertion = sibEnabled || mihoEnabled;
+        message = "${namespace}.proxyQuality 需要 miho 或 sib 之一启用：探针要读运行中的客户端配置拿 Clash API 地址。";
       }
     ];
 
     systemd.services.proxy-quality = {
       description = "按实测可用性选择代理节点";
-      # 客户端没起来时 API 不可用，探测没有意义；但也不该把 sib 拉起来。
-      after = [ "sib.service" ];
-      wants = [ "sib.service" ];
+      # 客户端没起来时 API 不可用，探测没有意义；但也不该反过来把客户端拉起来。
+      after = [ clientService ];
+      wants = [ clientService ];
       serviceConfig = {
         Type = "oneshot";
         ExecStart = lib.escapeShellArgs commonArgs;
@@ -223,14 +239,16 @@ in
 
     systemd.services."proxy-quality-quick" = lib.mkIf cfg.quickCheck.enable {
       description = "代理节点存活检查（只测当前节点）";
-      after = [ "sib.service" ];
-      wants = [ "sib.service" ];
+      after = [ clientService ];
+      wants = [ clientService ];
       serviceConfig = {
         Type = "oneshot";
         ExecStart = lib.escapeShellArgs (
           commonArgs
           ++ [
             "--quick"
+            "--quick-url"
+            cfg.quickUrl
             "--quick-fails"
             (toString cfg.quickCheck.fails)
           ]

@@ -40,4 +40,10 @@
     # 流量的 0x0c00 区分。
     auto-redirect-output-mark = 7168;
   };
+
+  # Clash API：proxy-quality 探针靠它现读候选、按实测吞吐切 selector。
+  # 没有这个端口时探针会直接退出并说明原因（见 packages/proxy-quality）。
+  # 只绑回环、不设 secret：同机任意进程都能切换出站（切不了看流量），
+  # 换来的是探针不必再走一遍 agenix 注入密码。
+  external-controller = "127.0.0.1:9090";
 }

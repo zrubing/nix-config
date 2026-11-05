@@ -417,14 +417,23 @@ in
     # 而真实代价是冷启动（实测 5.6s，拥塞时 20s 起不来）。
     # 组名不在仓库里：从 /var/lib/proxy-quality/group 读（见模块选项说明）。
     #
-    # ⚠️ 2026-10-28 起在 zen14 上关闭：探针是拿 sing-box 起临时实例去比节点，
-    # 只支持 sib（模块里有断言）。miho 模式下的代价是 selector 组停在配置里
-    # 的第一个成员上，不会按实测自动切换。回切 sib 时一起打开。
+    # 2026-11-04 恢复启用：探针已支持 mihomo（临时实例 + selector 切换，见
+    # packages/proxy-quality），不再受 sib-only 断言限制。
+    #
+    # 探测 URL 从 204 换成 128KB 文件：这条线的分水岭是吞吐不是 RTT ——
+    # 实测 日-hy2-v6 的 204 延迟更低（190ms vs 290ms），吞吐却只有
+    # 港-hy2-v6 的 1/6（51KB/s vs 180–330KB/s），而 url-test 只按前者选。
+    # 代价：128KB × 15 节点 × 2 采样 ≈ 3.8MB/轮，30min 一轮 ≈ 2.5MB/h；
+    # 存活检查仍走 204，每分钟一次，可忽略。
     proxyQuality = {
-      enable = false;
-      interval = "10min";
+      enable = true;
+      interval = "30min";
+      probeUrl = "https://speed.cloudflare.com/__down?bytes=131072";
+      probeBytes = 131072;
+      samples = 2;
+      timeout = 10;
       dryRun = false;
-      # 全量评分 10min 一轮太慢，节点死了要等一轮才被发现；快速检查只测当前
+      # 全量评分 30min 一轮太慢，节点死了要等一轮才被发现；快速检查只测当前
       # 节点，连续 2 次失败就切到历史最优，感知延迟压到 2 分钟内。
       quickCheck = {
         enable = true;

@@ -1,8 +1,10 @@
 {
   writeShellApplication,
-  sing-box,
+  sing-box ? null,
+  mihomo ? null,
   jq,
   curl,
+  yq-go,
   coreutils,
   util-linux,
   gawk,
@@ -23,6 +25,18 @@
 # 输入只有两样：运行中的客户端配置（含 Clash API 地址/密钥，root 可读）和组名。
 # 候选节点从 API 现读，不写死在 nix 里 —— 节点名、协议、地区都不进公开仓库。
 #
+# 支持两种客户端方言（按配置文件自动识别）：
+#   · sib    —— sing-box，JSON，API 在 experimental.clash_api；
+#   · mihomo —— mihomo，YAML，API 在顶层 external-controller / secret。
+# 两者的「Clash API」是同一套协议，差别只在配置怎么读、候选怎么起了进程去测：
+#   · sib：每个候选新起一个 sing-box，`tools fetch` 一发；
+#   · mihomo：起一个临时 mihomo 装全部候选，用 selector 逐个切过去再打一发。
+#     切过去之后该节点没有任何复用连接，等价于冷启动，但省掉每候选一次进程启动。
+#
+# 探测 URL 决定测的是什么：204 量的是冷启动握手，几百 KB 的文件才量吞吐。
+# 后者是这条线的分水岭 —— 实测日本节点 204 延迟更低（190ms vs 290ms），
+# 吞吐却只有香港的 1/6（51KB/s vs 180–330KB/s）。
+#
 # 输出：写 state.json（EWMA + 连续失败数），并（非 dry-run 时）通过 API 切换
 # selector。带迟滞：新节点要显著更好且过了最小驻留时间才切，否则链路抖动会让
 # 分组跟着噪声横跳。
@@ -30,13 +44,15 @@ writeShellApplication {
   name = "proxy-quality";
 
   runtimeInputs = [
-    sing-box
     jq
     curl
+    yq-go
     coreutils
     util-linux
     gawk
-  ];
+  ]
+  ++ (if sing-box != null then [ sing-box ] else [ ])
+  ++ (if mihomo != null then [ mihomo ] else [ ]);
 
   text = ''
     config=""
@@ -55,6 +71,8 @@ writeShellApplication {
     dry_run=0
     quick=0
     quick_fails=2
+    client=auto
+    quick_url="https://www.gstatic.com/generate_204"
     excludes=()
 
     usage() {
@@ -67,7 +85,10 @@ writeShellApplication {
     选项:
       --group-file <路径>     从文件读组名（默认 /var/lib/proxy-quality/group）。
                               每行一个，全部处理；优先于 --group。
+      --client <auto|sib|mihomo>
+                              客户端方言（默认 auto，按配置内容识别）。
       --url <探测 URL>        默认 https://www.gstatic.com/generate_204
+      --quick-url <URL>       存活检查用的 URL（默认 204，省钱）
       --bytes <字节数>        探测负载大小，用于把耗时换算成速率（默认 65536）
       --timeout <秒>          单个节点超时（默认 8）
       --state <路径>          状态文件（默认 /var/lib/proxy-quality/state.json，跨重启保留）
@@ -86,7 +107,8 @@ writeShellApplication {
       --dry-run              只测不切
 
     说明:
-      · 每个候选都新起一个 sing-box 进程 = 强制冷启动，测的是首次连接代价；
+      · 每个候选测的都是全新会话（sib 起新进程、mihomo 切 selector 后首连），
+        测的是首次连接代价，不是热会话上的往返；
       · 候选名单从运行中客户端的 Clash API 现读，不在 nix 里写死节点名；
       · 只驱动 selector 组；urltest/url-test 组不可写，会直接退出。
     EOF
@@ -97,7 +119,9 @@ writeShellApplication {
         --config)      config="$2"; shift 2 ;;
         --group)       group="$2"; shift 2 ;;
         --group-file)  group_file="$2"; shift 2 ;;
+        --client)      client="$2"; shift 2 ;;
         --url)         url="$2"; shift 2 ;;
+        --quick-url)   quick_url="$2"; shift 2 ;;
         --bytes)       bytes="$2"; shift 2 ;;
         --timeout)     timeout_s="$2"; shift 2 ;;
         --state)       state="$2"; shift 2 ;;
@@ -139,12 +163,38 @@ writeShellApplication {
     fi
     [ -r "$config" ] || { echo "读不到客户端配置: $config" >&2; exit 1; }
 
-    api="$(jq -r '.experimental.clash_api.external_controller // empty' "$config")"
-    secret="$(jq -r '.experimental.clash_api.secret // empty' "$config")"
+    # 方言识别：mihomo 是 YAML 且顶层有 proxies / external-controller；
+    # sing-box 是 JSON，API 在 experimental.clash_api 下。
+    if [ "$client" = auto ]; then
+      if [ "$(yq eval 'has("proxies") and has("external-controller")' "$config" 2>/dev/null)" = "true" ]; then
+        client=mihomo
+      else
+        client=sib
+      fi
+    fi
+
+    if [ "$client" = mihomo ]; then
+      api="$(yq eval '."external-controller" // ""' "$config" 2>/dev/null)"
+      secret="$(yq eval '.secret // ""' "$config" 2>/dev/null)"
+    else
+      api="$(jq -r '.experimental.clash_api.external_controller // empty' "$config")"
+      secret="$(jq -r '.experimental.clash_api.secret // empty' "$config")"
+    fi
+    # 兼容写成 http://host:port 的形式；unix socket 形式本脚本不支持（要 --unix-socket）。
+    api="''${api#http://}"
+    api="''${api#https://}"
+    case "$api" in
+      /*) echo "external-controller 是 unix socket（$api），本脚本只支持 TCP，跳过" >&2; exit 0 ;;
+    esac
     if [ -z "$api" ]; then
-      echo "客户端没开 clash_api，无法探测" >&2
+      if [ "$client" = mihomo ]; then
+        echo "mihomo 没开 external-controller，无法探测；在 extraConfig 里加 external-controller: 127.0.0.1:9090" >&2
+      else
+        echo "客户端没开 clash_api，无法探测" >&2
+      fi
       exit 0
     fi
+    echo "客户端方言: $client，API: $api"
     base="http://$api"
     auth=()
     [ -n "$secret" ] && auth=(-H "Authorization: Bearer $secret")
@@ -161,8 +211,71 @@ writeShellApplication {
       sleep 2
     done
 
+    # ── 临时 mihomo 实例（mihomo 方言专用）──────────────────────────
+    # 一个组起一次：装该组的全部候选，用 selector 逐个切过去打一发。
+    # 切过去之后该节点没有任何复用连接，等价于冷启动；比每候选起一次进程快得多。
+    probe_pid=""
+    probe_socks=""
+    probe_ctl=""
+
+    mihomo_stop() {
+      [ -n "$probe_pid" ] || return 0
+      kill "$probe_pid" 2>/dev/null || true
+      wait "$probe_pid" 2>/dev/null || true
+      probe_pid=""
+    }
+
+    mihomo_start() {
+      local members_json="$1" try=0 deadline=0
+      mkdir -p "$tmp/mihomo-dir"
+      yq -o=json '.' "$config" > "$tmp/live.json"
+      while [ "$try" -lt 3 ]; do
+        try=$((try + 1))
+        probe_socks=$(( 20000 + (RANDOM % 20000) ))
+        probe_ctl=$(( probe_socks + 1 ))
+        jq --argjson mem "$members_json" --argjson p "$probe_socks" \
+           --argjson c "$probe_ctl" --arg dns "$dns_server" '
+          {
+            "mixed-port": $p,
+            "external-controller": ("127.0.0.1:" + ($c | tostring)),
+            "allow-lan": false,
+            "mode": "rule",
+            "ipv6": true,
+            "log-level": "error",
+            "profile": { "store-selected": false, "store-fake-ip": false },
+            "dns": {
+              "enable": true,
+              "nameserver": [ ("udp://" + $dns) ],
+              "proxy-server-nameserver": [ ("udp://" + $dns) ]
+            },
+            "proxies": [ .proxies[] | select(.name as $n | ($mem | index($n)) != null) ],
+            "proxy-groups": [
+              { "name": "PROBE", "type": "select",
+                "proxies": [ .proxies[] | select(.name as $n | ($mem | index($n)) != null) | .name ] }
+            ],
+            "rules": [ "MATCH,PROBE" ]
+          }' "$tmp/live.json" > "$tmp/mihomo.yaml"
+        chmod 0600 "$tmp/mihomo.yaml"
+        mihomo -d "$tmp/mihomo-dir" -f "$tmp/mihomo.yaml" > "$tmp/mihomo.log" 2>&1 &
+        probe_pid=$!
+        deadline=$(( $(date +%s) + 10 ))
+        while :; do
+          if curl -fsS --max-time 1 "http://127.0.0.1:$probe_ctl/version" >/dev/null 2>&1; then
+            return 0
+          fi
+          kill -0 "$probe_pid" 2>/dev/null || break
+          [ "$(date +%s)" -lt "$deadline" ] || break
+          sleep 0.2
+        done
+        mihomo_stop
+        echo "临时 mihomo 起不来（第 $try 次，端口 $probe_socks）" >&2
+        tail -n 3 "$tmp/mihomo.log" >&2 || true
+      done
+      return 1
+    }
+
     tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' EXIT
+    trap 'mihomo_stop; rm -rf "$tmp"' EXIT
 
     # 一个组跑一遍：候选、评分、驻留都按组隔离（state 以组名为 key）。
     process_group() {
@@ -171,7 +284,7 @@ writeShellApplication {
       local results="$tmp/results.jsonl"
       local tag="" skip=0 suf="" t0=0 t1=0 ok=0 ms=0 score=0 row=""
       local prev="" bypass=0 cur="" since=0 best="" best_ewma=0 cur_ewma=0 cur_fails=0
-      local switch=0 reason=""
+      local switch=0 reason="" probe_target="" members_json=""
 
       # 组名可能含非 ASCII，路径段必须百分号编码。
       enc="$(jq -rn --arg s "$group" '$s|@uri')"
@@ -207,6 +320,21 @@ writeShellApplication {
       now="$(date +%s)"
       : > "$results"
 
+      # 存活检查用便宜的 URL：它是每分钟一次，拿几百 KB 的吞吐探测去跑会白烧流量。
+      if [ "$quick" = 1 ]; then
+        probe_target="$quick_url"
+      else
+        probe_target="$url"
+      fi
+
+      if [ "$client" = mihomo ]; then
+        members_json="$(jq -Rn --arg s "$members" '$s | split("\n") | map(select(length > 0))')"
+        if ! mihomo_start "$members_json"; then
+          echo "临时 mihomo 起不来，跳过组 $group" >&2
+          return 1
+        fi
+      fi
+
     while IFS= read -r tag; do
       [ -n "$tag" ] || continue
       skip=0
@@ -217,21 +345,39 @@ writeShellApplication {
         echo "跳过 $tag：命中排除后缀" >&2
         continue
       fi
-      # 每个候选独立配置：只留它自己 + direct，无 inbound、无 TUN。
-      # 拿不到该 tag 的 outbound 就跳过（可能是嵌套组或已删除的节点）。
-      if ! jq -e --arg t "$tag" '.outbounds[]|select(.tag==$t)' "$config" >/dev/null 2>&1; then
-        echo "跳过 $tag：配置里没有这个出站" >&2
-        continue
+      if [ "$client" = mihomo ]; then
+        # 候选必须真的是一个节点：组里可能嵌着别的分组，那些没有 proxies 定义，
+        # 也切不过去 —— 直接跳过，别把「切失败」记成「节点失败」。
+        if ! jq -e --arg t "$tag" '
+             .proxies[] | select(.name == $t)
+             | select((.type // "" | ascii_downcase) as $ty | ($ty != "direct" and $ty != "reject"))' \
+             "$tmp/live.json" >/dev/null 2>&1; then
+          echo "跳过 $tag：不是可测节点（嵌套分组 / DIRECT / REJECT）" >&2
+          continue
+        fi
+        if ! curl -fsS -X PUT -H 'Content-Type: application/json' \
+             -d "$(jq -cn --arg n "$tag" '{name:$n}')" \
+             "http://127.0.0.1:$probe_ctl/proxies/PROBE" >/dev/null 2>&1; then
+          echo "跳过 $tag：临时实例里切不到它" >&2
+          continue
+        fi
+      else
+        # 每个候选独立配置：只留它自己 + direct，无 inbound、无 TUN。
+        # 拿不到该 tag 的 outbound 就跳过（可能是嵌套组或已删除的节点）。
+        if ! jq -e --arg t "$tag" '.outbounds[]|select(.tag==$t)' "$config" >/dev/null 2>&1; then
+          echo "跳过 $tag：配置里没有这个出站" >&2
+          continue
+        fi
+        # 显式指定解析器：本机的 DNS 走 TUN（fakeip），用系统解析器解析节点域名
+        # 会绕回运行中的客户端。实测这一步能给 hy2 加 5 秒（5900ms → 790ms），
+        # 于是「冷启动慢」有一大半是探测自己造成的，不是节点。
+        jq --arg t "$tag" --arg dns "$dns_server" '{
+          log: { level: "error" },
+          dns: { servers: [ { tag: "probe-dns", type: "udp", server: $dns } ] },
+          outbounds: [ (.outbounds[]|select(.tag==$t)), { type: "direct", tag: "direct" } ],
+          route: { final: "direct", default_domain_resolver: "probe-dns" }
+        }' "$config" > "$tmp/probe.json"
       fi
-      # 显式指定解析器：本机的 DNS 走 TUN（fakeip），用系统解析器解析节点域名
-      # 会绕回运行中的客户端。实测这一步能给 hy2 加 5 秒（5900ms → 790ms），
-      # 于是「冷启动慢」有一大半是探测自己造成的，不是节点。
-      jq --arg t "$tag" --arg dns "$dns_server" '{
-        log: { level: "error" },
-        dns: { servers: [ { tag: "probe-dns", type: "udp", server: $dns } ] },
-        outbounds: [ (.outbounds[]|select(.tag==$t)), { type: "direct", tag: "direct" } ],
-        route: { final: "direct", default_domain_resolver: "probe-dns" }
-      }' "$config" > "$tmp/probe.json"
 
       # 单次采样抖动很大（同一节点实测 0.9s 与 4.3s 都出现过），
       # 所以每个候选跑 --samples 次取最短：节点"能不能快"比"这次快不快"更能
@@ -243,8 +389,13 @@ writeShellApplication {
         i=$((i + 1))
         t0="$(date +%s%N)"
         sample_ok=0
-        if timeout "$timeout_s" sing-box tools fetch -c "$tmp/probe.json" \
-             --outbound "$tag" "$url" >/dev/null 2>&1; then
+        if [ "$client" = mihomo ]; then
+          if timeout "$timeout_s" curl -fsS -o /dev/null --max-time "$timeout_s" \
+               -x "socks5h://127.0.0.1:$probe_socks" "$probe_target" >/dev/null 2>&1; then
+            sample_ok=1
+          fi
+        elif timeout "$timeout_s" sing-box tools fetch -c "$tmp/probe.json" \
+             --outbound "$tag" "$probe_target" >/dev/null 2>&1; then
           sample_ok=1
         fi
         t1="$(date +%s%N)"
@@ -268,6 +419,11 @@ writeShellApplication {
       jq -cn --arg t "$tag" --argjson s "$score" --argjson ms "$ms" --argjson ok "$ok" \
         '{tag:$t, score:$s, ms:$ms, ok:$ok}' >> "$results"
     done <<< "$members"
+
+      # 临时实例只服务这一个组，测完立刻收掉，别让它继续占端口。
+      if [ "$client" = mihomo ]; then
+        mihomo_stop
+      fi
 
       [ -f "$state" ] || echo '{}' > "$state"
 
@@ -358,7 +514,10 @@ writeShellApplication {
     elif awk -v b="$best_ewma" -v c="$cur_ewma" -v i="$improvement" \
            'BEGIN{exit !(b > c * (1 + i))}'; then
       if [ "$bypass" = 1 ] || [ $(( now - since )) -ge "$min_dwell" ]; then
-        switch=1; reason="优于当前 $(awk -v b="$best_ewma" -v c="$cur_ewma" 'BEGIN{printf "%.0f%%", (b/c-1)*100}')"
+        # 当前节点可能是没测过的（DIRECT、刚被跳过）：没有 ewma 时按「无评分」说，
+        # 别去算 (b/c-1) —— c=0 会直接除零。
+        switch=1; reason="优于当前 $(awk -v b="$best_ewma" -v c="$cur_ewma" 'BEGIN{
+          if (c <= 0) printf "∞（当前无评分）"; else printf "%.0f%%", (b/c-1)*100 }')"
       else
         echo "$best 更快但还在驻留期（$(( now - since ))s / ''${min_dwell}s）"
       fi
