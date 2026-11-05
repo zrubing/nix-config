@@ -139,11 +139,21 @@ def miho_proxy:
 
 .nodes as $raw
 | ($raw | map(expand_v6) | add) as $nodes
+| ($nodes | map(sib_outbound)) as $sib
+| ($sib | map(.tag)) as $sibTags
 | {
-    sib: ($nodes | map(sib_outbound)),
+    sib: $sib,
     # 组名 → 成员列表。按节点顺序追加，不排序：selector 的默认项是列表第一项。
+    #
+    # 成员只取「真的产出了 sib 出站」的节点。有的 kind 在 sib 没有对应传输
+    # （vless-xhttp），sib_outbound 对它是 empty；这时若还把名字写进组，
+    # sib-prepare 末尾的引用检查会以「组 X → 不存在的出站 Y」失败，服务起不来
+    # （2026-11-05 nova13 实测：组 全部节点 → 美-1-vless-xhttp-native）。
+    #
+    # 判据直接取 $sib 的 tag 列表，不在这里重述「哪些 kind 能进 sib」—— 那会成为
+    # 第二份事实源，下次新增 kind 时又要同步一次，而漏掉同步的后果就是上面那条。
     sibGroups: (
-      reduce $nodes[] as $n ({};
+      reduce ($nodes[] | select(.name as $n | $sibTags | index($n))) as $n ({};
         reduce ($n.sibGroups // [])[] as $g (.;
           .[$g] = ((.[$g] // []) + [$n.name])
         )

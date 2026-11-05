@@ -8,6 +8,7 @@
 #   4. socks 节点的端口 ↔ tuic-client 实例的 listen 一一对应
 #   5. tuic-client 引用的 relay 密文文件存在
 #   6. 节点的 IP 字面量都出现在 net-policy 的 directCidrs 里
+#   7. 转换器产出的 sib 组成员，每个都能在它产出的 sib 出站里找到
 #
 # 用法：
 #   scripts/check-nodes.sh
@@ -60,6 +61,23 @@ missing_groups="$(jq -r --slurpfile s "$tmp/sib.json" '
 ' "$tmp/nodes.json")"
 [[ -z "$missing_groups" ]] && ok "所有 sibGroups 都能在 base 里找到" || bad "sibGroups 指向不存在的组：
 $missing_groups"
+
+echo "== 转换器的 sib 组 → sib 出站 =="
+# 第 2 条只查组名；这里查成员。sib 没有某些传输（vless-xhttp），转换器对那类节点
+# 不产出 sib 出站 —— 若组成员仍按全部节点收集，prepare 的引用检查会以
+# 「组 X → 不存在的出站 Y」失败，整个 sing-box 起不来（2026-11-05 nova13 实测）。
+conv_dangling="$(jq -f "$REPO/lib/proxy-nodes.jq" "$tmp/nodes.json" | jq -r '
+  ([.sib[].tag]) as $tags
+  | .sibGroups | to_entries[]
+  | .key as $g
+  | .value[] as $m
+  | select(($tags | index($m)) == null)
+  | "\($g) -> \($m)"
+')"
+[[ -z "$conv_dangling" ]] \
+  && ok "sib 组里的成员都有对应的 sib 出站" \
+  || bad "sib 组引用了 sib 里不存在的出站（sing-box 会拒绝启动）：
+$conv_dangling"
 
 echo "== sib base 里的手写成员 =="
 # base 里 selector/urltest 的成员，除去「组标签」和「直连」，都应当是节点名
