@@ -1,0 +1,8 @@
+{
+  "name": "dsh-opencode-session",
+  "version": "0.1.0",
+  "description": "DSH plugin: add the per-session x-opencode-session header on OpenCode gateway requests. pi-ai only wraps its own catalog providers with withOpenCodeSessionHeader, so routes that declare an api explicitly (every hand-written models list) reach the gateway without the header and get 400 MissingSessionID.",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT"
+}

@@ -111,10 +111,16 @@ let
   #             `internal/plugin` 监听器）也会失去继承的归因；这类回调本就不是写配置的
   #             主体，且插件与宿主同进程，守卫是纪律边界而非沙箱，接受。
   #
-  #   3. dsh-llm-pi-ai 的 OpenCode Go 会话头（见下）。
-  #
-  # 补丁 2 / 3 都是上游 bug 的本地兜法，上游修好后删除即可；`--replace-fail` 会在
+  # 补丁 2 是上游 bug 的本地兜法，上游修好后删除即可；`--replace-fail` 会在
   # 上游改写这些行时先炸构建，不会静默退回旧行为。
+  #
+  # 曾经的「OpenCode Go 会话头」补丁已删除（2026-11-04）：上游 0.2.2-alpha.3 把请求头
+  # 处理重写成受支持的扩展点 —— 适配器在发请求前跑 `llm-pi-ai/request-headers`
+  # waterfall，并交出不可变的 routing 元数据（provider / model / baseURL / sessionId）。
+  # 那正是本补丁当初要拼的东西，于是它从「改编译产物」降级成「一个 20 行的本地插件」
+  # （modules/home/dsh/plugins/opencode-session，随 hostBundles 进每个 profile）。
+  # 顺带丢掉的是对上游注释文本的依赖：0.2.2-alpha.3 把 `requestHeaders` 的签名从
+  # 1 参改成 4 参、注释整段重写，其余两个锚点都没变，只有这一处炸了。
   #
   # 曾有的「补丁 3 = 在 Config() 前先求值 `!!js`」已删除（2026-10-21）：它救的是
   # bundle 层里的 `!!js` 标量（端点走 env）。现在端点只存在于 activation 渲染出的
@@ -125,7 +131,6 @@ let
       version = dshVersion;
       rel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js";
       configEditorRel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-config-editor/lib/index.js";
-      piAiRel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js";
 
       # admit() 尾部的鉴权判决（alpha.4 起 requestRejection 只是它的薄包装，/api 路由
       # 与 socket 升级都直接调 admit）。整段删掉，只留前面的 fence 与 disposed。
@@ -177,8 +182,8 @@ let
         done
         [ -e "$src"/node_modules/.bin ] && ln -s "$src"/node_modules/.bin "$app/node_modules/.bin"
 
-        # 只有要打补丁的三个包取真副本（store 只读，不能就地改）。
-        for pkg in dsh-client-connection dsh-config-editor dsh-llm-pi-ai; do
+        # 只有要打补丁的两个包取真副本（store 只读，不能就地改）。
+        for pkg in dsh-client-connection dsh-config-editor; do
           rm "$app/node_modules/@deepseek-ai/$pkg"
           cp -r "$src/node_modules/@deepseek-ai/$pkg" "$app/node_modules/@deepseek-ai/$pkg"
           chmod -R u+w "$app/node_modules/@deepseek-ai/$pkg"
@@ -227,56 +232,9 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
           'await (hmr === void 0 ? run() : hmr.runExclusive(run));' \
           'await (hmr === void 0 ? DSH_CONFIG_EDIT_SCOPE.runInAsyncScope(run) : hmr.runExclusive(() => DSH_CONFIG_EDIT_SCOPE.runInAsyncScope(run)));'
 
-        # ── 补丁 3：dsh-llm-pi-ai 按会话补 OpenCode Go 的 x-opencode-session ──
-        pa="$out/${piAiRel}"
-        [ -f "$pa" ] || {
-          printf 'dsh-local: kernel layout changed, missing %s\n' ${piAiRel} >&2
-          exit 1
-        }
-
-        # 为什么必须补在适配器里：buildProvider 只在路由**没有**声明 api 时才复用
-        # pi-ai 的 catalog provider（opencodeGoProvider 上包着
-        # withOpenCodeSessionHeader）；路由一旦声明 api（手写模型清单必须声明，
-        # 否则拿不到协议），走的是 PROTOCOLS 裸工厂，那层包装到不了，网关直接
-        # 400 MissingSessionID。适配器本来就把 options.sessionId 传给 pi-ai 了，
-        # 裸工厂不看它 —— 在唯一的 streamSimple 调用点合并即可。
-        # 值取会话 id（session-<uuid>，跨轮次 / resume / 压缩稳定），不用固定兜底。
-        # 门控：provider 名以 opencode 开头，或 baseURL 的 host 是 opencode.ai
-        # （含子域），其余路由的请求头字节不变。非可见 ASCII 的会话 id 直接不发，
-        # 免得 Headers 构造抛 TypeError，把一次正常请求变成硬失败。
-        substituteInPlace "$pa" \
-          --replace-fail \
-          '/** Merge deployment headers while removing case-insensitive attribution collisions. */' \
-          '/**
- * LOCAL PATCH (nix-config)：OpenCode Go 网关强制 x-opencode-session，而显式声明
- * api 的路由不经过 pi-ai 的 withOpenCodeSessionHeader。见补丁 3。
- */
-function opencodeSessionHeaders(provider, baseURL, sessionId) {
-    if (typeof sessionId !== "string" || sessionId.length === 0) return {};
-    if (!/^[!-~]+$/.test(sessionId)) return {};
-    let host = "";
-    try {
-        host = new URL(baseURL ?? "").hostname;
-    } catch {}
-    const viaHost = host === "opencode.ai" || host.endsWith(".opencode.ai");
-    const viaProvider = typeof provider === "string" && provider.startsWith("opencode");
-    if (!viaHost && !viaProvider) return {};
-    return { "x-opencode-session": sessionId };
-}
-/** Merge deployment headers while removing case-insensitive attribution collisions. */'
-
-        substituteInPlace "$pa" \
-          --replace-fail \
-          'headers: requestHeaders(profile.headers)' \
-          'headers: {
-...requestHeaders(profile.headers),
-...opencodeSessionHeaders(options.provider, profile.baseURL, options.sessionId)
-}'
-
         # 语法自检：注入的 import / const 一旦位置不对，这里立刻失败，
         # 而不是等运行期在启动路径上抛 SyntaxError。
         ${lib.getExe upstreamPkgs.nodejs-slim} --check "$ce"
-        ${lib.getExe upstreamPkgs.nodejs-slim} --check "$pa"
       '';
 
   # ── 官方 + 可选 bundle：直接用上游打包好的那一套 ──────────────────────────
@@ -403,7 +361,7 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
     ];
     src = upstreamPkgs.fetchurl {
       url = "https://registry.npmjs.org/@deepseek-ai/dsh-acp/-/dsh-acp-${dshVersion}.tgz";
-      hash = "sha256-93h/plwL0P//lv2QCYPYCtKqkod0Kug+8YZiLIu8avE=";
+      hash = "sha256-IgZ1kEtdt7Grnk1dkmXE2k4e0MvF4QkABROuAUR5izI=";
     };
   } ''
     mkdir -p $out
@@ -441,7 +399,7 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
   acpAppSrc = npmSrc {
     name = "@deepseek-ai/dsh-acp-app";
     version = dshVersion;
-    hash = "sha256-FAyMCEQ77FS8RQpqKGRQZwZeS/OmGFoeoEehl0s8BDg=";
+    hash = "sha256-vwVsUpEXVJwodrhW1R2dtuaBNw84z75vr5cYG3ZquX0=";
   };
 
   # 给一个 bundle 的 node_modules 补上它自己 import 的**非 peer** 依赖。
@@ -581,6 +539,23 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
             config: {}
     '';
     meta.description = "Neutralize unregistered {{...}} groups leaked into the system prompt by MCP tool descriptions";
+  };
+
+  # OpenCode 网关强制 x-opencode-session（缺了先于鉴权 400 MissingSessionID）。
+  # pi-ai 只在它自己 catalog 的 provider 上补这个头，而显式声明 api 的路由走裸
+  # 工厂，所以由插件补：挂 llm-pi-ai/request-headers waterfall，按 provider/baseURL
+  # 门控、值取会话 id（静态头会让所有会话共用一个亲和桶）。此前这是 kernel 补丁 3，
+  # 上游 0.2.2-alpha.3 给出这个扩展点后改为插件，不再依赖编译产物的注释文本。
+  opencodeSession = mkBundle {
+    name = "dsh-opencode-session";
+    src = pluginsDir + "/opencode-session";
+    patch = patchText "dsh-opencode-session" ''
+      - insert:
+          - id: opencode-session
+            name: dsh-opencode-session
+            config: {}
+    '';
+    meta.description = "Add the per-session x-opencode-session header on OpenCode gateway requests";
   };
 
   mcp = mkDeclBundle {
@@ -1041,8 +1016,16 @@ function opencodeSessionHeaders(provider, baseURL, sessionId) {
     # 被 SIGKILL，整个 rebuild 挂在 installCheckPhase（实测 2026-10-23）。
     # hook 是从环境变量读 web 检查参数的，上游 package.nix 没把它做成入参，
     # 所以只能用 overrideAttrs 塞 env。--port 0 = 内核分配临时端口。
+    # 传 profileSeeder 后上游不再自己算 bundle 自检用的 profile 清单（它把那份清单
+    # 当作「播种器的产物」交给调用方），改为要求显式给 profileBundleCheckProfiles，
+    # 缺了直接 throw。必须取**同一份** artifacts 的值：自检要跑的 profile 名来自
+    # mkProfileArtifacts 的 profiles，另算一份只会漂移。
     (upstreamPkgs.dsh.dsh.override (
-      args // { profileSeeder = mkProfileSeeder { inherit profiles artifacts; }; }
+      args
+      // {
+        profileSeeder = mkProfileSeeder { inherit profiles artifacts; };
+        profileBundleCheckProfiles = artifacts.bundleCheckProfiles;
+      }
     )).overrideAttrs
       (_: {
         dshBundleCheckWebArgs = "--port 0 --no-open";
@@ -1112,6 +1095,7 @@ in
   # 顺序 = 安装顺序，不是 patch 顺序（patch 顺序由 profile.bundles 决定）。
   hostBundles = [
     bracesSanitize
+    opencodeSession
     mcp
     shellEnv
     openbaoShellEnv

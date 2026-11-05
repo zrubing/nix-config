@@ -947,8 +947,9 @@ let
         # 另：Go 档 2026-09 起强制 x-opencode-session 会话头，缺了直接 400
         # MissingSessionID（先于鉴权判断）。pi-ai 的 withOpenCodeSessionHeader 只包
         # 在它自己的 catalog provider 上，而本路由**必须**声明 api（见下条），走的是
-        # buildProvider 的裸协议工厂，那层包装到不了这里 —— 头由 pkgs/dsh-local
-        # 补丁 3 在 streamSimple 调用点按会话 id 补，本文件不写静态头。
+        # buildProvider 的裸协议工厂，那层包装到不了这里 —— 头由本地插件
+        # dsh-opencode-session 挂 llm-pi-ai/request-headers waterfall 按会话 id 补
+        # （pkgs/dsh-local 把它并进 hostBundles），本文件不写静态头。
         # 静态头的代价：所有会话共用一个亲和桶，实测缓存命中 99.7%→79%、中位延迟
         # 8s→13.5s（DSH discussion #5495），所以不要退回去。
         # 2026-08-29 实测：网关 /go/v1/chat/completions 对 catalog 判定为
