@@ -308,31 +308,8 @@ in
     };
     # 同一个 miho-conf 两台机器共用，里面的中转节点指向本机 socks5，
     # 所以 nova13 也得起这个客户端，否则那个节点在 nova13 上是死的。
-    tuic-client = {
-      enable = true;
-      instances = {
-        us = {
-          serverSecret = "relay/tuic-server";
-          listen = "127.0.0.1:12190";
-        };
-        # 上游 B：mihomo 的一个 tuic 节点指向 12191（服务商/机房见密文）。
-        jp = {
-          serverSecret = "relay/tuic-server-jp";
-          listen = "127.0.0.1:12191";
-        };
-        # v6 腿：同一台服务端、只换地址族（ipSecret 里是 v6 字面量）。
-        us6 = {
-          serverSecret = "relay/tuic-server";
-          ipSecret = "relay/tuic-server-v6-ip";
-          listen = "127.0.0.1:12192";
-        };
-        jp6 = {
-          serverSecret = "relay/tuic-server-jp";
-          ipSecret = "relay/tuic-server-jp-v6-ip";
-          listen = "127.0.0.1:12193";
-        };
-      };
-    };
+    # 实例由节点 meta 派生（端口 = 节点 port，密文 = 节点 relay），不再手写。
+    tuic-client.enable = true;
     # 同理：miho-conf 里的两个 vless 节点（1086 / 1087）也是指向本机
     # xray-client 的 socks5。不启这个客户端，那两个节点在 nova13
     # 上就是无人监听的死节点（xhttp 是 Xray 的传输层，mihomo 不原生实现）。

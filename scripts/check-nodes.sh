@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # 节点一致性检查：部署前把「删了节点但别处还引用」这类问题挖出来。
 #
-# 检查的是四份运行时密文 + 两台主机的 tuic-client 实例声明之间的一致性：
+# 节点清单拆成两半之后（见 lib/proxy-nodes-merge.jq 头注释），派生链是：
+#   meta（明文）+ creds（密文） → 合并 → 转换器 → sib 出站/组、mihomo proxies、
+#   直连地址表、tuic-client 实例。因此这里检查的是「派生链的各环是否闭合」：
 #   1. 节点名唯一
 #   2. 节点声明的 sibGroups 组在 sib base 里存在
 #   3. sib base 里手写的成员（组/直连之外）都能在节点清单里找到
-#   4. socks 节点的端口 ↔ tuic-client 实例的 listen 一一对应
-#   5. tuic-client 引用的 relay 密文文件存在
-#   6. 节点的 IP 字面量都出现在 net-policy 的 directCidrs 里
-#   7. 转换器产出的 sib 组成员，每个都能在它产出的 sib 出站里找到
+#   4. 转换器产出的 sib 组成员，每个都能在它产出的 sib 出站里找到
+#   5. relay 引用的密文文件存在（实例已由 meta 派生，端口不再单独校验）
+#   6. creds 里没有 meta 已经不用的残留条目
+#   7. 密文地址表里没有已经由派生覆盖的节点地址（否则退役会留下走不到的项）
 #
 # 用法：
 #   scripts/check-nodes.sh
@@ -19,22 +21,27 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MYSECRETS="${MYSECRETS:-$HOME/codeWorkspace/nix-secrets}"
 AGE_KEY="${NODE_AGE_KEY:-$HOME/.ssh/id_ed25519}"
 
-# age / yq 不在默认 PATH 里：用 nix shell 重新执行自己
+# age / yq / jq 不在默认 PATH 里：用 nix shell 重新执行自己
 if ! command -v age >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
   exec nix shell nixpkgs#age nixpkgs#jq nixpkgs#yq-go -c "$0" "$@"
 fi
 
 [[ -d "$MYSECRETS" ]] || { echo "找不到 mysecrets：$MYSECRETS" >&2; exit 2; }
 [[ -f "$AGE_KEY" ]] || { echo "找不到解密私钥：$AGE_KEY" >&2; exit 2; }
+[[ -f "$MYSECRETS/proxy-nodes.meta.json" ]] || { echo "找不到 meta：$MYSECRETS/proxy-nodes.meta.json" >&2; exit 2; }
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 dec() { age -d -i "$AGE_KEY" "$MYSECRETS/$1" > "$tmp/$2"; }
 
-dec proxy-nodes.json.age nodes.json
+dec proxy-nodes.creds.json.age creds.json
 dec sib-conf/zen14.json.age sib.json
 dec net-policy-addresses.json.age addr.json
+
+# meta（在不在）+ creds（连哪里）→ 与主机 prepare 完全相同的合并逻辑。
+jq -f "$REPO/lib/proxy-nodes-merge.jq" --slurpfile c "$tmp/creds.json" \
+  "$MYSECRETS/proxy-nodes.meta.json" > "$tmp/nodes.json"
 
 fail=0
 ok()   { printf '  ok   %s\n' "$*"; }
@@ -66,7 +73,7 @@ echo "== 转换器的 sib 组 → sib 出站 =="
 # 第 2 条只查组名；这里查成员。sib 没有某些传输（vless-xhttp），转换器对那类节点
 # 不产出 sib 出站 —— 若组成员仍按全部节点收集，prepare 的引用检查会以
 # 「组 X → 不存在的出站 Y」失败，整个 sing-box 起不来（2026-11-05 nova13 实测）。
-conv_dangling="$(jq -f "$REPO/lib/proxy-nodes.jq" "$tmp/nodes.json" | jq -r '
+conv_dangling="$(jq -f "$REPO/lib/proxy-nodes.jq" --slurpfile addr "$tmp/addr.json" "$tmp/nodes.json" | jq -r '
   ([.sib[].tag]) as $tags
   | .sibGroups | to_entries[]
   | .key as $g
@@ -99,81 +106,57 @@ else
 $orphan_members"
 fi
 
-echo "== socks 节点 ↔ tuic-client 实例 =="
-: > "$tmp/instances"
-for h in zen14 nova13; do
-  nix eval --json "$REPO#nixosConfigurations.$h.config.internal.tuic-client.instances" \
-    --apply 'i: builtins.mapAttrs (n: v: { inherit (v) serverSecret ipSecret listen; }) i' \
-    > "$tmp/$h.json" 2>/dev/null || { warn "eval $h 失败，跳过该主机"; continue; }
-  jq -r --arg h "$h" 'to_entries[] | "\($h)\t\(.key)\t\(.value.listen | split(":") | .[-1])\t\(.value.serverSecret)\t\(.value.ipSecret // "-")"' \
-    "$tmp/$h.json" >> "$tmp/instances"
-done
-
-# socks 节点有两类提供者：tuic-client（名字带 tuic）和 xray-client（xhttp/reality，
-# 端口 1086/1087 写死在 xray 密文里）。这里只校验 tuic 那一类。
-jq -r '.nodes[] | select(.kind == "socks") | select(.name | test("tuic")) | "\(.name)\t\(.port)"' \
-  "$tmp/nodes.json" | sort -k2 > "$tmp/socks"
-jq -r '.nodes[] | select(.kind == "socks") | select(.name | test("tuic") | not) | "\(.name)\t\(.port)"' \
-  "$tmp/nodes.json" > "$tmp/socks_other"
-
-cut -f3 "$tmp/instances" | sort -u > "$tmp/instance_ports"
-cut -f2 "$tmp/socks" | sort -u > "$tmp/sock_ports"
-
-missing_instance="$(comm -23 "$tmp/sock_ports" "$tmp/instance_ports")"
-extra_instance="$(comm -13 "$tmp/sock_ports" "$tmp/instance_ports")"
-if [[ -z "$missing_instance" ]]; then
-  ok "每个 socks 节点都有 tuic-client 实例"
-else
-  bad "socks 节点没有对应的 tuic-client 实例（端口）：$missing_instance"
-fi
-if [[ -z "$extra_instance" ]]; then
-  ok "每个 tuic-client 实例都有 socks 节点"
-else
-  bad "tuic-client 实例没有对应的 socks 节点（端口）：$extra_instance"
-fi
-if [[ -s "$tmp/socks_other" ]]; then
-  warn "以下 socks 节点由 xray-client 提供，本检查不覆盖其端口：
-$(sed 's/^/    /' "$tmp/socks_other")"
-fi
-
-echo "== tuic-client 引用的密文 =="
+echo "== tuic 实例（由 meta 派生）=="
+# 实例与 unit 的对应关系现在是结构性的：tuic-client 模块直接读同一份 meta，
+# 所以这里只剩「引用的密文在不在」与「creds 有没有退役残留」两件事可查。
+relay_refs="$(jq -r '.nodes[] | select(.relay != null) | .relay | (.serverSecret, (.ipSecret // empty))' "$tmp/nodes.json" | sort -u)"
 missing_secret=0
-while IFS=$'\t' read -r h name port server ip; do
-  for ref in "$server" "$ip"; do
-    [[ "$ref" == "-" ]] && continue
-    [[ -f "$MYSECRETS/$ref.age" ]] || { bad "$h/$name 引用不存在的密文 $ref.age"; missing_secret=1; }
-  done
-done < "$tmp/instances"
+while IFS= read -r ref; do
+  [[ -z "$ref" ]] && continue
+  [[ -f "$MYSECRETS/$ref.age" ]] || { bad "meta 引用了不存在的密文 $ref.age（tuic-client 会起不来）"; missing_secret=1; }
+done <<<"$relay_refs"
 (( missing_secret )) || ok "relay 密文都存在"
 
-echo "== 节点 IP 字面量 → directCidrs =="
-# 只看 IP 字面量；域名形式的 server 需要人工确认其解析结果也在表里
-jq -r --slurpfile a "$tmp/addr.json" '
-  ($a[0].directCidrs // []) as $c
-  | .nodes[]
-  | (.server // empty), (.server6 // empty)
-  | select(. != null and . != "127.0.0.1")
-  | . as $ip
-  | if test("^[0-9.]+$") then "\($ip)/32"
-    elif test(":") then "\($ip)/128"
-    else empty end
-  | select(($c | index(.)) == null)
-' "$tmp/nodes.json" > "$tmp/missing_addr"
-if [[ -s "$tmp/missing_addr" ]]; then
-  bad "以下节点地址不在 directCidrs 里：
-$(sed 's/^/    /' "$tmp/missing_addr")"
+stale_creds="$(jq -r --slurpfile m "$MYSECRETS/proxy-nodes.meta.json" '
+  ([ $m[0].nodes[].name ]) as $meta
+  | .nodes | keys[] | select(($meta | index(.)) == null)
+' "$tmp/creds.json")"
+if [[ -z "$stale_creds" ]]; then
+  ok "creds 里没有退役残留"
 else
-  ok "所有 IP 字面量都在 directCidrs 里"
+  warn "以下 creds 条目已无对应 meta（退役后忘了清，可删）：
+$(sed 's/^/    /' <<<"$stale_creds")"
 fi
-hostname_servers="$(jq -r '.nodes[] | (.server // empty) | select(test("^[0-9.]+$") | not) | select(test(":") | not) | select(. != "127.0.0.1")' "$tmp/nodes.json" | sort -u)"
-if [[ -n "$hostname_servers" ]]; then
-  warn "以下节点的 server 是域名，directCidrs 需要人工确认解析结果：
-$(sed 's/^/    /' <<<"$hostname_servers")"
+
+# relay 只在 meta 里（合并进转换器输入时会被丢掉），所以这里读 meta。
+socks_other="$(jq -r '.nodes[] | select(.kind == "socks" and .enabled != false) | select(.relay == null) | "\(.name)\t\(.port)"' "$MYSECRETS/proxy-nodes.meta.json")"
+if [[ -n "$socks_other" ]]; then
+  warn "以下 socks 节点由 xray-client 提供（端口写死在 xray 密文里，本检查不覆盖）：
+$(sed 's/^/    /' <<<"$socks_other")"
+fi
+
+echo "== 直连地址表（节点部分由转换器派生）=="
+# 转换器把节点 server 自动并入 directCidrs/directDomains；密文表里若还手写着
+# 同一批值，就是退役后会留下「走不到的项」的那种重复。
+overlap="$(jq -r --slurpfile a "$tmp/addr.json" '
+  ((($a[0].directCidrs) // []) + (($a[0].directDomains) // [])) as $listed
+  | [ .nodes[] | (.server // empty), (.server6 // empty) | select(. != null) ] as $servers
+  | $servers[]
+  | . as $s
+  | if test("^[0-9.]+$") then "\($s)/32" elif test(":") then "\($s)/128" else $s end
+  | . as $v
+  | select(($listed | index($v)) != null)
+' "$tmp/nodes.json" | sort -u)"
+if [[ -z "$overlap" ]]; then
+  ok "密文地址表里没有重复的节点地址"
+else
+  warn "以下节点地址已由派生覆盖，密文表里的同名条目可以删（多了不会报错，但退役会残留）：
+$(sed 's/^/    /' <<<"$overlap")"
 fi
 
 echo
 if (( fail )); then
-  echo "检查失败：先修上面的 FAIL 再部署。"
+  echo "有不一致项，不要部署。" >&2
   exit 1
 fi
 echo "全部通过。"

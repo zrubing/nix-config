@@ -73,6 +73,30 @@ let
       chmod 0400 /run/tuic-client-${name}/config-with-secret.toml.tmp
       mv /run/tuic-client-${name}/config-with-secret.toml.tmp /run/tuic-client-${name}/config-with-secret.toml
     '';
+  # 实例由节点 meta 派生：节点退役 = meta 里删掉一条（或 enabled: false），
+  # 两台主机的 unit 一起消失，不需要再改两份 nix 文件（原先 zen14/nova13 各抄一份）。
+  # listen 取节点的 socks port —— 与 sib 出站指向的 127.0.0.1:<port> 是同一个值，
+  # 端口只声明一次。
+  metaNodes =
+    if cfg.nodesFile == null then
+      [ ]
+    else
+      lib.filter (
+        n: (n.enabled or true) && (n.kind or "") == "socks" && (n.relay or null) != null
+      ) ((builtins.fromJSON (builtins.readFile cfg.nodesFile)).nodes or [ ]);
+
+  derivedInstances = lib.listToAttrs (
+    map (
+      n:
+      lib.nameValuePair n.relay.instance {
+        serverSecret = n.relay.serverSecret;
+        ipSecret = n.relay.ipSecret or null;
+        listen = "127.0.0.1:${toString n.port}";
+      }
+    ) metaNodes
+  );
+
+  instances = derivedInstances // cfg.instances;
 in
 {
   options.${namespace}.tuic-client = with lib; {
@@ -83,6 +107,17 @@ in
       default = pkgs.callPackage ../../../packages/tuic-client-bin { };
       defaultText = lib.literalExpression "pkgs.callPackage ../../../packages/tuic-client-bin { }";
       description = "tuic-client package to run.";
+    };
+
+    nodesFile = mkOption {
+      type = types.nullOr types.path;
+      default = "${mysecrets}/proxy-nodes.meta.json";
+      defaultText = lib.literalExpression ''"''${inputs.mysecrets}/proxy-nodes.meta.json"'';
+      description = ''
+        节点清单的明文 meta（nix-secrets 里那份）。本模块从它派生实例：
+        kind=socks 且带 relay 的节点，一个节点一个实例，listen 取节点 port。
+        设成 null 表示完全由 instances 手写（不推荐：节点退役时会漏删 unit）。
+      '';
     };
 
     logLevel = mkOption {
@@ -127,7 +162,7 @@ in
       # 服务端地址不写进公开仓库的 nix 文件，和 uuid/password 一样走密文。
       // lib.mapAttrs' (
         _: inst: lib.nameValuePair inst.serverSecret { file = "${mysecrets}/${inst.serverSecret}.age"; }
-      ) cfg.instances
+      ) instances
       // lib.foldl' (
         acc: inst:
         acc
@@ -136,7 +171,7 @@ in
             file = "${mysecrets}/${inst.ipSecret}.age";
           };
         }
-      ) { } (lib.attrValues cfg.instances);
+      ) { } (lib.attrValues instances);
 
     users.groups.${cfg.group} = { };
     users.users.${cfg.user} = {
@@ -195,12 +230,12 @@ in
           LockPersonality = true;
         };
       }
-    ) cfg.instances
+    ) instances
     # mihomo 把 tuic 节点当成 127.0.0.1 上的 socks5 上游，先起客户端再起 mihomo。
     // lib.optionalAttrs config.${namespace}.miho.enable {
       mihomo = {
-        after = lib.mapAttrsToList (name: _: "tuic-client-${name}.service") cfg.instances;
-        wants = lib.mapAttrsToList (name: _: "tuic-client-${name}.service") cfg.instances;
+        after = lib.mapAttrsToList (name: _: "tuic-client-${name}.service") instances;
+        wants = lib.mapAttrsToList (name: _: "tuic-client-${name}.service") instances;
       };
     };
   };

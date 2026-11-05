@@ -88,7 +88,11 @@ writeShellApplication {
     fi
 
     # 节点清单：按 mihomo 方言转换后并入 proxies。
-    jq -f "$nodes_jq" "$nodes_raw" > "$workdir/nodes.json"
+    # 转换器同时把节点地址并入密文地址表（.addresses）：直连表由节点集合派生，
+    # 退役/新增节点不用再手改 net-policy-addresses.json。
+    jq -f "$nodes_jq" --slurpfile addr "$addresses" "$nodes_raw" > "$workdir/nodes.json"
+    jq '.addresses' "$workdir/nodes.json" > "$workdir/addresses.json"
+    addresses="$workdir/addresses.json"
 
     # 规则 token 展开。用 jq 而不是 yq：yq-go 不支持 if/then 表达式，而这里
     # 需要「一条字符串变多条」（IP-CIDR / DOMAIN-SUFFIX 一条一个值）。
@@ -159,6 +163,29 @@ writeShellApplication {
       ' "$workdir/out.json" > "$workdir/out.filtered.json"
       yq -P "$workdir/out.filtered.json" > "$workdir/out.yaml"
     fi
+
+    # 组成员必须存在。显式 proxies 里写了不存在的名字时，mihomo 在启动阶段以
+    # `Parse config error: proxy group[N]: <组名>: 'X' not found` 直接 fatal，
+    # 而这条错误要等 systemd 反复重启才在日志里看见（2026-11-05：退役节点后
+    # DNS 组仍手写旧名字，服务掉了 6 分钟）。这里前移到 prepare，一次说清
+    # 「哪个组 → 哪个名字」，同时保留 mihomo 的原文错误作为交叉验证。
+    #
+    # 合法成员：proxies 里的名字、其它组名、mihomo 内建策略。
+    # 用 jq 做判定而不是在 yq 里写表达式：yq-go 的 if/then 支持不稳（见上）。
+    yq -o=json "$workdir/out.yaml" > "$workdir/out.check.json"
+    jq -e '
+      ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE", "GLOBAL"] as $builtin
+      | ([.proxies[]?.name] + [."proxy-groups"[]?.name] + $builtin) as $known
+      | [ ."proxy-groups"[]?
+          | select(has("proxies"))
+          | . as $g
+          | $g.proxies[]
+          | select(. as $m | $known | index($m) | not)
+          | "\($g.name) → \(.)" ] as $bad
+      | if ($bad | length) > 0
+        then "proxy-groups 引用了不存在的成员（检查密文 base 的组定义）：\n" + ($bad | join("\n")) | halt_error(1)
+        else true end
+    ' "$workdir/out.check.json" > /dev/null
 
     if [ "$out" = "-" ]; then
       cat "$workdir/out.yaml"

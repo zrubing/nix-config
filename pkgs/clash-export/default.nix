@@ -11,11 +11,14 @@
   extraConfigFile,
   tokensFile,
   nodesJq,
+  nodesMergeJq,
   agenixRules,
   # 密文所在目录（flake input 的 store 路径）+ 仓库内相对路径
   secretsRoot,
   mihoConfRel,
-  proxyNodesRel,
+  # 节点清单拆两份：meta 明文（不加密，直接读），creds 密文（agenix 解）
+  nodesMetaRel,
+  nodesCredsRel,
   relayPasswordRel,
   addressesRel,
   # 手机端私有覆盖（加密）。含内网主机名等不该进公开仓库的定向规则。
@@ -133,11 +136,15 @@ writeShellApplication {
       [ -s "$dest" ] || { echo "解密结果为空: $rel" >&2; exit 1; }
     }
 
-    # 四份输入：base 配置、节点清单、中转密码、敏感地址表
+    # 五份输入：base 配置、节点 meta（明文）、节点 creds（密文）、中转密码、地址表
     decrypt ${mihoConfRel}      "$workdir/base.yaml"
-    decrypt ${proxyNodesRel}    "$workdir/nodes.json"
+    decrypt ${nodesCredsRel}    "$workdir/nodes-creds.json"
     decrypt ${relayPasswordRel} "$workdir/hy2-password"
     decrypt ${addressesRel}     "$workdir/addresses.json"
+
+    # meta（在不在）+ creds（连哪里）→ 转换器的输入，与主机上的 prepare 同一份逻辑。
+    jq -f ${nodesMergeJq} --slurpfile c "$workdir/nodes-creds.json" \
+      "$secrets_root/${nodesMetaRel}" > "$workdir/nodes.json"
 
     # 渲染（与 mihomo-prepare-config 同一条管线），密码仍是占位符。
     # 移动端固定按“没有 v6 出口”渲染：与本机 miho 在 v6 探测失败时的行为一致，
@@ -151,9 +158,9 @@ writeShellApplication {
       --addresses "$workdir/addresses.json"
       --out "$workdir/merged.yaml"
     )
-    if [ "$raw" -eq 0 ]; then
-      render_args+=(--drop-suffix '-v6')
-    fi
+    # 不再按 -v6 后缀剥节点：手机有原生 v6 时，v6 字面量节点（港）是唯一可用的
+    # 境外出口，剥掉等于把港也退役。手机没有 v6 时它们健康检查不过，url-test /
+    # fallback 自然会跳过 —— 代价只是一轮探测超时。
     mihomo-render "''${render_args[@]}"
 
     # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，
@@ -209,35 +216,40 @@ writeShellApplication {
         del(.dns."fake-ip-range6")
       ' "$workdir/final.yaml" > "$workdir/mobile.json"
 
-      # 两类节点在手机上一定不可用，一并摘掉（同时从 proxy-groups 成员里摘）：
-      #   is_local  指向 127.0.0.1 的本机 socks 上游（xray/tuic 客户端不在手机上）
-      #   is_v6     server 直接写死成 v6 字面量；上面已把 ipv6 关掉，这类节点
-      #             没有任何可达路径，留着只会让 url-test 每次都白等一轮超时。
-      #             注意只匹配 server 里的冒号：域名节点的 AAAA 由 dns.ipv6=false
-      #             处理，不能按名字猜。
+      # 只有一类节点在手机上一定不可用：is_local —— 指向 127.0.0.1 的本机 socks
+      # 上游（xray/tuic 客户端不跑在手机上）。
+      #
+      # v6 字面量节点（港-hy2-v6 / 港-vless-v6 等）刻意保留：手机有原生 v6 时它们
+      # 是唯一不依赖美国线的境外出口。ipv6 仍是 false（域名节点继续只解析 A，
+      # 避免 2026-10-31 记录过的「先等一次 AAAA 超时再回落 v4」），所以这类节点
+      # 能不能用取决于 mihomo 是否允许直拨 v6 字面量 —— 实测不可用时把下面
+      # `.ipv6 = false` 改成 true 即可，代价是域名节点回到 AAAA 优先。
       jq '
         def is_local: ((.server // "") | test("^(127\\.|::1$|localhost$)"));
-        def is_v6: ((.server // "") | test(":"));
-        def dead: (is_local or is_v6);
         (.proxies // []) as $all
-        | ($all | map(select(dead)) | map(.name)) as $dropped
-        | .proxies = ($all | map(select(dead | not)))
+        | ($all | map(select(is_local)) | map(.name)) as $dropped
+        | .proxies = ($all | map(select(is_local | not)))
         | (."proxy-groups" // []) as $groups
         # 美国组兜底：手机内核连不上这批美国节点（健康检查 alive:false /
         # delay:65535，而同节点经桌面 mihomo 只要 0.9–1.2s，手机原生
         # ping 该 IP 198ms 不丢包 —— 即网络可达、本机内核不可达）。
         # 组里没有任何可用成员时，url-test 会把请求钉在死的那个节点上，
         # 结果是 Google/ChatGPT 这类按地区分流的站点全部超时。
-        # 用 fallback：按顺序取第一个健康成员，都不健康就落到 日-hy2。
-        # 这里复用组里已有的 filter 正则（不重写一份规则），成员名直接由
-        # 剩余 proxies 算出，避免 include-all 在 fallback 下没有确定顺序。
+        # 用 fallback：按顺序取第一个健康成员；成员一律由组里已有的 filter 正则
+        # 从剩余 proxies 算出（不写死节点名 —— 节点退役后写死的名字会变成悬空成员）。
+        # 跨区兜底只取「香港」：它是唯一在手机上可能可用的非美国出口。
         | ($groups | map(select(.name == "美国")) | .[0]) as $us
-        | ($groups | map(.name)) as $groupnames
+        | ($groups | map(select(.name == "香港")) | .[0]) as $hk
         | (if $us == null then []
            else
-             [ $all[] | select(dead | not) | .name
+             [ $all[] | select(is_local | not) | .name
                | select(test($us.filter // "^$")) ]
            end) as $usnames
+        | (if $hk == null then []
+           else
+             [ $all[] | select(is_local | not) | .name
+               | select(test($hk.filter // "^$")) ]
+           end) as $hknames
         | ."proxy-groups" = ($groups | map(
             if has("proxies") then
               .proxies = [.proxies[] | select(. as $n | ($dropped | index($n) | not))]
@@ -246,7 +258,7 @@ writeShellApplication {
             | if .name == "美国" and ($usnames | length) > 0 then
                 .type = "fallback"
                 | del(."include-all", .filter, ."exclude-type")
-                | .proxies = ($usnames + [ "日-hy2" ])
+                | .proxies = ($usnames + $hknames)
               else . end))
       ' "$workdir/mobile.json" > "$workdir/mobile.final.json"
 

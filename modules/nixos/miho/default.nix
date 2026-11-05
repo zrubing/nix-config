@@ -37,11 +37,12 @@ let
     port = podEgress.listenPort;
   };
 
-  # 共享节点清单（私有仓的加密 JSON）是唯一事实源。节点定义刻意不经 nix 求值：
-  # 一旦渲染成 store 文件，server/跳端口/密码/SNI 就是世界可读的 /nix/store 明文。
-  # 进 store 的只有方言转换器 lib/proxy-nodes.jq，prepare 服务在运行时
-  # 解密 → 转换 → 合并。
-  proxyNodesSecretPath = config.age.secrets."proxy-nodes".path;
+  # 共享节点清单拆成明文 meta + 密文 creds（见 lib/proxy-nodes-merge.jq 头注释）：
+  # meta 决定「节点在不在」，creds 决定「连哪里」。进 store 的只有合并器与方言
+  # 转换器，server/密码只以密文形式在运行时解密。
+  proxyNodesCredsPath = config.age.secrets."proxy-nodes-creds".path;
+  proxyNodesMetaPath = "${mysecrets}/proxy-nodes.meta.json";
+  proxyNodesMergeJq = ../../../lib/proxy-nodes-merge.jq;
   proxyNodesJq = ../../../lib/proxy-nodes.jq;
 
   # v6 探测（脚本、状态路径、是否启用）都在 proxy-v6 模块，sib / miho 共用一份。
@@ -145,8 +146,8 @@ in
 
     age.secrets.miho-conf.file = "${mysecrets}/miho-conf/zen14-test.age";
 
-    # 节点清单由 sib / miho 共用；两个模块同时声明同一份文件时只是合并，不冲突。
-    age.secrets."proxy-nodes".file = "${mysecrets}/proxy-nodes.json.age";
+    # 节点凭据由 sib / miho 共用；两个模块同时声明同一份文件时只是合并，不冲突。
+    age.secrets."proxy-nodes-creds".file = "${mysecrets}/proxy-nodes.creds.json.age";
 
     # 中转凭据与配置分离：加密的 miho-conf 里只留占位符，真实值在激活时注入。
     # 轮换密码只需要换 nix-secrets 里的 relay/*.age，不用重写整份 YAML。
@@ -185,7 +186,7 @@ in
         set -euo pipefail
 
         # 两个输入都要就绪：主配置 + hysteria2 密码 + 节点清单 + 敏感地址表
-        for f in miho-conf relay/hysteria-password proxy-nodes net-policy-addresses; do
+        for f in miho-conf relay/hysteria-password proxy-nodes-creds net-policy-addresses; do
           i=0
           while [ "$i" -lt 60 ]; do
             [ -s "/run/agenix/$f" ] && break
@@ -203,6 +204,11 @@ in
 
         install -d -m 0700 /run/mihomo
 
+        # ── 合并节点清单（明文 meta + 密文 creds）──────────────────────
+        # 与 sib 同一条管线：merge → 方言转换。这里只产出中间文件，不再手写节点。
+        jq -f ${proxyNodesMergeJq} --slurpfile c /run/agenix/proxy-nodes-creds \
+          ${proxyNodesMetaPath} > /run/mihomo/nodes.json
+
         # ── v6 可用性探测 ─────────────────────────────────────────────
         # 目标取节点清单里所有 v6 字面量（server6 与本身就是 v6 的 server）。
         # socks 节点是 127.0.0.1，不会命中 test(":")。
@@ -210,7 +216,7 @@ in
         ${lib.optionalString proxyV6.enable ''
           install -d -m 0700 ${proxyV6.stateDir}
           jq -r '.nodes[] | ((.server6 // empty), (.server // empty)) | select(test(":"))' \
-            ${proxyNodesSecretPath} | sort -u > ${proxyV6.targetsPath}
+            /run/mihomo/nodes.json | sort -u > ${proxyV6.targetsPath}
           v6="$(${proxyV6.checkScript})"
           printf '%s\n' "$v6" > ${proxyV6.availablePath}
           if [ "$v6" = 0 ]; then
@@ -227,12 +233,14 @@ in
         ${mihomoRender}/bin/mihomo-render \
           --base /run/agenix/miho-conf \
           --extra ${mihomoExtraConfigFile} \
-          --nodes-raw ${proxyNodesSecretPath} \
+          --nodes-raw /run/mihomo/nodes.json \
           --nodes-jq ${proxyNodesJq} \
           --tokens ${netPolicyTokensJson} \
           --addresses ${netPolicy.addressTokenFile} \
           "''${drop_suffix[@]}" \
           --out /run/mihomo/config.merged.yaml
+        # 中间文件里有节点地址明文，用完即删（最终配置在 /run/mihomo/config-with-secret.yaml）。
+        rm -f /run/mihomo/nodes.json
 
         # 占位符替换。密码由 token_urlsafe 生成，只含 [A-Za-z0-9_-]，
         # sed 的替换串里不会出现需要转义的字符。
@@ -272,7 +280,8 @@ in
       restartTriggers = [
         (builtins.hashFile "sha256" "${mysecrets}/miho-conf/zen14-test.age")
         (builtins.hashFile "sha256" "${mysecrets}/relay/hysteria-password.age")
-        (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.json.age")
+        (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.creds.json.age")
+        (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.meta.json")
         (builtins.hashFile "sha256" "${mysecrets}/net-policy-addresses.json.age")
         mihomoExtraConfigFile
         netPolicyTokensJson

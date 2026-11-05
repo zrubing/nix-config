@@ -28,6 +28,17 @@ def expand_v6:
   else [ ., (. + { name: (.name + "-v6"), server: .server6 }) ]
   end;
 
+# 直连地址派生：节点的 server（域名或 IP 字面量）必须进 net-policy 的直连表，
+# 否则代理请求会指回自己（自指回环）。
+#
+# 原先这张表是手写的（net-policy-addresses.json 的 directCidrs/directDomains）：
+# 漏一条 = 该节点的流量绕一圈；退役一个节点又会在表里留一条永远走不到的项，
+# 而 check-nodes.sh 只校验「节点地址必须在表里」，查不出多出来的项。
+# 这里从最终有效的节点集合派生，调用方把 .addresses 与密文表取并集即可。
+def ip_literal: test("^[0-9.]+$|:");
+def loopback: test("^127\\.[0-9.]+$|^::1$|^localhost$");
+def cidr: if test(":") then . + "/128" else . + "/32" end;
+
 def require($f):
   if has($f) and .[$f] != null then .
   else error("proxy-nodes: 节点 \(.name // "?") 缺少字段 \($f)")
@@ -159,5 +170,14 @@ def miho_proxy:
         )
       )
     ),
-    miho: ($nodes | map(miho_proxy))
+    miho: ($nodes | map(miho_proxy)),
+    # 节点地址并入密文地址表（并集、去重、保持幂等）。socks 节点没有 server
+    # 字段（本机 127.0.0.1），自然不会进表。
+    addresses: (
+      ($addr[0] // {}) as $a
+      | ($nodes | map(.server // empty) | map(select(type == "string"))) as $servers
+      | $a
+      | .directCidrs = (((($a.directCidrs) // []) + [ $servers[] | select(loopback | not) | select(ip_literal) | cidr ]) | unique)
+      | .directDomains = (((($a.directDomains) // []) + [ $servers[] | select(loopback | not) | select(ip_literal | not) ]) | unique)
+    )
   }

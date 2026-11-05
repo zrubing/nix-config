@@ -55,7 +55,6 @@ let
     directCidrs = "__NETPOLICY_directCidrs__";
     cnCidrs = "__NETPOLICY_cnCidrs__";
     directDomains = "__NETPOLICY_directDomains__";
-    jpDomains = "__NETPOLICY_jpDomains__";
     usDomains = "__NETPOLICY_usDomains__";
   };
 
@@ -443,11 +442,6 @@ in
             "opencode.ai"
           ] ++ [ addressTokens.usDomains ];
           target = "美国";
-        }
-        {
-          match = "domain-suffix";
-          value = addressTokens.jpDomains;
-          target = "日本";
         }
 
         # 内网一律直连（必须排在所有域名规则集之前，否则内网域名会被 rule-set 抢走）。

@@ -111,11 +111,14 @@ let
     ) cfg.groupTuning;
   };
 
-  # 共享节点清单（私有仓的加密 JSON）是唯一事实源。节点定义刻意不经 nix 求值：
-  # 一旦渲染成 store 文件，server/跳端口/密码/SNI 就是世界可读的 /nix/store 明文。
-  # 进 store 的只有方言转换器 lib/proxy-nodes.jq，prepare 服务在运行时
-  # 解密 → 转换 → 合并。
-  proxyNodesSecretPath = config.age.secrets."proxy-nodes".path;
+  # 共享节点清单是唯一事实源，拆成两份（见 lib/proxy-nodes-merge.jq 的头注释）：
+  #   · 明文 meta：name/kind/port/sibGroups/enabled/relay —— nix 求值能看到「哪些
+  #     节点在」，tuic-client 实例与组归属都由它派生；
+  #   · 密文 creds：server/密码/SNI —— 只能运行时解密，否则会进世界可读的 store。
+  # 进 store 的只有方言转换器 lib/proxy-nodes.jq 与合并器 lib/proxy-nodes-merge.jq。
+  proxyNodesCredsPath = config.age.secrets."proxy-nodes-creds".path;
+  proxyNodesMetaPath = "${mysecrets}/proxy-nodes.meta.json";
+  proxyNodesMergeJq = ../../../lib/proxy-nodes-merge.jq;
   proxyNodesJq = ../../../lib/proxy-nodes.jq;
 
   # 敏感地址表（自有域名 / 中转 VPS / 自建 apiserver 的 CIDR）。
@@ -131,7 +134,7 @@ let
     install -d -m 0700 ${runtimeDir}
 
     # agenix 在 activation 阶段解密，服务启动时可能还没落盘。
-    for f in ${secretPath} ${hy2PasswordPath} ${proxyNodesSecretPath} ${netPolicyAddressPath}; do
+    for f in ${secretPath} ${hy2PasswordPath} ${proxyNodesCredsPath} ${netPolicyAddressPath}; do
       i=0
       while [ ! -s "$f" ]; do
         i=$((i + 1))
@@ -148,14 +151,20 @@ let
     # 只在 base 上替换会漏掉。
     cp ${secretPath} ${runtimeDir}/config.base.json
 
-    # ── 合并共享节点清单（nix-secrets/proxy-nodes.json.age）──────────────
-    # 节点定义只写一处（那份加密 JSON）：这里按 sib 方言转换后追加进配置，
-    # 并按 sibGroups 给 selector/urltest 补成员。dedupe 保持原顺序 ——
-    # selector 的默认项就是列表第一个，不能用 unique（会排序，默认节点被改掉）。
+    # ── 合并共享节点清单（nix-secrets/proxy-nodes.meta.json + creds 密文）──
+    # 节点定义只写一处：meta 决定「在不在」（明文，nix 求值期已用它派生 unit 与
+    # 组归属），creds 决定「连哪里」（密文，只能在这里解密）。这里按 sib 方言转换
+    # 后追加进配置，并按 sibGroups 给 selector/urltest 补成员。dedupe 保持原顺序
+    # —— selector 的默认项就是列表第一个，不能用 unique（会排序，默认节点被改掉）。
     #
-    # 转换器（lib/proxy-nodes.jq）一次产出 sib / sibGroups / miho 三份视图，
-    # 两家客户端共用同一份事实源，只在这里各取所需。
-    jq -f ${proxyNodesJq} ${proxyNodesSecretPath} > ${runtimeDir}/nodes.json
+    # 转换器（lib/proxy-nodes.jq）一次产出 sib / sibGroups / miho / addresses 四份
+    # 视图，两个客户端与 net-policy 共用同一份事实源，各取所需。
+    jq -f ${proxyNodesMergeJq} --slurpfile c ${proxyNodesCredsPath} ${proxyNodesMetaPath} \
+      > ${runtimeDir}/nodes.merged.json
+    jq -f ${proxyNodesJq} --slurpfile addr ${netPolicyAddressPath} ${runtimeDir}/nodes.merged.json \
+      > ${runtimeDir}/nodes.json
+    # 节点地址并入直连表：退役/新增节点不用再手改密文地址表（litmus 由 check-nodes 提示）。
+    jq '.addresses' ${runtimeDir}/nodes.json > ${runtimeDir}/addresses.json
 
     # ── v6 可用性探测（本机网络，非密文内容）──────────────────────────
     # 探测目标取自节点清单里的 v6 字面量：socks 节点是 127.0.0.1，不会被选中。
@@ -237,7 +246,7 @@ let
         )
     ' ${runtimeDir}/config.merged.json > ${runtimeDir}/config.tuned.json
     mv ${runtimeDir}/config.tuned.json ${runtimeDir}/config.merged.json
-    rm -f ${runtimeDir}/nodes.json
+    rm -f ${runtimeDir}/nodes.json ${runtimeDir}/nodes.merged.json
 
     # ── 注入不变量（net-policy）────────────────────────────────────────
     # 分流规则主干整份来自 net-policy（单一事实源），地址取并集（unique 保证幂等）。
@@ -254,7 +263,7 @@ let
     # 0x1c00 命中 cilium 的不改写分支（mark & 0xe00 == 0x800），改写对它是幂等的；
     # 0x1000 是 cilium 未使用的 k8s mark 位，既能和普通 host 流量的 0x0c00 区分，
     # 又不带 identity。
-    jq -s --slurpfile addr ${netPolicyAddressPath} '
+    jq -s --slurpfile addr ${runtimeDir}/addresses.json '
       # token 名就是 __NETPOLICY_<密文键>__，去首尾包装即得键，不用维护映射表。
       def np_lines($a):
         . as $t
@@ -514,8 +523,9 @@ in
       file = "${mysecrets}/${cfg.configSecretFile}";
     };
 
-    # 节点清单由 sib / miho 共用；两个模块同时声明同一份文件时只是合并，不冲突。
-    age.secrets."proxy-nodes".file = "${mysecrets}/proxy-nodes.json.age";
+    # 节点凭据由 sib / miho 共用；两个模块同时声明同一份文件时只是合并，不冲突。
+    # （meta 是明文，走 flake input 路径，不需要 agenix。）
+    age.secrets."proxy-nodes-creds".file = "${mysecrets}/proxy-nodes.creds.json.age";
 
     # miho 关掉后这个 secret 没有别的声明方，sib 自己声明；
     # 两个模块同时声明同一份文件时只是合并，不冲突。
@@ -572,7 +582,8 @@ in
       restartTriggers = [
         (builtins.hashFile "sha256" "${mysecrets}/${cfg.configSecretFile}")
         (builtins.hashFile "sha256" "${mysecrets}/relay/hysteria-password.age")
-        (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.json.age")
+        (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.creds.json.age")
+        (builtins.hashFile "sha256" "${mysecrets}/proxy-nodes.meta.json")
         (builtins.hashFile "sha256" "${mysecrets}/net-policy-addresses.json.age")
         # net-policy 的不变量变了也要重启 —— 否则 prepare-config 重算出的配置
         # 没人用，表现为「改了 nix 但行为没变」。

@@ -421,7 +421,7 @@ in
     # packages/proxy-quality），不再受 sib-only 断言限制。
     #
     # 探测 URL 从 204 换成 128KB 文件：这条线的分水岭是吞吐不是 RTT ——
-    # 实测 日-hy2-v6 的 204 延迟更低（190ms vs 290ms），吞吐却只有
+    # 实测已退役的日本节点（v6 腿）204 延迟更低（190ms vs 290ms），吞吐却只有
     # 港-hy2-v6 的 1/6（51KB/s vs 180–330KB/s），而 url-test 只按前者选。
     # 代价：128KB × 15 节点 × 2 采样 ≈ 3.8MB/轮，30min 一轮 ≈ 2.5MB/h；
     # 存活检查仍走 204，每分钟一次，可忽略。
@@ -463,31 +463,10 @@ in
     #   上游 A/B 的 v6 腿 → 12192 / 12193，同一台服务端、只换地址族。
     #   v6 腿用 ipSecret 把 server 固定到 v6 地址：server 仍写主机名（SNI
     #   从它推导），地址族在密文里，公开仓库看不到 v6 字面量。
-    # 服务商/机房/节点名都不写进仓库：唯一事实源是密文，这里只写端口和方向。
-    # uuid/password 两台服务端相同，所以共用 relay/tuic-{uuid,password} 密文。
-    tuic-client = {
-      enable = true;
-      instances = {
-        us = {
-          serverSecret = "relay/tuic-server";
-          listen = "127.0.0.1:12190";
-        };
-        jp = {
-          serverSecret = "relay/tuic-server-jp";
-          listen = "127.0.0.1:12191";
-        };
-        us6 = {
-          serverSecret = "relay/tuic-server";
-          ipSecret = "relay/tuic-server-v6-ip";
-          listen = "127.0.0.1:12192";
-        };
-        jp6 = {
-          serverSecret = "relay/tuic-server-jp";
-          ipSecret = "relay/tuic-server-jp-v6-ip";
-          listen = "127.0.0.1:12193";
-        };
-      };
-    };
+    # 实例不再手写：由节点 meta（nix-secrets/proxy-nodes.meta.json）里
+    # kind=socks 且带 relay 的条目派生，端口取条目的 port，服务端密文取 relay。
+    # 新增/退役节点只改清单，两台主机都不会漏（原先 zen14/nova13 各抄一份）。
+    tuic-client.enable = true;
     xray-client = {
       enable = true;
       configSecretFile = "xray-client-conf.json.age";

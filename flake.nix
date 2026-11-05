@@ -386,10 +386,12 @@
                 self.nixosConfigurations.zen14.config.internal.miho.rendered.extraConfigFile;
               tokensFile = self.nixosConfigurations.zen14.config.internal.miho.rendered.tokensFile;
               nodesJq = ./lib/proxy-nodes.jq;
+              nodesMergeJq = ./lib/proxy-nodes-merge.jq;
               agenixRules = "${inputs.mysecrets}/secrets.nix";
               secretsRoot = "${inputs.mysecrets}";
               mihoConfRel = "miho-conf/zen14-test.age";
-              proxyNodesRel = "proxy-nodes.json.age";
+              nodesMetaRel = "proxy-nodes.meta.json";
+              nodesCredsRel = "proxy-nodes.creds.json.age";
               relayPasswordRel = "relay/hysteria-password.age";
               addressesRel = "net-policy-addresses.json.age";
               mobileExtraRel = "miho-conf/mobile-extra.yaml.age";
