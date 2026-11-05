@@ -485,7 +485,7 @@ seed-wrapper（只 exec 另一个脚本），反解不出。所以 shim 留，�
 2. `{type:'image', mediaType, data, name?}` —— **内联 base64**，不需要先上传；
 3. `{type:'file', receiptId}` —— 走 `fileUploads/upload` 的回执（该方法是 agent-scoped）。
 
-回放方向还有 `session/attachment({sessionId, attachmentId})` —— 返回“已证明与这条会话日志相关的”图片引用 + base64 字节（`attachmentId/mediaType/bytes/width/height/name?` 加 `data`）。
+回放方向还有 `session/attachment` —— 返回该会话日志可达的图片引用 + base64 字节。参数形状随宿主版本变过：0.2.1-rc.x 是 `{sessionId, attachmentId}`；0.2.2-alpha.2 起是 `{sessionId, attachment}`，其中 `attachment` 就是日志图片块里的持久引用（`attachmentId/mediaType/bytes/width/height/name?`，宿主逐字段与存储对象核对）。
 
 ### 实现
 
@@ -506,9 +506,24 @@ seed-wrapper（只 exec 另一个脚本），反解不出。所以 shim 留，�
 
 一处曾经的误判要记下来：日志里每条用户消息后面还跟一条 `source` 不是 `user` 的“时间戳注入”消息，`history()` 里最后一条 `user.message` 往往是它，所以“最后一条没有 images”不代表图片没落库——要看 `content` 原文。
 
+### 宿主 0.2.2-alpha.2：`session/attachment` 的参数从裸 id 换成引用对象（2026-11-04）
+
+症状：远程会话里图片缩略图全部显示 `[Cannot preview <name>]`，同一会话换本地 `dsh` 打开正常。
+
+原因：`session.ts` 手写的 `SessionRemote.attachment` 还是 0.2.1 的形状，实际发出的是 `{sessionId, attachmentId}`。宿主的边界校验要求 `attachment` 对象，读图因此每次都失败（`TranscriptImages` 落到 `failed` 分支）：
+
+```
+旧形状 gateway/input-invalid  typert gateway: session/attachment: wire field "request" failed boundary validation
+新形状 session/attachment-invalid  Attachment reference is invalid.   （故意用假 id：能过边界校验说明形状已对）
+```
+
+同一条 RPC、同一台宿主，把真实存储对象（960x540、65319 字节）按新形状发过去，返回的 base64 与磁盘字节逐字节相同。
+
+修法：请求带整份引用，类型直接用 `ImageBlock['attachment']`（与日志图片块同一个类型，不再手抄字段），读图处把 `image.read()` 拿到的引用原样上交。不加新老兼容分支：客户端与宿主由同一份 flake 一起发版，只跟当前宿主的形状。
+
 ### 产物同步
 
-`pkgs/dsh-tui-remote/remote-mode.patch` 已按本轮改动重新生成（19 文件，+1764/−17），并在干净 clone 上重跑 `git apply --check`。
+`pkgs/dsh-tui-remote/remote-mode.patch` 已按本轮改动重新生成（32 文件，+2557/−34），并在干净 clone 上按顺序跑完整补丁序列（GNU `patch -p1`）验证无 fuzz。
 
 ## 20. 三处收口（2026-10-17，晚）
 

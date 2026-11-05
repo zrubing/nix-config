@@ -1630,10 +1630,10 @@ index 0000000..e6c7b7e
 +}
 diff --git a/src/dsh-adapter/remote/session.ts b/src/dsh-adapter/remote/session.ts
 new file mode 100644
-index 0000000..8e4a83a
+index 0000000..9cf016e
 --- /dev/null
 +++ b/src/dsh-adapter/remote/session.ts
-@@ -0,0 +1,693 @@
+@@ -0,0 +1,692 @@
 +/**
 + * Remote DSH session: the host's durable log and live frames presented as an
 + * `AgentSession`, so the channel and the UI render a session owned by another
@@ -1644,6 +1644,7 @@ index 0000000..8e4a83a
 + * assistant-stream frames into the shared Agent Domain.
 + */
 +import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
++import type { ImageBlock } from '@deepseek-ai/dsh-llm'
 +import type { SessionEvent } from '@deepseek-ai/dsh-session'
 +import type { AgentSession, AgentSessionStatus, CancelCause, CancelReceipt, AgentInput, SubmitPlacement } from '../../agent/session.js'
 +import type { AgentEvent, AgentEventMeta } from '../../agent/events.js'
@@ -1674,16 +1675,12 @@ index 0000000..8e4a83a
 +    readonly sessionId: string
 +    readonly atSeq?: number
 +  }): Promise<RemoteResult<{ readonly sessionId: string }>>
-+  /** One image's verified reference and base64 bytes. */
-+  attachment(request: { readonly sessionId: string; readonly attachmentId: string }): Promise<RemoteResult<{
-+    readonly attachment: {
-+      readonly attachmentId: string
-+      readonly mediaType: string
-+      readonly bytes: number
-+      readonly width: number
-+      readonly height: number
-+      readonly name?: string
-+    }
++  /** One image's verified reference and base64 bytes. The request carries the
++   *  durable block's own attachment reference, not a bare id: the Host verifies
++   *  media type, byte length and dimensions against the object it reads
++   *  (0.2.2-alpha.2 replaced `{ sessionId, attachmentId }` with this shape). */
++  attachment(request: { readonly sessionId: string; readonly attachment: ImageBlock['attachment'] }): Promise<RemoteResult<{
++    readonly attachment: ImageBlock['attachment']
 +    readonly data: string
 +  }>>
 +  /** Rename one Session (used to name a fork). */
@@ -1802,8 +1799,10 @@ index 0000000..8e4a83a
 +    tools: () => undefined,
 +    scope: () => undefined,
 +    attachments: () => ({
-+      readImage: async (attachment: { readonly attachmentId: string }, signal?: AbortSignal) => {
-+        const result = await sessions.attachment({ sessionId, attachmentId: String(attachment.attachmentId) })
++      readImage: async (attachment: ImageBlock['attachment'], signal?: AbortSignal) => {
++        // The whole reference goes over the wire: the Host checks it against the
++        // stored object instead of trusting an id from the replayed log.
++        const result = await sessions.attachment({ sessionId, attachment })
 +        if (!result.ok || result.value === undefined) {
 +          throw new Error(`remote: session/attachment failed: ${result.error?.message ?? 'unknown error'}`)
 +        }
