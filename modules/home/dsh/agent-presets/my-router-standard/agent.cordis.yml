@@ -249,8 +249,12 @@
     - id: tool-subagent-control
       name: '@deepseek-ai/dsh-tool-subagent-control'
 
-    - id: tool-subagent-list-agents
-      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+    # `tool-subagent-list-agents` 已删（dsh 0.2.2-alpha.3）：
+    # `@deepseek-ai/dsh-tool-subagent-control` 的 package.json exports 只剩 `.`，
+    # 旧的 `./list-agents` 子路径已移除（ERR_PACKAGE_PATH_NOT_EXPORTED）；新版一个
+    # 插件实例就注册全部三个工具（interrupt_agent / list_agents / send_message），
+    # 所以上游 shipped standard/ptc/cordis 三份 preset 都只写上面那一行。
+    # 留着旧行会让整个 preset 判为 broken（tool-subagent-list-agents: never started）。
 
     - id: tool-subagent
       name: '@deepseek-ai/dsh-tool-subagent'
@@ -299,11 +303,10 @@
     - id: tool-workflow
       name: '@deepseek-ai/dsh-tool-workflow'
 
-    - id: tool-ralph
-      name: '@deepseek-ai/dsh-tool-ralph'
-      config:
-        subagentProvider: spawn
-        maxRounds: 64
+    # `tool-ralph` 已删：`@deepseek-ai/dsh-tool-ralph` 在 dsh 0.2.2-alpha.3 的
+    # 内核里已不存在（ERR_MODULE_NOT_FOUND，也没有改名后的替代包）。
+    # bootstrap 的阶段分类正则里保留 `ralph` 是无害的：那是按工具名归类的模式，
+    # 不引用具体包。
 
 # ── remaining model-facing rows ─────────────────────────────────────────────
 
