@@ -1,0 +1,3 @@
+name: my-standard
+description: 上游 standard 的全部编码能力（persona / 文件与搜索工具 / jobs / skills / goals / 计划模式 / delegation / 子 agent / workflows / todo / web / 插件市场），加 pi-blackhole 确定性压缩、recall 会话检索、观测记忆，以及 start_process 后台进程与 ast_grep 结构化搜索。
+order: 3

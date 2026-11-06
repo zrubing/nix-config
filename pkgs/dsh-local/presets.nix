@@ -145,6 +145,9 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
     MIN_META = presetsDir + "/my-minimal/preset.yml";
     PTC_EX = presetsDir + "/my-ptc/extras.cordis.yml";
     PTC_META = presetsDir + "/my-ptc/preset.yml";
+    STD_UP = "${webAppPresets}/standard.patch.yml";
+    STD_EX = presetsDir + "/my-standard/extras.cordis.yml";
+    STD_META = presetsDir + "/my-standard/preset.yml";
     ROUTER_COMP = presetsDir + "/router-standard/agent.cordis.yml";
     ROUTER_META = presetsDir + "/router-standard/preset.yml";
     MYROUTER_COMP = presetsDir + "/my-router-standard/agent.cordis.yml";
@@ -153,8 +156,8 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
   ''
     set -euo pipefail
 
-    # 两份 shipped preset 都必须是「恰好一条 agent-preset 声明」的形状。
-    for patch in "$MIN_UP" "$PTC_UP"; do
+    # 三份 shipped preset 都必须是「恰好一条 agent-preset 声明」的形状。
+    for patch in "$MIN_UP" "$PTC_UP" "$STD_UP"; do
       yq -e '.[0].insert[0].name == "@deepseek-ai/dsh-agent-preset"' "$patch" >/dev/null || {
         printf 'dsh-local presets: %s is not a shipped preset declaration patch\n' "$patch" >&2
         exit 1
@@ -163,22 +166,25 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
 
     # ptc 的 compaction 组里必须恰好一条 compaction-basic —— 本地要把它换成
     # pi-blackhole 的确定性后端。多于一条说明上游改了结构，需人工决定怎么换。
-    compactionRows=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "compaction-basic")] | length' "$PTC_UP")
-    [ "$compactionRows" -eq 1 ] || {
-      printf 'dsh-local presets: shipped ptc has %s compaction-basic rows, expected exactly 1\n' "$compactionRows" >&2
-      exit 1
-    }
+    for patch in "$PTC_UP" "$STD_UP"; do
+      compactionRows=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "compaction-basic")] | length' "$patch")
+      [ "$compactionRows" -eq 1 ] || {
+        printf 'dsh-local presets: shipped %s has %s compaction-basic rows, expected exactly 1\n' "$patch" "$compactionRows" >&2
+        exit 1
+      }
 
-    # 这一行是整体替换（不是逐字段改写）。shipped 行一旦多出别的键，必须显式决定
-    # 保留还是丢弃，否则会被替换静默吞掉。加键即构建失败。
-    ptcCompactionKeys=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "compaction-basic") | keys] | flatten | unique | join(" ")' "$PTC_UP")
-    [ "$ptcCompactionKeys" = "id name" ] || {
-      printf 'dsh-local presets: shipped ptc compaction-basic row has keys [%s], expected only id/name; update the replacement below accordingly\n' "$ptcCompactionKeys" >&2
-      exit 1
-    }
+      # 这一行是整体替换（不是逐字段改写）。shipped 行一旦多出别的键，必须显式决定
+      # 保留还是丢弃，否则会被替换静默吞掉。加键即构建失败。
+      compactionKeys=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "compaction-basic") | keys] | flatten | unique | join(" ")' "$patch")
+      [ "$compactionKeys" = "id name" ] || {
+        printf 'dsh-local presets: shipped %s compaction-basic row has keys [%s], expected only id/name; update the replacement below accordingly\n' "$patch" "$compactionKeys" >&2
+        exit 1
+      }
+    done
 
     ${rewrite "minimalExtras" "minimal-extras.yml" "$MIN_EX"}
     ${rewrite "ptcExtras" "ptc-extras.yml" "$PTC_EX"}
+    ${rewrite "standardExtras" "standard-extras.yml" "$STD_EX"}
     ${rewrite "router" "router-agent.yml" "$ROUTER_COMP"}
     ${rewrite "myRouter" "my-router-agent.yml" "$MYROUTER_COMP"}
 
@@ -186,12 +192,12 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
     # 路径里对不存在的键取值会创建该键（见 rewrite 上方的说明）。少了这层校验，
     # 损坏会被原样搬进产物，直到运行期插件 schema 报 "unknown key name" 才炸 ——
     # 而 build 与 --dump-config 都是通过的。
-    for f in minimal-extras.yml ptc-extras.yml router-agent.yml my-router-agent.yml; do
+    for f in minimal-extras.yml ptc-extras.yml standard-extras.yml router-agent.yml my-router-agent.yml; do
       ${checkNoStrayName "$TMPDIR/$f"}
     done
 
     # 重写后不应残留 ./ 说明符。
-    for f in minimal-extras.yml ptc-extras.yml router-agent.yml my-router-agent.yml; do
+    for f in minimal-extras.yml ptc-extras.yml standard-extras.yml router-agent.yml my-router-agent.yml; do
       left=$(yq -r '[.. | select(tag == "!!map") | .name | select(tag == "!!str") | select(test("^\\./"))] | length' "$TMPDIR/$f")
       [ "$left" -eq 0 ] || {
         printf 'dsh-local presets: %s still has %s relative specifier(s) after rewrite; add them to rewrites\n' "$f" "$left" >&2
@@ -202,6 +208,7 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
     yq -n -P '
       load(strenv(MIN_UP)) as $minUp | load("'"$TMPDIR"'/minimal-extras.yml") as $minEx | load(strenv(MIN_META)) as $minMeta |
       load(strenv(PTC_UP)) as $ptcUp | load("'"$TMPDIR"'/ptc-extras.yml") as $ptcEx | load(strenv(PTC_META)) as $ptcMeta |
+      load(strenv(STD_UP)) as $stdUp | load("'"$TMPDIR"'/standard-extras.yml") as $stdEx | load(strenv(STD_META)) as $stdMeta |
       load("'"$TMPDIR"'/router-agent.yml") as $routerComp | load(strenv(ROUTER_META)) as $routerMeta |
       load("'"$TMPDIR"'/my-router-agent.yml") as $myRouterComp | load(strenv(MYROUTER_META)) as $myRouterMeta |
 
@@ -211,6 +218,8 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
       # my-router-standard 统一，改这里要一起改那两处。
       ($ptcUp | (.. | select(tag == "!!map") | select(.id? == "compaction-basic")) |=
         {"id": "blackhole-compact", "name": ${builtins.toJSON blackholeCompaction}, "config": {"thresholdRatio": 0.4}}) as $ptcSwapped |
+      ($stdUp | (.. | select(tag == "!!map") | select(.id? == "compaction-basic")) |=
+        {"id": "blackhole-compact", "name": ${builtins.toJSON blackholeCompaction}, "config": {"thresholdRatio": 0.4}}) as $stdSwapped |
 
       [
         { "insert": [ { "id": "preset-my-minimal", "name": "@deepseek-ai/dsh-agent-preset",
@@ -219,6 +228,9 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
         { "insert": [ { "id": "preset-my-ptc", "name": "@deepseek-ai/dsh-agent-preset",
             "config": { "id": "my-ptc", "name": $ptcMeta.name, "description": $ptcMeta.description,
                         "order": $ptcMeta.order, "plugins": ($ptcSwapped[0].insert[0].config.plugins + $ptcEx) } } ] },
+        { "insert": [ { "id": "preset-my-standard", "name": "@deepseek-ai/dsh-agent-preset",
+            "config": { "id": "my-standard", "name": $stdMeta.name, "description": $stdMeta.description,
+                        "order": $stdMeta.order, "plugins": ($stdSwapped[0].insert[0].config.plugins + $stdEx) } } ] },
         { "insert": [ { "id": "preset-router-standard", "name": "@deepseek-ai/dsh-agent-preset",
             "config": { "id": "router-standard", "name": $routerMeta.name, "description": $routerMeta.description,
                         "order": $routerMeta.order, "plugins": $routerComp } } ] },

@@ -193,6 +193,33 @@ let
     description = "dsh web profile: 10-year browser cookie (token-free after first mint)";
   };
 
+  # 新会话的默认 agent preset（dsh-tui-remote 连的就是这个 profile）。
+  #
+  # 为什么不用 patchText 手写这一行：dsh 的补丁语义是**整块替换 config**（见上方
+  # tuiDisplayRow 的实测记录），只写 `default` 会让上游该行的其余键退回 schema
+  # 默认。从 web-app bundle 的原文提取整个 config 再覆盖目标键，与 tuiDisplayRow
+  # 同法——上游新增键时自动跟随。
+  #
+  # `my-standard` 不是上游预设：它是 shipped `standard` + 本地增量（pi-blackhole
+  # 确定性压缩、recall、观测记忆、start_process、ast_grep），声明由
+  # pkgs/dsh-local/presets.nix 生成。改这个值要同时确认它在 roster 里。
+  presetDefaultRow = pkgs.runCommand "dsh-preset-default-row.yml" {
+    nativeBuildInputs = [ pkgs.yq-go ];
+  } ''
+    yq -n '
+      (load("${dshLocal.upstreamBundles.web-app}/lib/node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml")
+        | [.. | select(tag == "!!map") | select(.id? == "agent-preset-registry")]
+        | .[0].config) as $cfg
+      | [ { "id": "agent-preset-registry", "config": ($cfg | .default = "my-standard") } ]
+    ' > $out
+  '';
+
+  presetDefaultBundle = mkRowBundle {
+    name = "dsh-preset-default";
+    patch = presetDefaultRow;
+    description = "dsh web profile: new sessions default to the my-standard agent preset";
+  };
+
   # `requiresWeb` / `requiresTui` 不是装饰：上游据此决定往该 profile 的组合里**追加**
   # 官方 web-app / tui bundle，并且若两者都为假就追加 headless。
   # 不声明 requiresWeb 的后果是 web profile 变成 headless 组合（没有前端）；
@@ -208,7 +235,7 @@ let
     profiles = {
       web = {
         requiresWeb = true;
-        bundles = hostBundles ++ dshLocal.webBundles ++ [ webPermissionBundle webConnectionBundle ];
+        bundles = hostBundles ++ dshLocal.webBundles ++ [ webPermissionBundle webConnectionBundle presetDefaultBundle ];
       };
       headless.bundles = hostBundles;
     } // lib.optionalAttrs cfg.plugins.tui.enable {

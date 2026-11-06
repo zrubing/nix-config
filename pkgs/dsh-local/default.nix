@@ -802,6 +802,12 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
       "./dsh-blackhole/lib/index.js" = "@jojo/dsh-blackhole";
       "./dsh-blackhole/lib/compaction.js" = blackholeCompaction;
     };
+    standardExtras = {
+      "./tool-processes.js" = "dsh-tool-processes";
+      "./tool-ast-grep.js" = "dsh-tool-ast-grep";
+      "./dsh-blackhole/lib/index.js" = "@jojo/dsh-blackhole";
+      "./dsh-blackhole/lib/compaction.js" = blackholeCompaction;
+    };
     router = {
       "./router-bootstrap-v34.mjs?v=88" = "dsh-preset-router-standard/bootstrap";
       "./gitbash-executor.mjs?v=49" = "dsh-preset-router-standard/gitbash-executor";
