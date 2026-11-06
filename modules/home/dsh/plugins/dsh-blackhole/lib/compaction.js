@@ -14,7 +14,7 @@
 // the tool-result pruner stay as dsh ships them. This is a backend swap.
 
 import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
-import { toPiMessages } from "./to-pi.js";
+import { toPiMessagesWithIndices, messageSeqIndex } from "./to-pi.js";
 import { compile } from "./core/compile.js";
 import { renderOmInjection } from "./om-store.js";
 
@@ -40,9 +40,16 @@ function recoverPreviousSummary(messages) {
 class BlackholeCompactionEngine extends BasicCompactionEngine {
   async summarize(input, agent, signal) {
     if (signal) signal.throwIfAborted();
-    const piMessages = toPiMessages(input.messages);
+    // The summary's `(#N)` refs must be the same namespace recall resolves, so
+    // compile() gets the event seq of every message instead of falling back to
+    // its own array positions (pi-blackhole's global indices).
+    const { messages: piMessages, sourceIndices } = toPiMessagesWithIndices(
+      input.messages,
+      messageSeqIndex(agent?.session),
+    );
     const summary = compile({
       messages: piMessages,
+      sourceIndices,
       previousSummary: recoverPreviousSummary(input.messages),
     });
     if (!summary || !summary.trim()) {

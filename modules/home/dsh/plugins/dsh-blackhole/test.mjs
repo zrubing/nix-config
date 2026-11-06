@@ -1,5 +1,6 @@
 // 回归测试：观测/反思游标必须在压缩重写 surface 之后继续推进；
-// recall 必须从全量事件日志取数、`#N` 恒等于事件 seq、记忆 id 能回放 source 正文。
+// recall 必须从全量事件日志取数、`#N` 恒等于事件 seq、记忆 id 能回放 source 正文；
+// 压缩摘要里的 (#N) 必须与 recall 同一编号空间；图片条目必须带 read_image 句柄。
 // 用法：先 `bash scripts/build.sh`（生成 lib/core/*.js），再 node 本文件。
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -22,7 +23,9 @@ fs.writeFileSync(configPath, JSON.stringify(baseConfig, null, 2));
 
 const { runPipeline, flushAndRun } = await import("./lib/om.js");
 const { loadLedger, ledgerPath } = await import("./lib/om-store.js");
-const { recallExecute } = await import("./lib/recall.js").catch(() => {
+const { messageSeqIndex, toPiMessagesWithIndices } = await import("./lib/to-pi.js");
+const { compile } = await import("./lib/core/compile.js");
+const { recallExecute, createImageText } = await import("./lib/recall.js").catch(() => {
   console.error("lib/core/*.js 缺失：先跑 bash scripts/build.sh（需要 esbuild 与 pi-blackhole 源码）");
   process.exit(1);
 });
@@ -221,5 +224,71 @@ const memOut = await recall({ query: memId });
 assert.match(memOut, /#8 \[user\]/, "memory recall renders the source entry by seq");
 assert.ok(memOut.includes("长内容开头"), "memory recall returns source content, not just the id");
 console.log("ok 7: 记忆 id 回放带出 source 原文");
+
+// ── 8) 摘要 #N 与 recall #N 是同一个编号空间（事件 seq）──────────────────────
+// 回归：compile() 不传 sourceIndices 时按数组下标编号（0,1,2…），recall 却按 seq
+// 解析 `#N`，于是压缩摘要里写 (#577)、recall 查 #577 命中一个 job 事件 → 404。
+const indexMessages = [
+  { id: "m-8", role: "user", content: [{ type: "text", text: "第一条：把阈值改成 0.4" }] },
+  { id: "m-12", role: "assistant", content: [{ type: "text", text: "第二条：改好了" }] },
+];
+const indexAgent = {
+  id: "session-index-test",
+  session: {
+    // seq 有大间隔，且第一条之前有一个系统消息（转换时丢弃，不占位）。
+    snapshotEvents: () => [
+      { seq: 3, message: { id: "m-sys", role: "system", content: [{ type: "text", text: "系统头" }] } },
+      { seq: 8, message: indexMessages[0] },
+      { seq: 12, message: indexMessages[1] },
+    ],
+    deriveEventMessage: (event) => event.message ?? null,
+    deriveMessages: () => indexMessages,
+  },
+};
+const indexed = toPiMessagesWithIndices(
+  indexAgent.session.deriveMessages(),
+  messageSeqIndex(indexAgent.session),
+);
+const indexedSummary = compile({ messages: indexed.messages, sourceIndices: indexed.sourceIndices });
+assert.match(indexedSummary, /\(#8\)/, "摘要按事件 seq 编号，不按数组下标");
+assert.match(indexedSummary, /\(#12\)/, "第二个条目也按 seq 编号");
+const positionalSummary = compile({ messages: indexed.messages });
+assert.match(positionalSummary, /\(#0\)/, "不传 sourceIndices 时退回数组下标（修复前的行为）");
+const resolved = await recallExecute({ query: "#8" }, { agent: indexAgent });
+assert.match(resolved, /第一条/, "摘要里的 (#N) 能被 recall 直接展开");
+console.log("ok 8: 摘要 (#N) = 事件 seq，recall 能直接解析");
+
+// ── 9) 图片条目带 read_image 句柄（压缩后图片仍可回看）───────────────────────
+const imageMessage = {
+  id: "m-image",
+  role: "user",
+  content: [
+    { type: "text", text: "[Image #2] 这个对吗" },
+    { type: "image", attachment: { attachmentId: "sha256:abc", mediaType: "image/png", width: 1007, height: 106 } },
+  ],
+};
+const imageAgent = {
+  id: "session-image-test",
+  session: {
+    snapshotEvents: () => [{ seq: 20, message: imageMessage }],
+    deriveEventMessage: (event) => event.message ?? null,
+  },
+};
+const fakeCtx = {
+  get: (name) => (name === "attachments"
+    ? { imageHostPath: () => "/host/objects/abc.png" }
+    : name === "fs"
+      ? { processPathFromHostPath: (hostPath) => hostPath.replace("/host", "/sandbox") }
+      : undefined),
+};
+const imageText = createImageText(fakeCtx);
+const imageBody = await recallExecute({ query: "#20:text" }, { agent: imageAgent }, { imageText });
+assert.match(imageBody, /\[Image: "\/sandbox\/objects\/abc\.png"; image\/png; 1007x106\. Use read_image to view it\.\]/,
+  "句柄用执行世界的可读路径，并点名 read_image");
+const imageHit = await recallExecute({ query: "read_image" }, { agent: imageAgent }, { imageText });
+assert.match(imageHit, /#20/, "图片句柄可被文本检索命中");
+const imageDegraded = await recallExecute({ query: "#20:text" }, { agent: imageAgent });
+assert.match(imageDegraded, /has no path readable from here/, "没有附件服务时降级为无路径句柄，不抛错");
+console.log("ok 9: 图片条目渲染 read_image 句柄（无服务时降级）");
 
 console.log("\nall cursor regressions pass (DSH_HOME=" + home + ")");

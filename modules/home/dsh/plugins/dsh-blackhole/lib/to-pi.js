@@ -14,6 +14,11 @@
 //     recall. The event log is append-only and never rewrites seqs, so a
 //     compaction `replace` cannot hide earlier material from search, and the
 //     seq doubles as the stable `#N` handle.
+//
+// Both views speak one index space: the event seq. Compaction gets it through
+// toPiMessagesWithIndices() -> compile({ sourceIndices }), recall through the
+// row seq. That is the invariant pi-blackhole's global-indices.ts exists for:
+// a `(#N)` printed in a summary must resolve in recall.
 
 /** dsh tool-call id -> tool name, so tool-result messages can be named. */
 function buildCallNames(dshMessages) {
@@ -49,7 +54,7 @@ function normalizeToolArgs(args) {
 }
 
 /** Map dsh content blocks -> pi content blocks (text/thinking/toolCall/image). */
-function toPiBlocks(blocks) {
+function toPiBlocks(blocks, imageText) {
   const out = [];
   for (const part of blocks || []) {
     if (!part || typeof part !== "object") continue;
@@ -59,7 +64,16 @@ function toPiBlocks(blocks) {
       let args = {};
       try { args = JSON.parse(part.arguments || "{}") || {}; } catch { args = {}; }
       out.push({ type: "toolCall", name: part.name, arguments: normalizeToolArgs(args) });
-    } else if (part.type === "image") out.push({ type: "image", mimeType: part.attachment?.mediaType ?? "image/png" });
+    } else if (part.type === "image") {
+      const ref = part.attachment ?? {};
+      out.push({ type: "image", mimeType: ref.mediaType ?? "image/png" });
+      // A pi image block carries no bytes and no path, so recall cannot show it.
+      // The caller may supply a model-facing handle for the same occurrence
+      // (dsh's own `[Image: "<path>"; mime; WxH. Use read_image to view it.]`
+      // convention), which renders, searches and drills down as ordinary text.
+      const handle = imageText?.(ref);
+      if (handle) out.push({ type: "text", text: handle });
+    }
   }
   return out;
 }
@@ -77,18 +91,18 @@ function isToolResultOnly(blocks) {
  * older/foreign logs may instead embed them in a user message, so both shapes
  * are handled.
  */
-function convertOne(msg, callNames) {
+function convertOne(msg, callNames, imageText) {
   if (!msg || msg.role === "system" || msg.role === "developer") return [];
 
   if (msg.role === "assistant") {
-    return [{ role: "assistant", content: toPiBlocks(msg.content) }];
+    return [{ role: "assistant", content: toPiBlocks(msg.content, imageText) }];
   }
 
   if (msg.role === "tool") {
     return [{
       role: "toolResult",
       toolName: callNames.get(msg.toolCallId) || "tool",
-      content: toPiBlocks(msg.content),
+      content: toPiBlocks(msg.content, imageText),
       isError: !!msg.isError,
     }];
   }
@@ -102,12 +116,12 @@ function convertOne(msg, callNames) {
       .map((part) => ({
         role: "toolResult",
         toolName: callNames.get(part.toolCallId) || "tool",
-        content: toPiBlocks(part.content),
+        content: toPiBlocks(part.content, imageText),
         isError: !!part.isError,
       }));
   }
 
-  const content = toPiBlocks(blocks.filter((p) => p?.type !== "tool-result"));
+  const content = toPiBlocks(blocks.filter((p) => p?.type !== "tool-result"), imageText);
   if (content.length > 0) return [{ role: "user", content }];
   return [{ role: "user", content: [{ type: "text", text: "" }] }];
 }
@@ -115,10 +129,51 @@ function convertOne(msg, callNames) {
 /**
  * Convert a dsh Message[] (as returned by Session.deriveMessages()) into pi
  * Message[] suitable for pi-blackhole's compile().
+ *
+ * @param imageText - optional handle renderer for one image attachment ref.
  */
-export function toPiMessages(dshMessages) {
+export function toPiMessages(dshMessages, imageText) {
   const callNames = buildCallNames(dshMessages);
-  return (dshMessages || []).flatMap((msg) => convertOne(msg, callNames));
+  return (dshMessages || []).flatMap((msg) => convertOne(msg, callNames, imageText));
+}
+
+/**
+ * The same conversion, keeping the event seq of every produced pi message.
+ *
+ * compile() numbers summary refs from the array it is given unless
+ * `sourceIndices` says otherwise, and recall resolves `#N` as an event seq.
+ * Handing compile() this parallel array is what makes a `(#N)` in a summary
+ * drill straight into recall.
+ *
+ * @returns {{ messages: object[], sourceIndices: (number|undefined)[] }}
+ */
+export function toPiMessagesWithIndices(dshMessages, seqById) {
+  const callNames = buildCallNames(dshMessages);
+  const messages = [];
+  const sourceIndices = [];
+  for (const msg of dshMessages || []) {
+    const seq = msg?.id === undefined ? undefined : seqById?.get(msg.id);
+    // No image handle here: compile() renders its own `[image: <mime>]` marker.
+    for (const message of convertOne(msg, callNames)) {
+      messages.push(message);
+      sourceIndices.push(seq);
+    }
+  }
+  return { messages, sourceIndices };
+}
+
+/**
+ * Map every logged message's stable id to the seq of the event that carries it.
+ * Message identity survives surface rewrites (compaction replaces nodes, not
+ * messages), so a live-surface message resolves to the seq recall knows it by.
+ */
+export function messageSeqIndex(session) {
+  const byId = new Map();
+  for (const event of session?.snapshotEvents?.() ?? []) {
+    const msg = session.deriveEventMessage?.(event);
+    if (msg?.id !== undefined && !byId.has(msg.id)) byId.set(msg.id, event.seq);
+  }
+  return byId;
 }
 
 /**
@@ -137,7 +192,7 @@ export function toPiMessages(dshMessages) {
  *
  * @returns {{ seq: number, message: object }[]} rows in log order.
  */
-export function toPiMessagesFromEvents(session) {
+export function toPiMessagesFromEvents(session, imageText) {
   const events = session?.snapshotEvents?.() ?? [];
   if (events.length === 0) return [];
 
@@ -149,6 +204,6 @@ export function toPiMessagesFromEvents(session) {
 
   const callNames = buildCallNames(rows.map((row) => row.msg));
   return rows.flatMap(({ seq, msg }) =>
-    convertOne(msg, callNames).map((message) => ({ seq, message })),
+    convertOne(msg, callNames, imageText).map((message) => ({ seq, message })),
   );
 }

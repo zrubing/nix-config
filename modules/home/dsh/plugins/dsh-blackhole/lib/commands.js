@@ -6,7 +6,7 @@
 // deterministic engine and injects the OM block); /blackhole-memory shows the
 // full pipeline status; /blackhole-recall reuses the `recall` tool's engine.
 
-import { recallExecute } from "./recall.js";
+import { recallExecute, createImageText } from "./recall.js";
 import { loadConfig, loadLedger, ledgerStats, saveConfig, cleanupOrphans, blackholeDir, configFile } from "./om-store.js";
 import { runPipeline, flushAndRun } from "./om.js";
 import { renderSummary } from "./core/om-core.js";
@@ -114,7 +114,7 @@ function apply(ctx, config) {
     input: { hint: "<query> [page:N] [scope:all] [mode:file|touched]" },
     handler: async (invocation) => {
       const args = parseRecallArgs(invocation.rawInput);
-      const text = await recallExecute(args, { agent: invocation.agent });
+      const text = await recallExecute(args, { agent: invocation.agent }, { imageText: createImageText(ctx) });
       return { kind: "success", text: typeof text === "string" ? text : JSON.stringify(text) };
     },
   });

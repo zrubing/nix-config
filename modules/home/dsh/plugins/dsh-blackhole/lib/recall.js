@@ -38,11 +38,49 @@ const inject = ["tools", "sessions"];
 const PATH_KEYS = ["path", "file_path", "filePath", "file"];
 
 /**
+ * Render one image attachment ref as the model-facing handle dsh itself emits
+ * in spill output: a read_image-ready path plus type and size.
+ *
+ * The path is the execution-world (sandbox) view, not the raw host path, so the
+ * model can pass it straight to `read_image`. Recall returns text, so this
+ * handle is the only way an image survives compaction as anything more than
+ * `[image: <mime>]`. A missing service or an unreadable attachment degrades to
+ * a type-only handle: a search hit must never fail because an image cannot be
+ * located.
+ */
+function createImageText(ctx) {
+  return (ref) => {
+    // A foreign (pi-shape) image block carries no attachment: there is nothing
+    // to point at, so it gets no handle rather than a useless one.
+    if (ref?.attachmentId === undefined) return undefined;
+    const mediaType = ref.mediaType ?? "image";
+    const size = ref.width && ref.height ? `; ${ref.width}x${ref.height}` : "";
+    try {
+      // dsh's own path bridge, inlined so this tool has no extra runtime
+      // dependency: the attachment backend owns the host object, the
+      // filesystem service maps it into the execution world.
+      const attachments = ctx?.get?.("attachments");
+      const fs = ctx?.get?.("fs");
+      const hostPath = attachments?.imageHostPath?.(ref);
+      const readonlyPath = hostPath === undefined ? undefined : fs?.processPathFromHostPath?.(hostPath);
+      if (readonlyPath !== undefined) {
+        return `[Image: ${JSON.stringify(readonlyPath)}; ${mediaType}${size}. Use read_image to view it.]`;
+      }
+    } catch { /* fall through to the type-only handle */ }
+    return `[Image: ${mediaType}${size}; attachment ${String(ref.attachmentId)} has no path readable from here.]`;
+  };
+}
+
+/**
  * Full-history view. `entries[i].index` is the event seq, not the array
  * position, so `#N` stays valid across compaction.
  */
-function buildView(exec) {
-  const rows = toPiMessagesFromEvents(exec.agent?.session);
+function buildView(exec, options) {
+  // Always mark images: an image-only message otherwise renders as an empty
+  // entry, invisible to text search. Without the attachment services the
+  // marker degrades to type and size instead of a path.
+  const imageText = options?.imageText ?? createImageText();
+  const rows = toPiMessagesFromEvents(exec.agent?.session, imageText);
   const piMessages = rows.map((row) => row.message);
   const entries = rows.map((row) => renderMessage(row.message, row.seq, String(row.seq)));
   const posBySeq = new Map(rows.map((row, pos) => [String(row.seq), pos]));
@@ -251,8 +289,8 @@ function renderMemoryRecall(memoryId, result, view) {
 
 // ── execute ─────────────────────────────────────────────────────────────────
 
-async function run(args, exec) {
-  const view = buildView(exec);
+async function run(args, exec, options) {
+  const view = buildView(exec, options);
   const { entries, piMessages } = view;
   const q = (args.query ?? "").trim();
   const wantsExpand = Array.isArray(args.expand) && args.expand.length > 0;
@@ -348,11 +386,12 @@ async function run(args, exec) {
   return formatHits(pageHits, q, page, totalPages, hits.length, expandedCount, truncatedNote);
 }
 
-async function execute(args, exec) {
-  return capResponse(await run(args, exec));
+async function execute(args, exec, options) {
+  return capResponse(await run(args, exec, options));
 }
 
 function apply(ctx, config) {
+  const imageText = createImageText(ctx);
   ctx.tools.register({
     name,
     description:
@@ -363,7 +402,8 @@ function apply(ctx, config) {
       "Use this to recover details lost to compaction. " +
       "If a query returns nothing, try fewer terms or a regex pattern. " +
       "When a drill-down path matches multiple files, the options are listed — narrow it with a more specific substring. " +
-      "Write and edit payloads are searchable; bash output is only reachable via #N:text.",
+      "Write and edit payloads are searchable; bash output is only reachable via #N:text. " +
+      "A recovered image renders as [Image: \"<path>\"; <mime>; <WxH>. Use read_image to view it.] — pass that path to read_image to see the picture again.",
     // `parameters` must be a full JSON Schema with an object root. dsh's
     // raw `ctx.tools.register()` does NOT normalize a bare property map (only
     // `defineTool()` does), so without `type: "object"` the model API rejects
@@ -389,8 +429,8 @@ function apply(ctx, config) {
       schema: { type: "string" },
       render: (_args, value) => [{ type: "text", text: String(value ?? "") }],
     },
-    execute,
+    execute: (args, exec) => execute(args, exec, { imageText }),
   });
 }
 
-export { name, inject, apply, execute as recallExecute };
+export { name, inject, apply, execute as recallExecute, createImageText };
