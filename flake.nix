@@ -71,12 +71,12 @@
       flake = false;
     };
 
-    # pi-blackhole (k0valik) @0.4.3 —— rev 与 npm 0.4.3 的 gitHead 一致（npm registry 实测），
+    # pi-blackhole (k0valik) @0.5.17 —— rev 与 npm 0.5.17 的 gitHead 一致（npm registry 实测），
     # 确定性 compile() + recall 检索核心。dsh 无法加载 pi extension，这里只取它的纯 JS 核心
     # （见 modules/home/dsh 的 dsh-blackhole 构建：esbuild 打 src/core + src/extract 子集），
     # dsh 侧以 to-pi.js 适配 Message 形状并薄封装。
     pi-blackhole-src = {
-      url = "github:k0valik/pi-blackhole?rev=2246bca51f8fffc4d2b38949663ab1bf4b695120";
+      url = "github:k0valik/pi-blackhole?rev=c0e282ae1938eaf8eb9faae6e473e3a1027b5c1f";
       flake = false;
     };
 

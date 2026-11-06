@@ -1210,17 +1210,17 @@
     "pi-blackhole-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1785594241,
-        "narHash": "sha256-uaTmojNEVj+16Mxv4UMQ47RY76YK73Qn54/f0Kj9zhM=",
+        "lastModified": 1793731673,
+        "narHash": "sha256-6JYZh4/9k2aAs9kjTUPyQez9Y/DrZombq+V1N8GHyRk=",
         "owner": "k0valik",
         "repo": "pi-blackhole",
-        "rev": "2246bca51f8fffc4d2b38949663ab1bf4b695120",
+        "rev": "c0e282ae1938eaf8eb9faae6e473e3a1027b5c1f",
         "type": "github"
       },
       "original": {
         "owner": "k0valik",
         "repo": "pi-blackhole",
-        "rev": "2246bca51f8fffc4d2b38949663ab1bf4b695120",
+        "rev": "c0e282ae1938eaf8eb9faae6e473e3a1027b5c1f",
         "type": "github"
       }
     },

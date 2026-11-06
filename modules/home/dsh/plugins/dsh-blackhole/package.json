@@ -16,7 +16,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.24.0",
-    "pi-blackhole": "0.4.3"
+    "pi-blackhole": "0.5.17"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-compaction-basic": "workspace:*"
