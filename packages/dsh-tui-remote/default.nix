@@ -94,6 +94,12 @@ stdenv.mkDerivation (finalAttrs: {
     fetchSubmodules = true;
   };
 
+  # remote-identity-guard.patch 修 `/compact` 在远程模式下必失败的问题：Gateway
+  # 路由 scoped 调用前会拿 caller ctx 问 client-context 的 identity，而 cordis 的
+  # ctx 代理对「没有该扩展属性」的上下文直接抛
+  # `cannot get property "dshRemoteSessionId" without inject`——`?.` 拦不住。
+  # 探针改为总函数，取不到 session 标记就返回 undefined，让 Gateway 回落到 direct。
+  #
   # remote-mode.patch 是完整的远程客户端改动；permission-presets.patch 叠加在它
   # 之上，把 Host 的权限预设投影成远程会话的 typed `modes`（`/permission` 与
   # Shift+Tab）；preset-support.patch 再把 Host 的 agent-preset 名册投影成 typed
@@ -124,6 +130,7 @@ stdenv.mkDerivation (finalAttrs: {
   # route/window 重建状态栏事实（旧会话的值不再跨 adoption 残留）。
   patches = [
     ./remote-mode.patch
+    ./remote-identity-guard.patch
     ./permission-presets.patch
     ./preset-support.patch
     ./notification-ghostty-cap.patch

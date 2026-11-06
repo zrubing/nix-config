@@ -1,0 +1,55 @@
+diff --git a/src/dsh-adapter/remote/approvals.ts b/src/dsh-adapter/remote/approvals.ts
+index 1bc5098..b4627d9 100644
+--- a/src/dsh-adapter/remote/approvals.ts
++++ b/src/dsh-adapter/remote/approvals.ts
+@@ -86,6 +86,26 @@ interface SessionScope extends ClientContext {
+   readonly dshRemoteSessionId?: string
+ }
+ 
++/**
++ * Read the session tag off a caller context without letting cordis's proxy
++ * throw.
++ *
++ * `candidate?.dshRemoteSessionId` is NOT optional-safe: the context proxy
++ * raises `cannot get property "dshRemoteSessionId" without inject` for every
++ * context that does not carry the extension, so `?.` never sees `undefined`.
++ * The Gateway probes `identity(callerCtx)` before routing a scoped remote call;
++ * a call made from a non-session context (the registry `/compact` path) then
++ * aborted with that cordis message instead of falling back to the direct route.
++ * A probe must be total: no tag means "not one of my scopes".
++ */
++const identify = (candidate: unknown): string | undefined => {
++  try {
++    return (candidate as SessionScope | undefined)?.dshRemoteSessionId
++  } catch {
++    return undefined
++  }
++}
++
+ /** The Typert client context registry this module writes to. */
+ interface TypertContexts {
+   registerClient(
+@@ -115,20 +135,20 @@ export function openApprovals(ctx: ClientContext, remote: unknown): RemoteApprov
+   let disposed = false
+ 
+   const disposeScope = contexts.registerClient('agent', {
+-    identity: (candidate) => (candidate as SessionScope | undefined)?.dshRemoteSessionId,
++    identity: identify,
+     // An Agent this client does not follow resolves to nothing: the Gateway
+     // then skips dispatch and the Host keeps its own chain (fail closed).
+     resolve: (sessionId) => scopes.get(sessionId),
+   })
+ 
+   const unsubscribeApprovals = events.$on('approval/request', function (request, next) {
+-    const sessionId = (this as SessionScope | undefined)?.dshRemoteSessionId
++    const sessionId = identify(this)
+     const answer = sessionId === undefined ? undefined : answers.get(sessionId)
+     if (answer === undefined) return next()
+     return answer(request)
+   })
+   const unsubscribeQuestions = events.$on('user-questions/request', function (request, next) {
+-    const sessionId = (this as SessionScope | undefined)?.dshRemoteSessionId
++    const sessionId = identify(this)
+     const respond = sessionId === undefined ? undefined : questionResponders.get(sessionId)
+     if (respond === undefined) return next()
+     return respond(request)
