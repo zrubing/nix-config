@@ -307,21 +307,6 @@ export function recallMemorySources(ledger, memoryId) {
   return { status: "found", memoryId, collision, observations, reflections, sourceEntries };
 }
 
-export function renderMemorySources(ledger, memoryId, result) {
-  const lines = [];
-  if (result.collision) lines.push(`ID ${memoryId} matched multiple items.`);
-  for (const r of result.reflections) lines.push(`[${r.id}] ${r.content}`);
-  for (const o of result.observations) {
-    const dropped = o.status === "dropped" ? " [dropped]" : "";
-    lines.push(`[${o.id}]${dropped} ${o.timestamp} [${o.relevance}] ${o.content}`);
-  }
-  if (result.sourceEntries.length > 0) {
-    lines.push("", "Sources:");
-    for (const id of result.sourceEntries) lines.push(`- source entry ${id}`);
-  }
-  return lines.join("\n") || `Memory ${memoryId} found, but no evidence rendered.`;
-}
-
 // ── worker prompts (single-shot LLM calls, chunked by the adapter) ──────────
 
 export const OBSERVER_PROMPT = [

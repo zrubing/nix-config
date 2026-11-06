@@ -166,7 +166,7 @@ async function runWorkerStage(ctx, store, cfg, worker, prompt, input, signal) {
 
 // ── stages ──────────────────────────────────────────────────────────────────
 
-async function observeStage(agent, ctx, cfg, store, signal) {
+async function observeStage(agent, ctx, cfg, store, signal, force) {
   const entries = collectSourceEntries(agent);
   // 游标 = 已覆盖到的 surface seq（单调、压缩不回收）。旧 ledger 的数组下标游标
   // 不再使用：压缩会把被遮蔽的节点从 deriveMessages() 里删掉，下标随之失效。
@@ -174,9 +174,15 @@ async function observeStage(agent, ctx, cfg, store, signal) {
   const newEntries = entries.filter((e) => e.seq > cursor);
   if (newEntries.length === 0) return;
 
-  const chunk = cfg.observeAfterTokens > 0 && estimateTokens(newEntries.map((e) => e.text).join("\n")) < cfg.observeAfterTokens
-    ? newEntries
-    : chunkSourceEntries(newEntries, Math.min(cfg.observerChunkMaxTokens, MAX_OBSERVER_INPUT_CHARS / 4));
+  // 节奏门控与 pi 的 anyStageDue 对齐：未观察原文攒够 observeAfterTokens 才起
+  // 一轮 worker。否则每个 turn-stopping 都会打一次模型——短会话纯亏，而且
+  // observeAfterTokens 只用来决定切块、从不决定要不要跑。force 供手动
+  // /blackhole flush 绕过（用户显式要求把当前尾部折进记忆）。
+  const newTokens = estimateTokens(newEntries.map((e) => e.text).join("\n"));
+  if (!force && cfg.observeAfterTokens > 0 && newTokens < cfg.observeAfterTokens) return;
+
+  const budget = Math.min(cfg.observerChunkMaxTokens, MAX_OBSERVER_INPUT_CHARS / 4);
+  const chunk = newTokens <= budget ? newEntries : chunkSourceEntries(newEntries, budget);
   if (chunk.length === 0) return;
 
   const lastSeq = chunk[chunk.length - 1].seq;
@@ -279,7 +285,7 @@ async function dropStage(ctx, cfg, store, signal) {
 // ── orchestration ───────────────────────────────────────────────────────────
 
 let running = false;
-async function runPipeline(agent, ctx) {
+async function runPipeline(agent, ctx, options = {}) {
   if (running) return; // never hammer; retry next turn
   running = true;
   try {
@@ -293,7 +299,7 @@ async function runPipeline(agent, ctx) {
 
     const controller = new AbortController();
     try {
-      await observeStage(agent, ctx, cfg, store, controller.signal);
+      await observeStage(agent, ctx, cfg, store, controller.signal, options.force === true);
       await reflectStage(ctx, cfg, store, controller.signal);
       await dropStage(ctx, cfg, store, controller.signal);
     } catch (stageError) {
@@ -315,7 +321,7 @@ async function flushAndRun(agent, ctx) {
   const sessionId = agent?.id;
   if (sessionId == null) return { ok: false, text: "No session id." };
   const cfg = loadConfig();
-  if (cfg.memory && cfg.compaction !== "off") await runPipeline(agent, ctx);
+  if (cfg.memory && cfg.compaction !== "off") await runPipeline(agent, ctx, { force: true });
   const result = flushPending(sessionId);
   return { ok: true, text: `pending flushed -> ledger: ${result.observationsAdded} observation(s) added (${result.observations} total, ${result.reflections} reflections).` };
 }

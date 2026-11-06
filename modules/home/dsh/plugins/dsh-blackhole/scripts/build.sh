@@ -9,8 +9,8 @@
 #   - plain:    node_modules/pi-blackhole  (from the pi-blackhole devDependency)
 #
 # Output: lib/core/compile.js (deterministic compile()) and
-#         lib/core/recall.js  (searchEntries/renderMessage/getTouchedFiles/
-#                             getFileIndicators/parseDrillDown).
+#         lib/core/recall.js  (searchEntriesDetailed/renderMessage/
+#                             getTouchedFiles/getFileIndicators/parseDrillDown).
 set -euo pipefail
 
 SRC="${PI_BLACKHOLE_SRC:-node_modules/pi-blackhole}"
@@ -46,7 +46,7 @@ esbuild "$SRC/src/core/summarize.ts" \
 
 # 2) recall search core
 cat > "$OUT/recall-entry.ts" <<EOF
-export { searchEntries, getFileIndicators, getTouchedFiles } from "$SRC/src/core/search-entries";
+export { searchEntriesDetailed, getFileIndicators, getTouchedFiles } from "$SRC/src/core/search-entries";
 export { renderMessage } from "$SRC/src/core/render-entries";
 export { parseDrillDown } from "$SRC/src/core/drill-down";
 EOF
