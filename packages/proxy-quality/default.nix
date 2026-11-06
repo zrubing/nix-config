@@ -447,6 +447,20 @@ writeShellApplication {
       ' "$state" > "$state.next" && mv "$state.next" "$state"
     done < "$results"
 
+    # ── 评分表以「当前候选」为界 ────────────────────────────────────────
+    # 候选是运行中客户端的 .all；节点退役后配置里没有了，评分却会永久留在
+    # state 里。best 取 state 全集的最高分，于是它可能指向一个已不存在的出站：
+    # 驻留期一到就 PUT，客户端回 400，state 不清理 → 每轮重试，永远选不上真节点
+    # （2026-11-06 实测：退役节点的高分条目压住了一个更快、仍在服役的候选）。
+    # 只保留本轮候选的 key，也就同时给 state 封了增长上界。
+    # quick 模式只测当前节点、手里没有完整候选集，修剪会把其它节点全删掉 —— 跳过。
+    if [ "$quick" = 0 ]; then
+      jq --arg g "$group" --arg all "$members" '
+        ($all | split("\n") | map(select(length > 0))) as $live
+        | .[$g].nodes = ((.[$g].nodes // {}) | with_entries(select(.key as $k | $live | index($k))))
+      ' "$state" > "$state.next" && mv "$state.next" "$state"
+    fi
+
     # 客户端里的真实选择才是事实来源：sib 重启后会回到配置里写的默认节点，
     # 而 state 里的 current 还停在上次切到的节点上。只在 state 为空时现读一次
     # 会漏掉这种重置 —— 之后一直以为自己在用 A、实际跑着 B。
@@ -542,6 +556,11 @@ writeShellApplication {
         && mv "$state.next" "$state"
     else
       echo "切换失败" >&2
+      # 切不过去说明这个 tag 不可切（已退役 / 嵌套组 / 名字变了）。删掉它的评分，
+      # 否则下一轮 best 还是它，驻留期一过再次失败，形成死循环。上面的候选修剪
+      # 已经覆盖「退役」这一种，这里是兜底：任何原因导致的死 tag 都不许霸榜。
+      jq --arg g "$group" --arg b "$best" 'del(.[$g].nodes[$b])' "$state" > "$state.next" \
+        && mv "$state.next" "$state"
       return 1
     fi
     }
