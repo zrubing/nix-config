@@ -240,8 +240,20 @@ let
           continue
         fi
 
-        if peers=$(easytier-cli -p "127.0.0.1:$port" -o json peer list 2>/dev/null) &&
-           [ "$(printf '%s' "$peers" | jq '[.[] | select(.cost != "Local")] | length')" -gt 0 ]; then
+        # 先区分「RPC 门户连不上」和「门户通但一个 peer 都没有」：
+        # 前者是 ET 的控制面问题（重启数据面没用，反而会误杀健康隧道），
+        # 只有后者才是与网络失联。2026-11-10 nova13 上实测到 rpc 门户
+        # 监听正常却拒绝连接，直接把隧道判死会每 5 分钟踢一次。
+        if ! peers=$(easytier-cli -p "127.0.0.1:$port" -o json peer list 2>/dev/null); then
+          log "$inst rpc portal unreachable, skip"
+          continue
+        fi
+        if ! count=$(printf '%s' "$peers" | jq '[.[] | select(.cost != "Local")] | length' 2>/dev/null); then
+          log "$inst peer list unparsable, skip"
+          continue
+        fi
+
+        if [ "$count" -gt 0 ]; then
           rm -f "$state/$inst.fail"
           log "$inst healthy"
         else

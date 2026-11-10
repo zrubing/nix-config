@@ -333,54 +333,51 @@ rec {
       };
     };
 
-    # 平台文档 MCP：服务端支持「URL + LLDAP 用户名/密码」直接接入——凭据兑换
-    # 在服务端 sidecar 完成并按用户缓存（首次 ~8s，之后 60min 重签 ~0.5s、
-    # 32 天才重新登录），所以客户端零依赖、不会过期，也不需要本地 helper/桥。
+    # 平台文档 MCP（2026-11-10 起改 token 鉴权）。服务端已删掉凭据兑换
+    # sidecar，改为 OpenBao token 自省（auth/token/lookup-self）—— 它**不再
+    # 接受** X-Agent-Docs-User/Password，只认 X-Agent-Docs-Token。
+    #
+    # token 是 `bao login -method=oidc role=agent-docs -token-only` 的输出：
+    # 3 天 periodic，服务端在剩余不足 48h 时自动续，正常不需要动。它绑定了
+    # 集群 pod 网段，在开发机上直接打 OpenBao 会被拒 —— 只能交给服务端做
+    # lookup-self，所以凭据不进模型上下文。
+    #
+    # 头名用 X-Agent-Docs-Token 而不是 Authorization: Bearer：服务端刻意不实现
+    # OAuth 发现（Authelia 不支持动态客户端注册），用 Bearer 会让客户端在 401
+    # 时去走 OAuth 流程，报错方向全错。
+    #
     # URL 由 clan vars 管理（渲染进 default.env / dsh.env，codex 走 sops 占位符），
-    # 凭据复用 env 里已有的 OpenBao LDAP agent 用户名/密码（sops 渲染），
-    # 仓库内不含明文地址与口令。
+    # token 由 clan vars（agent-docs-token）→ home sops 渲染。仓库内不含明文。
     # 工具：list_docs / search_docs / read_doc / whoami / my_entitlements，
-    # 结果按调用者所属组过滤。
+    # 结果按调用者所属 OpenBao identity policies（= LLDAP 组）过滤。
     agent-docs = {
-      description = "平台文档 MCP（URL + LLDAP 用户名/密码，服务端兑换）";
+      description = "平台文档 MCP（OpenBao token 鉴权，服务端 lookup-self）";
       pi = {
         type = "http";
         # pi 内置 mcp 不对 url 做 ${VAR} 插值（必须是合法 http(s) 字面量），
-        # 故走 sops 占位符由 mcp.json 模板渲染明文；var 供 Claude Code 降级使用。
+        # 故走 sops 占位符；var 供 Claude Code 降级使用。headers 里是运行时
+        # env 插值，token 由 default.env 提供。
         url = {
           sops = "agent-docs/url";
           var = "AGENT_DOCS_MCP_URL";
         };
-        headers = {
-          X-Agent-Docs-User = "\${OPENBAO_LDAP_AGENT_USERNAME}";
-          X-Agent-Docs-Password = "\${OPENBAO_LDAP_AGENT_PASSWORD}";
-        };
+        headers.X-Agent-Docs-Token = "\${AGENT_DOCS_TOKEN}";
       };
       dsh = {
         transport = "streamable-http";
         url = {
           env = "AGENT_DOCS_MCP_URL";
         };
-        headers = {
-          X-Agent-Docs-User = {
-            env = "OPENBAO_LDAP_AGENT_USERNAME";
-          };
-          X-Agent-Docs-Password = {
-            env = "OPENBAO_LDAP_AGENT_PASSWORD";
-          };
+        headers.X-Agent-Docs-Token = {
+          env = "AGENT_DOCS_TOKEN";
         };
       };
       codex = {
         url = {
           sops = "agent-docs/url";
         };
-        headers = {
-          X-Agent-Docs-User = {
-            sops = "openbao-ldap-agent/username";
-          };
-          X-Agent-Docs-Password = {
-            sops = "openbao-ldap-agent/password";
-          };
+        headers.X-Agent-Docs-Token = {
+          sops = "agent-docs/token";
         };
       };
     };

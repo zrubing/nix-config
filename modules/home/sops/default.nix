@@ -252,6 +252,19 @@ in
       format = "binary";
     };
 
+    # 平台文档 MCP 的 OpenBao token（2026-11-10 起；之前是 LLDAP 用户名/密码，
+    # 服务端删掉凭据兑换 sidecar 后不再接受）。渲染进 default.env / dsh.env 的
+    # AGENT_DOCS_TOKEN；pi 与 codex 的 MCP 配置里以 sops 占位符直接内联
+    # （pi 的 headers 走 mcp.json 模板，codex 走 config.toml 模板）。
+    #
+    # ⚠️ 不是长期凭据：`bao login -method=oidc role=agent-docs -token-only` 的输出，
+    # 3 天 periodic（服务端在剩余不足 48h 时自动续）。只有被 revoke 或连续 3 天
+    # 没用过期才需要重跑 login 覆盖本 secret。
+    sops.secrets."agent-docs/token" = {
+      sopsFile = ../../../vars/per-machine/zen14/agent-docs-token/token/secret;
+      format = "binary";
+    };
+
     # DB MCP 端点与 token（2026-10-31）：密文由 clan vars 管理
     # （clan/zen14.nix 的 db-mcp-url / db-mcp-token generator）。渲染进
     # dsh.env 与 default.env 的 DB_MCP_URL / DB_MCP_TOKEN；pi 与 codex 的 MCP
@@ -414,8 +427,11 @@ in
         export OPENBAO_LDAP_AGENT_USERNAME="${config.sops.placeholder."openbao-ldap-agent/username"}"
         export OPENBAO_LDAP_AGENT_PASSWORD="${config.sops.placeholder."openbao-ldap-agent/password"}"
         export BAO_ADDR="${config.sops.placeholder."openbao-addr/addr"}"
-        # 平台文档 MCP 端点（终端 agent 的 MCP 配置读取）
+        # 平台文档 MCP 端点与 token（终端 agent 的 MCP 配置读取：pi 的 headers
+        # 用 ''${AGENT_DOCS_TOKEN} 插值，Claude Code 同理；codex 走 config.toml
+        # 的 sops 占位符，不依赖 env）
         export AGENT_DOCS_MCP_URL="${config.sops.placeholder."agent-docs/url"}"
+        export AGENT_DOCS_TOKEN="${config.sops.placeholder."agent-docs/token"}"
         # DB MCP：pi 的 mcp.json 里 X-DB-MCP-Token 用 ''${DB_MCP_TOKEN} 插值，
         # 所以终端 shell 必须有这个变量；codex 走 config.toml 的 sops 占位符，
         # 不依赖 env（两处同源同一份 secret）。
@@ -455,6 +471,7 @@ in
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
         BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}
         AGENT_DOCS_MCP_URL=${config.sops.placeholder."agent-docs/url"}
+        AGENT_DOCS_TOKEN=${config.sops.placeholder."agent-docs/token"}
         DB_MCP_URL=${config.sops.placeholder."db-mcp/url"}
         DB_MCP_TOKEN=${config.sops.placeholder."db-mcp/token"}
         # woodpecker-cli 凭据：bashrc 只 export 进交互 shell（WOODPECKER_TOKEN

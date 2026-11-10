@@ -310,6 +310,30 @@
     '';
   };
 
+  # 平台文档 MCP 的 OpenBao token（2026-11-10 起）。不是 API key，而是
+  # `bao login -method=oidc role=agent-docs -token-only` 的输出：3 天 periodic，
+  # 只要 3 天内用过一次就由服务端自动续期，正常不需要换。
+  #
+  # 为什么从「用户名/密码」换成 token：服务端 2026-11-10 删掉了凭据兑换 sidecar，
+  # 改为 lookup-self 自省 —— 它已经不接受 X-Agent-Docs-User/Password。
+  #
+  # ⚠️ 什么时候要换：被 `bao token revoke -accessor` 撤销、或连续 3 天没用过期。
+  #   换法就是重跑那条 login，把 stdout 整行粘过来：
+  #     bao login -method=oidc role=agent-docs -token-only | clan vars set zen14 agent-docs-token/token
+  #   注意 `clan vars set` 是「原样写入」，管道里的换行会进值里 —— 用 $() 或
+  #   printf '%s' 去掉结尾换行。交互式 set 不受影响（回车不算值的一部分）。
+  clan.core.vars.generators.agent-docs-token = {
+    prompts.token = {
+      description = "平台文档 MCP 的 OpenBao token（bao login -method=oidc role=agent-docs -token-only 的输出）";
+      type = "hidden";
+    };
+    files.token.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/token > $out/token
+    '';
+  };
+
   # GitHub 远程 MCP server 的 PAT（github_pat_... 或 ghp_...，至少 repo scope）。
   # 消费方：home sops 渲染进 dsh.env 的 GITHUB_MCP_TOKEN，dsh 的 mcp-client 插件
   # （mcp-github）以 process.env.GITHUB_MCP_TOKEN 拼 Bearer 头。换 key：
