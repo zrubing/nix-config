@@ -37,9 +37,16 @@
 # 后者是这条线的分水岭 —— 实测（已退役的）日本节点 204 延迟更低（190ms vs 290ms），
 # 吞吐却只有香港的 1/6（51KB/s vs 180–330KB/s）。
 #
-# 输出：写 state.json（EWMA + 连续失败数），并（非 dry-run 时）通过 API 切换
-# selector。带迟滞：新节点要显著更好且过了最小驻留时间才切，否则链路抖动会让
-# 分组跟着噪声横跳。
+# 两类样本分开记账（2026-11-10 修正）：
+#   · 全量轮（--url，几十秒到十分钟一次）——更新排序用的 EWMA；
+#   · 快速轮（--quick-url，60s 一次）——只更新可用性信号（fails/ok/last_seen）。
+#   混在一起写 EWMA 会让 204 样本以 10–30 倍的频率覆盖吞吐评分，现任节点被系统性
+#   高估，25% 门槛对其它候选永远不可达。
+#
+# 输出：写 state.json（EWMA + 连续失败数 + last_seen），并（非 dry-run 时）通过
+# API 切换 selector。带迟滞：新节点要显著更好且过了最小驻留时间才切，否则链路
+# 抖动会让分组跟着噪声横跳。评分条目不在候选里后还留 --ttl 秒（默认 24h）：
+# v6 掉线时 -v6 节点会整组消失，回来时不该从零重算。
 writeShellApplication {
   name = "proxy-quality";
 
@@ -67,7 +74,13 @@ writeShellApplication {
     samples=2
     min_dwell=1200
     improvement=0.25
-    alpha=0.4
+    # α 留空表示「按 --interval / --tau 现算」；显式给 --alpha 则原样使用。
+    alpha=""
+    interval_s=0
+    tau_s=3000
+    # 不在候选里、但最近测过的评分保留多久（秒）。给 -v6 这类会整组消失的节点
+    # 留历史：v6 掉线时它们被剔出配置，回来时不该从零重算。
+    ttl=86400
     dry_run=0
     quick=0
     quick_fails=2
@@ -99,7 +112,10 @@ writeShellApplication {
                               运行中的客户端，实测给每个域名节点加 5 秒。
       --min-dwell <秒>        切换后最小驻留时间（默认 1200）
       --improvement <比例>    新节点需优于当前的比例才切（默认 0.25）
-      --alpha <比例>          EWMA 系数（默认 0.4）
+      --alpha <比例>          EWMA 系数。默认不填：由 --interval/--tau 推导
+      --interval <秒>         探测间隔，用于推导 α（默认 0 = 不推导，α 取 0.4）
+      --tau <秒>              EWMA 时间常数（默认 3000 = 50min）
+      --ttl <秒>              不在候选里时评分保留多久（默认 86400）
       --exclude-suffix <后缀> 跳过 tag 以该后缀结尾的候选（可重复，如 -v6）
       --quick                只测当前节点做存活检查：正常就静默退出，
                              连续失败 --quick-fails 次才切到历史评分最优
@@ -131,6 +147,9 @@ writeShellApplication {
         --min-dwell)   min_dwell="$2"; shift 2 ;;
         --improvement) improvement="$2"; shift 2 ;;
         --alpha)       alpha="$2"; shift 2 ;;
+        --interval)    interval_s="$2"; shift 2 ;;
+        --tau)         tau_s="$2"; shift 2 ;;
+        --ttl)         ttl="$2"; shift 2 ;;
         --exclude-suffix) excludes+=("$2"); shift 2 ;;
         --quick)       quick=1; shift ;;
         --quick-fails) quick_fails="$2"; shift 2 ;;
@@ -140,13 +159,38 @@ writeShellApplication {
       esac
     done
 
+    # α = 1 − exp(−Δt/τ)：由探测间隔和时间常数推导，而不是钉死一个数。
+    # 钉死 α 的后果是记忆长度随 interval 漂移：同样 α=0.4，10min 间隔只记 20 分钟、
+    # 30min 间隔记一小时，同一个 25% 阈值在两台机器上含义不同。
+    if [ -z "$alpha" ]; then
+      if [ "$interval_s" -gt 0 ] && [ "$tau_s" -gt 0 ]; then
+        alpha="$(awk -v dt="$interval_s" -v t="$tau_s" 'BEGIN{ printf "%.4f", 1 - exp(-dt / t) }')"
+      else
+        alpha=0.4
+      fi
+    fi
+
     [ -n "$config" ] || { echo "--config 必填" >&2; exit 2; }
 
     # 全量评分和存活检查是两个 timer，会撞在同一秒；用文件锁把 state 的
-    # 读-改-写串行化，避免互相覆盖。
+    # 读-改-写串行化，避免互相覆盖。锁跟着 state 文件走，不跟目录走：同一目录
+    # 放多份 state 时不该互相串行，也不该往共享目录里丢一个公共 lock 文件。
+    #
+    # state 目录要私有（文件里有节点名），但**只在目录不存在时**建 0700：
+    # 对已存在的目录 chmod 是灾难性副作用 —— 2026-11-10 实测 `--state /tmp/x.json`
+    # 把宿主 /tmp 改成 700，之后所有 mkdtemp 都 EACCES，整机工具链全挂。
+    # 已存在的目录只警告、不改权限；真实部署路径由 systemd 的
+    # StateDirectoryMode=0700 保证。
     state_dir="$(dirname "$state")"
-    install -d -m 0700 "$state_dir"
-    exec 9>"$state_dir/lock"
+    if [ -d "$state_dir" ]; then
+      state_mode="$(stat -c '%a' "$state_dir")"
+      if [ $(( 0$state_mode & 077 )) -ne 0 ]; then
+        echo "警告：$state_dir 权限 $state_mode（组/其他可访问），不改动它" >&2
+      fi
+    else
+      install -d -m 0700 "$state_dir"
+    fi
+    exec 9>"$state.lock"
     flock -w 60 9 || { echo "另一个探测还在跑，跳过本次" >&2; exit 0; }
 
     # 组名：文件每行一个，全部处理。--group 只在这台机器还没落组名文件时兜底 ——
@@ -280,7 +324,7 @@ writeShellApplication {
     # 一个组跑一遍：候选、评分、驻留都按组隔离（state 以组名为 key）。
     process_group() {
       group="$1"
-      local enc="" group_json="" gtype="" actual="" members="" now=0
+      local enc="" group_json="" gtype="" actual="" members="" now=0 live_json=""
       local results="$tmp/results.jsonl"
       local tag="" skip=0 suf="" t0=0 t1=0 ok=0 ms=0 score=0 row=""
       local prev="" bypass=0 cur="" since=0 best="" best_ewma=0 cur_ewma=0 cur_fails=0
@@ -297,6 +341,10 @@ writeShellApplication {
         echo "组 $group 是 $gtype，只有 selector 能被外部切换；跳过" >&2
         return 0
       fi
+
+      # 当前候选集。best 只能在这里面挑：state 里可能还留着刚退役、仍在保鲜期
+      # 内的条目，拿它去 PUT 客户端会回 400（2026-11-06 踩过）。
+      live_json="$(jq -c '[.all[]?]' <<<"$group_json")"
 
       # 客户端里的真实选择才是事实来源：sib 重启后会回到配置里的默认节点，
       # 而 state 里的 current 还停在上次切到的节点上。每轮都以 API 的 now 为准。
@@ -432,32 +480,41 @@ writeShellApplication {
       score="$(jq -r '.score' <<<"$row")"
       ms="$(jq -r '.ms' <<<"$row")"
       ok="$(jq -r '.ok' <<<"$row")"
+      # quick 轮只更新存活信号（fails/ok/last_seen），绝不写 ewma/ms：
+      # 它打的是 quick-url（204），采样频率还是全量轮的 10–30 倍。写进来等于
+      # 把「延迟样本」和「吞吐样本」混成一个数，同组节点之间比较的就不是同一件事了。
       jq --arg g "$group" --arg t "$tag" --argjson s "$score" \
-         --argjson ok "$ok" --argjson ms "$ms" --argjson a "$alpha" '
+         --argjson ok "$ok" --argjson ms "$ms" --argjson a "$alpha" \
+         --argjson quick "$quick" --argjson now "$now" '
         .[$g] //= { current: null, since: 0, nodes: {} }
         | .[$g].nodes[$t] //= {}
-        | .[$g].nodes[$t].ewma =
-            (if (.[$g].nodes[$t].ewma // null) == null
-             then $s
-             else ($a * $s + (1 - $a) * .[$g].nodes[$t].ewma) end)
+        | .[$g].nodes[$t].last_seen = $now
         | .[$g].nodes[$t].fails =
             (if $ok == 1 then 0 else ((.[$g].nodes[$t].fails // 0) + 1) end)
-        | .[$g].nodes[$t].ms = $ms
         | .[$g].nodes[$t].ok = $ok
+        | if $quick == 1 then .
+          else (.[$g].nodes[$t].ms = $ms
+                | .[$g].nodes[$t].ewma =
+                    (if (.[$g].nodes[$t].ewma // null) == null
+                     then $s
+                     else ($a * $s + (1 - $a) * .[$g].nodes[$t].ewma) end))
+          end
       ' "$state" > "$state.next" && mv "$state.next" "$state"
     done < "$results"
 
-    # ── 评分表以「当前候选」为界 ────────────────────────────────────────
-    # 候选是运行中客户端的 .all；节点退役后配置里没有了，评分却会永久留在
-    # state 里。best 取 state 全集的最高分，于是它可能指向一个已不存在的出站：
-    # 驻留期一到就 PUT，客户端回 400，state 不清理 → 每轮重试，永远选不上真节点
-    # （2026-11-06 实测：退役节点的高分条目压住了一个更快、仍在服役的候选）。
-    # 只保留本轮候选的 key，也就同时给 state 封了增长上界。
+    # ── 评分表按「候选 + 保鲜期」修剪 ────────────────────────────────────
+    # 候选是运行中客户端的 .all；节点退役后评分不该永久留着 —— best 取 state
+    # 全集的最高分时，退役节点的高分条目会压住仍在服役的候选，PUT 还会 400
+    # （2026-11-06 实测）。但也不能一离开候选就删：v6 掉线时 -v6 节点整组消失，
+    # 回来时从零重算，历史全丢（2026-11-10 实测）。折中：不在候选里、但 TTL 内
+    # 测过的条目留着，只让 best 在候选集内选（见上方 live_json）。
     # quick 模式只测当前节点、手里没有完整候选集，修剪会把其它节点全删掉 —— 跳过。
     if [ "$quick" = 0 ]; then
-      jq --arg g "$group" --arg all "$members" '
+      jq --arg g "$group" --arg all "$members" --argjson now "$now" --argjson ttl "$ttl" '
         ($all | split("\n") | map(select(length > 0))) as $live
-        | .[$g].nodes = ((.[$g].nodes // {}) | with_entries(select(.key as $k | $live | index($k))))
+        | .[$g].nodes = ((.[$g].nodes // {}) | with_entries(
+            select((.key as $k | $live | index($k))
+                   or ((.value.last_seen // 0) >= ($now - $ttl)))))
       ' "$state" > "$state.next" && mv "$state.next" "$state"
     fi
 
@@ -481,8 +538,10 @@ writeShellApplication {
       cur="$actual"
       since="$(jq -r --arg g "$group" '.[$g].since // 0' "$state")"
     fi
-    best="$(jq -r --arg g "$group" '
-      .[$g].nodes | to_entries | map(select(.value.ewma > 0))
+    # best 只在当前候选里挑（live_json）：state 里可能还留着保鲜期内的退役条目。
+    best="$(jq -r --arg g "$group" --argjson live "$live_json" '
+      .[$g].nodes | to_entries
+      | map(select(.value.ewma > 0 and (.key as $k | $live | index($k))))
       | sort_by(-.value.ewma) | .[0].key // empty' "$state")"
 
     if [ -z "$best" ]; then
@@ -499,10 +558,12 @@ writeShellApplication {
       if [ "$cur_fails" -lt "$quick_fails" ]; then
         return 0
       fi
-      # 连续失败才算死。切到历史评分最优（排除当前），不受驻留期约束。
-      best="$(jq -r --arg g "$group" --arg c "$cur" '
+      # 连续失败才算死。切到历史评分最优（排除当前，同样只限候选集），
+      # 不受驻留期约束。
+      best="$(jq -r --arg g "$group" --arg c "$cur" --argjson live "$live_json" '
         .[$g].nodes | to_entries
-        | map(select(.value.ewma > 0 and .key != $c))
+        | map(select(.value.ewma > 0 and .key != $c
+                     and (.key as $k | $live | index($k))))
         | sort_by(-.value.ewma) | .[0].key // empty' "$state")"
       if [ -z "$best" ]; then
         echo "当前节点 $cur 连续失败 $cur_fails 次，且没有别的候选可用" >&2

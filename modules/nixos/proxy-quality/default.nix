@@ -46,6 +46,31 @@ let
     mihomo = mihomoPackage;
   };
 
+  # EWMA 的 α 不钉死，由「探测间隔 / 时间常数」推导：α = 1 − exp(−Δt/τ)。
+  # 钉死 α 的后果是记忆长度随 interval 漂移：同样 α=0.4，10min 间隔的机器只记
+  # 20 分钟，30min 的机器记一小时，同一个 25% 阈值在两台机器上含义不同。
+  # Nix 没有 exp（builtins.exp 不存在），所以这里只把秒数传下去，换算在脚本里做。
+  intervalSecondsParsed =
+    let
+      m = builtins.match "([0-9]+)([a-z]*)" cfg.interval;
+      n = if m == null then null else lib.toInt (builtins.elemAt m 0);
+      unit = if m == null then "" else builtins.elemAt m 1;
+      mult =
+        {
+          "" = 1;
+          s = 1;
+          sec = 1;
+          m = 60;
+          min = 60;
+          h = 3600;
+          hour = 3600;
+          d = 86400;
+        }.${unit} or null;
+    in
+    if n == null || mult == null then null else n * mult;
+
+  intervalSeconds = if intervalSecondsParsed == null then 600 else intervalSecondsParsed;
+
   # 两个 timer 共用同一套参数，只在模式上分叉。
   commonArgs = [
     "${probe}/bin/proxy-quality"
@@ -63,6 +88,11 @@ let
     (toString cfg.minDwell)
     "--improvement"
     (toString cfg.improvement)
+    # α 由脚本按 interval/τ 现算：Nix 侧没有 exp。
+    "--interval"
+    (toString intervalSeconds)
+    "--tau"
+    (toString (cfg.tau * 60))
     "--samples"
     (toString cfg.samples)
     "--state"
@@ -147,6 +177,18 @@ in
       description = "新节点需优于当前选择的比例才切换。设 0 表示只要更快就切（不建议）。";
     };
 
+    tau = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 50;
+      description = ''
+        EWMA 的时间常数（分钟）。α 由本值与前一步的 interval 推导：
+        α = 1 − exp(−interval/τ)，不单独配置。
+
+        太短只追噪声（这条线一天能波动 50×），太长跟不上换线。默认 50min：
+        覆盖 2–3 个探测周期，比 diurnal 变化快、比单轮抖动慢。
+      '';
+    };
+
     excludeTagSuffixes = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -205,6 +247,11 @@ in
         # 探针要驱动一个运行中的客户端；两个都没启用时没有可测对象。
         assertion = sibEnabled || mihoEnabled;
         message = "${namespace}.proxyQuality 需要 miho 或 sib 之一启用：探针要读运行中的客户端配置拿 Clash API 地址。";
+      }
+      {
+        # α 由 interval 推导；解析不了就没有正确的 EWMA 记忆长度。
+        assertion = intervalSecondsParsed != null;
+        message = "${namespace}.proxyQuality.interval 解析不了（要 <数字><s|sec|min|m|h|d>，如 10min），当前值：${cfg.interval}";
       }
     ];
 

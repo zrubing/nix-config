@@ -297,9 +297,16 @@ in
     dae.enable = false;
     # 主线组是 selector，成员固定、选择由探针写；没有探针就会一直停在
     # 配置里的第一个成员上。两台客户端用同一份 sib 密文，所以这里必须同步开。
+    #
+    # 指标与 zen14 对齐：128KB 文件测吞吐，而不是 204 测延迟。204 会把
+    # 「握手快、吞吐差」的节点排到前面（zen14 实测日本节点 204 更低、吞吐只有
+    # 香港 1/6）。代价是每轮多下 ~3MB（两个组 12 个候选 × 2 采样），所以间隔
+    # 取 30min ≈ 6MB/h；两台机器 interval 与 τ 相同，α 才一致（见模块的 tau）。
     proxyQuality = {
       enable = true;
-      interval = "10min";
+      interval = "30min";
+      probeUrl = "https://speed.cloudflare.com/__down?bytes=131072";
+      probeBytes = 131072;
       quickCheck = {
         enable = true;
         interval = "60s";
