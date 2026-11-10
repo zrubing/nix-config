@@ -704,4 +704,11 @@ in
 
   networking.networkmanager.enable = true;
 
+  # 这台是 rtw88_8822ce（8822CE）。默认开 802.11 省电时，到网关的 RTT 会抖到
+  # 8–101ms（avg 39，mdev 44），代理链路跟着从 172ms 抖到 419ms；关掉后
+  # 与 zen14 对齐（网关 avg 8、mdev 5，hk6 总耗时 172–181ms）。
+  # 2 = disable，写进 [connection] 作为全局默认，覆盖所有 WiFi（新加的也生效），
+  # 不依赖某条连接配置里那条 nmcli 手工设置。
+  networking.networkmanager.settings.connection."wifi.powersave" = 2;
+
 }
