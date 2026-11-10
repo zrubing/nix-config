@@ -175,6 +175,90 @@ let
     [flags]
     ${renderFlags}
   '';
+
+  # ── 自愈：网络切换后重启卡死的实例 ────────────────────────────────────
+  #
+  # 2026-11-10 实测：Wi-Fi 漫游换了 IP 之后，ET 进程活着、但到中转的 connect
+  # 全部 2s 超时，持续 2 分钟以上不恢复；`systemctl restart` 立刻恢复。
+  # 上游只修过「卡在 relay(2) 不出流量」那一类（#1697 / PR #1593），不覆盖这一
+  # 类；ET 本身没有 watchdog，也没有 SIGHUP 重载，重试一旦卡住只能靠外部重启。
+  #
+  # 判据：`peer list` 里除 Local 外一个 peer 都没有 = 与整个 ET 网络失联。
+  # **不**做「relay 但 0 字节」判定 —— 空闲节点本来就没有流量，那会误杀。
+  #
+  # 两条触发路径：
+  #   1. NetworkManager dispatcher（主路径）：网络事件后 15s 检查，失败即重启。
+  #      对应根因触发点（换 IP），恢复时间 ~20s。
+  #   2. systemd timer（兜底）：每 60s 一次，连续 2 次失联才重启，防误杀。
+  #
+  # 冷却 5 分钟：网络真断时重启也没用，避免每轮都重启一遍。
+  watchdog = pkgs.writeShellApplication {
+    name = "easytier-watchdog";
+    runtimeInputs = [
+      pkgs-unstable.easytier
+      pkgs.jq
+      pkgs.iproute2
+      pkgs.systemd
+      pkgs.coreutils
+      pkgs.gnugrep
+    ];
+    text = ''
+      set -uo pipefail
+
+      threshold=2
+      grace=0
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --threshold) threshold="$2"; shift 2 ;;
+          --grace) grace="$2"; shift 2 ;;
+          *) echo "unknown argument: $1" >&2; exit 2 ;;
+        esac
+      done
+
+      state=/var/lib/easytier-watchdog
+      mkdir -p "$state"
+      if [ "$grace" -gt 0 ]; then sleep "$grace"; fi
+
+      log() { printf '%s easytier-watchdog: %s\n' "$(date -Is)" "$*"; }
+
+      # 没有默认路由 = 断网，重启解决不了，跳过（等网络回来再说）。
+      if ! ip -4 route show default | grep -q .; then
+        log "no default route, skip"
+        exit 0
+      fi
+
+      rc=0
+      for spec in ${lib.concatStringsSep " " (map (n: "'${instanceName n}:${toString (n.portBase + 10)}'") myNetworks)}; do
+        inst="''${spec%%:*}"
+        port="''${spec##*:}"
+        unit="easytier-$inst.service"
+
+        systemctl is-active --quiet "$unit" || continue
+
+        last="$state/$inst.last"
+        if [ -f "$last" ] && [ $(( $(date +%s) - $(cat "$last") )) -lt 300 ]; then
+          continue
+        fi
+
+        if peers=$(easytier-cli -p "127.0.0.1:$port" -o json peer list 2>/dev/null) &&
+           [ "$(printf '%s' "$peers" | jq '[.[] | select(.cost != "Local")] | length')" -gt 0 ]; then
+          rm -f "$state/$inst.fail"
+          log "$inst healthy"
+        else
+          n=$(( $(cat "$state/$inst.fail" 2>/dev/null || echo 0) + 1 ))
+          printf '%s\n' "$n" > "$state/$inst.fail"
+          log "$inst has no remote peer ($n/$threshold)"
+          if [ "$n" -ge "$threshold" ]; then
+            log "restarting $unit"
+            date +%s > "$last"
+            rm -f "$state/$inst.fail"
+            systemctl restart "$unit" || rc=1
+          fi
+        fi
+      done
+      exit "$rc"
+    '';
+  };
 in
 {
   assertions = [
@@ -218,11 +302,59 @@ in
   };
 
   # 让 easytier-cli 进入系统 PATH，便于直接调试和查询实例。
-  environment.systemPackages = lib.mkIf (myNetworks != [ ]) [ pkgs-unstable.easytier ];
+  # watchdog 也放进来：NetworkManager dispatcher 脚本里按绝对路径调用它
+  # （/run/current-system/sw/bin/easytier-watchdog），不放进 PATH 会变成空跑。
+  environment.systemPackages = lib.mkIf (myNetworks != [ ]) [
+    pkgs-unstable.easytier
+    watchdog
+  ];
 
   # ⚠️ 必须 before k0sworker：kubelet 通过 ET 隧道访问 apiserver。
   #    隧道未就绪时 k0s 先起，kubelet 会连不上 apiserver 并反复重试。
-  systemd.services = lib.genAttrs (map (n: "easytier-${instanceName n}") myNetworks) (_: {
-    before = [ "k0sworker.service" ];
-  });
+  systemd.services = lib.mkMerge [
+    (lib.genAttrs (map (n: "easytier-${instanceName n}") myNetworks) (_: {
+      before = [ "k0sworker.service" ];
+    }))
+
+    # 兜底轮询：连续 2 次（≈2 分钟）看不到任何远端 peer 才重启，防误杀。
+    (lib.mkIf (myNetworks != [ ]) {
+      easytier-watchdog = {
+        description = "Restart EasyTier instances that lost every remote peer";
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = "${watchdog}/bin/easytier-watchdog --threshold 2";
+          StateDirectory = "easytier-watchdog";
+        };
+      };
+    })
+  ];
+
+  systemd.timers."easytier-watchdog" = lib.mkIf (myNetworks != [ ]) {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "2min";
+      OnUnitActiveSec = "60s";
+      AccuracySec = "10s";
+      Unit = "easytier-watchdog.service";
+    };
+  };
+
+  # 主路径：换 IP 的那一刻就检查（等 15s 让网络和 ET 都安定），失败立刻重启。
+  # 用 systemd-run 拉起，避免 dispatcher 被这 15s 阻塞，也避免 NM 退出时把子进程带走。
+  networking.networkmanager.dispatcherScripts = lib.mkIf (myNetworks != [ ]) [
+    {
+      type = "basic";
+      source = pkgs.writeText "90-easytier-watchdog" ''
+        #!/bin/sh
+        case "$2" in
+          up | dhcp4-change) ;;
+          *) exit 0 ;;
+        esac
+        [ -x /run/current-system/sw/bin/easytier-watchdog ] || exit 0
+        exec ${pkgs.systemd}/bin/systemd-run --quiet --collect --no-block \
+          --description="EasyTier watchdog (network event)" \
+          /run/current-system/sw/bin/easytier-watchdog --threshold 1 --grace 15
+      '';
+    }
+  ];
 }
