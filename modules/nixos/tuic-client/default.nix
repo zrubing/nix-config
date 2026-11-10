@@ -33,6 +33,15 @@ let
         '';
       };
 
+      sni = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = ''
+          TLS SNI。server 是 IP 字面量时必须显式给出，否则客户端拿 IP 当
+          主机名校验证书，必然失败。留空表示从 server 的 host 推导。
+        '';
+      };
+
       listen = lib.mkOption {
         type = lib.types.str;
         default = "127.0.0.1:12190";
@@ -61,8 +70,13 @@ let
         printf 'log_level = "%s"\n' ${lib.escapeShellArg cfg.logLevel}
         printf 'udp_relay_mode = "native"\n'
         printf 'reconnect = true\n'
-        ${lib.optionalString cfg.skipCertVerify ''
+        ${lib.optionalString (inst.sni != null || cfg.skipCertVerify) ''
           printf '\n[tls]\n'
+        ''}
+        ${lib.optionalString (inst.sni != null) ''
+          printf 'sni = "%s"\n' ${lib.escapeShellArg inst.sni}
+        ''}
+        ${lib.optionalString cfg.skipCertVerify ''
           printf 'skip_cert_verify = true\n'
         ''}
         printf '\n[local]\n'
@@ -91,6 +105,7 @@ let
       lib.nameValuePair n.relay.instance {
         serverSecret = n.relay.serverSecret;
         ipSecret = n.relay.ipSecret or null;
+        sni = n.relay.sni or null;
         listen = "127.0.0.1:${toString n.port}";
       }
     ) metaNodes
