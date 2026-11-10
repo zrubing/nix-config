@@ -534,6 +534,9 @@ in
   };
 
   environment.systemPackages = [
+    # `k0s` 只被 k0sworker.service 按 store 路径引用，不进系统 profile，
+    # `sudo k0s ...` 会报 command not found。放进 profile 才能直接用。
+    config.services.k0s.package
     pkgs.grafana-loki
     pkgs.aliyun-cli
     # Thunar 解压后端：file-roller 自带 thunar-archive-plugin 可识别的 .tap 包装
@@ -615,6 +618,8 @@ in
       insecure_skip_verify = true
   '';
 
+  # `k0s` 只被 k0sworker.service 以 store 路径引用，不进系统 profile，
+  # 所以 `sudo k0s status` 会报 command not found。补进 PATH，省掉手抄 store 路径。
   services.k0s = {
     enable = true;
     # ⚠️ 显式 pin 到 1.36，**不用** `inputs.k0s-nix.packages.${system}.k0s`：

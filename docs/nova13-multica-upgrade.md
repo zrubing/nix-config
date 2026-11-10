@@ -1,260 +1,138 @@
 ---
 name: nova13-multica-upgrade
-description: 用于升级 nova13 上的 Multica，包括 CLI、Helm chart、Kubernetes 镜像 tag，同步生成 Nix hash，并通过 nixos-rebuild 与 multica-k0s-apply 部署验证。
+description: 用于升级 nova13 上自托管的 Multica（podman 容器 + 本机 postgres），包括 CLI、backend/web 镜像 digest 与 nix hash，并通过 nixos-rebuild 完成可复现部署与验证。
 ---
 
-# nova13 Multica 升级
+# nova13 Multica 升级（podman 版）
 
-当用户要求“升级 Nova13 的 multica / Multica”、“更新 nova13 multica 版本”、“整理 multica 升级步骤”或排查 nova13 Multica 升级后版本不一致时，使用此技能。
+当用户要求“升级 nova13 的 multica / Multica”、“更新 multica 版本”、“排查 multica 升级后版本不一致”时，使用此技能。
 
-## 目标
+部署形态在 2026-11-11 从「k8s + Helm chart」改为「podman 容器 + 本机 postgres」。
+原因：新集群全部 context 走 OIDC exec 认证，systemd oneshot 无法非交互登录；
+multica 是单实例、固定跑在 nova13 的家用服务，用 k8s 只增加认证依赖，没有调度收益。
 
-将 nova13 上 Multica 的所有版本来源保持一致，并完成可验证部署：
+## 版本来源（必须同步的四件事）
 
-- `packages/multica/default.nix`：Multica CLI
-- `systems/x86_64-linux/nova13/k8s/helm/multica/default.nix`：Helm chart 源码版本
-- `systems/x86_64-linux/nova13/k8s/helm/multica/values.yaml`：backend/frontend 镜像 tag
-- `systems/x86_64-linux/nova13/default.nix`：systemd 服务 `multica-k0s-apply`，负责实际 Helm 部署
+1. `packages/multica/default.nix`：CLI。
+2. `packages/multica-desktop/default.nix`：桌面端 AppImage（仅 zen14 用）。
+3. `modules/nixos/multica-server/default.nix`：backend/web 镜像的 **digest 与 sha256**。
+4. 同上文件里的 `finalImageTag`（只影响日志与标签，必须与 digest 对应同一版本）。
 
-原则：chart、镜像 tag、CLI 能同步就同步；不要只改 chart 而遗漏 `values.yaml` 的镜像覆盖。
+## 组件与端口
 
-## 当前基线
+| 组件 | 形态 | 端口 | 说明 |
+|---|---|---|---|
+| postgres 17 + pgvector | 原生 `services.postgresql` | 127.0.0.1:5432 | 数据在 `/var/lib/postgresql`，每日 `pg_dump` 到 `/var/backup/postgresql` |
+| backend | podman 容器，host 网络 | 30081 | Go API + WS + 迁移 |
+| web | podman 容器，host 网络 | 30082 | Next.js，`REMOTE_API_URL` 指向 127.0.0.1:30081 |
+| Caddy | 既有 | 80/443 | `multica.local → 10.144.200.3:30082`，`multica-api.local → 10.144.200.3:30081` |
 
-当前仓库基线版本：`v0.4.4`。
+沿用 30081/30082 是为了不改 `caddy-conf`（agenix 密文，在 mysecrets 仓库）。
 
-已知 nova13 部署参数：
+## 升级流程
 
-- namespace：`multica`
-- release：`multica`
-- Secret：`multica-secrets`
-- Frontend NodePort：`30082`
-- Backend NodePort：`30081`
-- Frontend URL：`http://multica.local`
-- Backend URL：`http://multica-api.local`
-
-## 工作流
-
-### 1. 确认目标版本
-
-优先查询 GitHub latest release：
+### 1. 取目标版本的两个镜像 digest
 
 ```bash
-python - <<'PY'
-import json, urllib.request
-url = 'https://api.github.com/repos/multica-ai/multica/releases/latest'
-with urllib.request.urlopen(url, timeout=10) as r:
-    print(json.load(r)['tag_name'])
-PY
+for img in multica-backend multica-web; do
+  tok=$(curl -s "https://ghcr.io/token?scope=repository:multica-ai/$img:pull&service=ghcr.io" \
+        | jq -r .token)
+  printf '%s ' "$img"
+  curl -sI -H "Authorization: Bearer $tok" \
+    -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json' \
+    "https://ghcr.io/v2/multica-ai/$img/manifests/v<目标版本>" \
+    | grep -i docker-content-digest
+done
 ```
 
-版本写法约定：
+### 2. 取 nix 侧 hash
 
-- Nix package `version`：不带 `v`，例如 `0.3.17`
-- GitHub `rev` / Docker image tag：带 `v`，例如 `v0.3.17`
+```bash
+nix run nixpkgs#nix-prefetch-docker -- \
+  --image-name ghcr.io/multica-ai/multica-backend --image-tag v<目标版本> \
+  --os linux --arch amd64 --json | jq -r .hash
+```
 
-### 2. 修改 CLI 包
+`imageDigest` 与 `hash` 两个值都要与上一步的 digest 对应同一份镜像。
 
-文件：`packages/multica/default.nix`
+### 3. 改模块
 
-更新：
+文件：`modules/nixos/multica-server/default.nix`
 
 ```nix
-version = "目标版本，不带 v";
+imageDigest = "sha256:<上一步的 digest>";
+sha256 = "sha256-<nix-prefetch-docker 的 hash>";
+finalImageTag = "<目标版本，不带 v>";
 ```
 
-如果上游 release artifact hash 变化，先临时使用假 hash，再构建获得真实 hash：
+同时把 `image = "multica-backend:<目标版本>";` / `image = "multica-web:<目标版本>";` 改成同值。
+
+### 4. 改 CLI
+
+文件：`packages/multica/default.nix`，改 `version`，用 `nix build .#multica` 拿到四个平台 hash。
+
+### 5. 部署
 
 ```bash
-nix build .#multica
+nixos-rebuild switch --flake .#nova13 --target-host jojo@nova13 --use-remote-sudo
 ```
 
-按 Nix 报错中的 `got:` 更新各平台 hash。至少确保当前平台构建通过。
+`nixos-rebuild` 是唯一收敛入口：镜像固化在 `/nix/store`，switch 后 `podman-multica-backend`
+与 `podman-multica-web` 两个单元自动重建容器，后端启动时跑数据库迁移。
 
-### 3. 修改 nova13 Helm chart
-
-文件：`systems/x86_64-linux/nova13/k8s/helm/multica/default.nix`
-
-更新：
-
-```nix
-rev = "v目标版本";
-sha256 = "...";
-```
-
-如 `sha256` 变化，使用假 hash 触发真实 hash：
+## 验证
 
 ```bash
-nix build .#nixosConfigurations.nova13.config.system.build.toplevel
-```
-
-按 Nix 输出更新 `sha256`。
-
-### 4. 修改 nova13 镜像 tag
-
-文件：`systems/x86_64-linux/nova13/k8s/helm/multica/values.yaml`
-
-必须同步更新：
-
-```yaml
-images:
-  backend:
-    tag: v目标版本
-  frontend:
-    tag: v目标版本
-```
-
-常见根因：chart 已升级，但 `values.yaml` 仍覆盖旧 tag，导致 Pod 继续运行旧镜像。
-
-### 5. 本地自检
-
-先做快速 eval：
-
-```bash
-nix eval .#nixosConfigurations.nova13.config.systemd.services.multica-k0s-apply.description
-```
-
-再做 dry-run 或完整构建：
-
-```bash
-nix build .#nixosConfigurations.nova13.config.system.build.toplevel --dry-run
-# 必要时：
-nix build .#nixosConfigurations.nova13.config.system.build.toplevel
-```
-
-检查所有版本引用是否一致：
-
-```bash
-rg -n 'multica|v[0-9]+\.[0-9]+\.[0-9]+|version = "[0-9]+\.[0-9]+\.[0-9]+"' \
-  packages/multica \
-  systems/x86_64-linux/nova13/k8s/helm/multica \
-  systems/x86_64-linux/nova13/default.nix
-```
-
-注意：使用 `rg` / `grep` 时 timeout 不超过 10s。
-
-### 6. 部署到 nova13
-
-在 nova13 上执行：
-
-```bash
-sudo nixos-rebuild switch --flake .#nova13
-```
-
-`multica-k0s-apply` 是 oneshot systemd 服务，配置切换后会执行：
-
-1. 创建/更新 namespace `multica`
-2. 创建/更新 Secret `multica-secrets`
-3. 执行 `helm upgrade --install multica ...`
-4. 应用 `extra-resources.yaml`
-
-必要时手动重跑：
-
-```bash
-sudo systemctl restart multica-k0s-apply.service
-sudo systemctl status multica-k0s-apply.service --no-pager
-```
-
-## 验证清单
-
-### Nix 侧
-
-```bash
-nix eval .#nixosConfigurations.nova13.config.systemd.services.multica-k0s-apply.description
-nix build .#nixosConfigurations.nova13.config.system.build.toplevel --dry-run
-```
-
-### Kubernetes 侧
-
-```bash
-kubectl -n multica get pods -o wide
-kubectl -n multica get deploy multica-backend multica-frontend \
-  -o=jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[*].image}{"\n"}{end}'
-kubectl -n multica rollout status deploy/multica-backend
-kubectl -n multica rollout status deploy/multica-frontend
-```
-
-### 访问侧
-
-访问：
-
-- `http://multica.local`
-- `http://multica-api.local`
-
-如域名无法解析，检查 `/etc/hosts` 或 DNS：
-
-```text
-<nova13-ip> multica.local multica-api.local
+# 容器
+sudo podman ps --filter name=multica --format '{{.Names}}\t{{.Status}}\t{{.Image}}'
+# 后端健康
+curl -s -o /dev/null -w '%{http_code}\n' http://10.144.200.3:30081/health
+# 前端
+curl -s -o /dev/null -w '%{http_code}\n' http://multica.local/
+# 数据库
+sudo -u postgres psql -d multica -c 'select count(*) from schema_migrations;' 2>/dev/null || true
 ```
 
 ## 排障
 
-### chart 已升级但 Pod 仍是旧版本
-
-检查 `values.yaml`：
+### 容器起不来：角色密码或扩展缺失
 
 ```bash
-rg -n "tag:" systems/x86_64-linux/nova13/k8s/helm/multica/values.yaml
+systemctl status multica-db-init.service --no-pager
+journalctl -u multica-db-init.service -n 50 --no-pager
 ```
 
-如果仍是旧 tag，同步改成目标版本后重新 `nixos-rebuild switch`。
+该一次性单元负责 `ALTER ROLE multica PASSWORD`（密码来自 sops）与 `CREATE EXTENSION vector`。
 
-### Helm 没有自动应用
-
-检查 systemd：
+### 容器起不来：镜像
 
 ```bash
-sudo systemctl status multica-k0s-apply.service --no-pager
-journalctl -u multica-k0s-apply.service -n 200 --no-pager
+journalctl -u podman-multica-backend -n 100 --no-pager
+nix build .#nixosConfigurations.nova13.config.system.build.toplevel --dry-run
 ```
 
-### Pod Pending
+镜像来自 store，不需要 registry 可达；若报 `pull access denied` 说明 `imageFile` 没生效。
 
-nova13 的 Helm post-renderer 会把以下 Deployment 固定到 nova13，并添加 `dedicated=nova13:NoSchedule` toleration：
+### 登录不进去
 
-- `multica-backend`
-- `multica-frontend`
-- `multica-postgres`
+当前实例账户（2026-11-11 重建，新库新用户）：
 
-检查节点状态：
+- 账号：`jojo@local.net`（无邮件通道，验证码固定 `888888`）
+- workspace：`jojo`（slug `jojo`）
+- CLI 配置：`~/.multica/config.json`（`server_url` / `app_url` / `workspace_id` / `token`，0600）
 
-```bash
-kubectl get nodes --show-labels
-kubectl describe node nova13 | rg -n "Taints|dedicated|Ready"
-```
+在浏览器打开 `http://multica.local`，输入邮箱与 `888888` 即可。CLI 侧如果需要重新登录，
+用 `multica login --token mul_...`（PAT 在网页 Settings 里生成）。
 
-### 镜像拉取失败
 
-检查实际镜像名与 tag：
-
-```bash
-kubectl -n multica describe pod <pod-name> | rg -n "Image:|Failed|BackOff|ErrImagePull|ImagePullBackOff"
-```
-
-如果 tag 不存在，回到 GitHub release / chart values 确认目标版本是否真的发布了 backend/frontend 镜像。
+自托管没有邮件通道，登录用固定验证码 `888888`（`MULTICA_DEV_VERIFICATION_CODE`）。
+CLI 侧 `~/.multica/config.json` 必须由 CLI 自己可写；home 模块已不再用 `home.file` 托管该文件。
 
 ## 回滚
 
-恢复以下文件到上一个可用版本：
-
-- `packages/multica/default.nix`
-- `systems/x86_64-linux/nova13/k8s/helm/multica/default.nix`
-- `systems/x86_64-linux/nova13/k8s/helm/multica/values.yaml`
-
-重新部署：
-
-```bash
-sudo nixos-rebuild switch --flake .#nova13
-sudo systemctl restart multica-k0s-apply.service
-```
-
-回滚后必须验证镜像 tag 与 rollout 状态。
+把 `modules/nixos/multica-server/default.nix` 的 digest/hash/tag 与 `packages/multica/default.nix`
+的版本改回上一个可用版本，重新 switch 即可。数据库迁移只前进不回退，跨大版本回滚前先 `pg_dump` 留档。
 
 ## 输出要求
 
-执行此技能后，回复用户时包含：
-
-1. 修改的文件路径。
-2. 目标版本与旧版本。
-3. Nix 自检命令及结果。
-4. 是否已部署到 nova13；如果未部署，给出需要在 nova13 执行的命令。
-5. Kubernetes 验证命令。
+回复用户时包含：改了哪些文件、目标版本与旧版本、Nix 自检结果、是否已部署、以及上面的验证命令。

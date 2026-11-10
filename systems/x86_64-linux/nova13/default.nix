@@ -31,10 +31,6 @@ let
 
     exec ${lib.getExe tradingagentsPackage} "$@"
   '';
-  multicaK8s = import ./k8s/helm/multica {
-    inherit pkgs;
-    hostname = "nova13";
-  };
 in
 {
   snowfallorg.users.jojo = {
@@ -154,6 +150,10 @@ in
   ${namespace} = {
     user.name = "jojo";
 
+    # Multica 自托管：podman 容器（backend/web）+ 本机 postgres，固定在本机，
+    # 不再依赖集群与 OIDC 凭证。见 modules/nixos/multica-server。
+    multica-server.enable = true;
+
     # 与 zen14 同一个 CachyOS 内核派生（同 rev + 同 override ⇒ 同 store 路径），
     # 换上来不需要重编内核，直接 nix copy 即可。BBR 作为默认拥塞控制。
     kernel.cachyos.enable = true;
@@ -222,6 +222,9 @@ in
         # （见 modules/home/multica/default.nix）。配合下面的 linger，daemon 不再寄生在
         # 某个 SSH session 里，且升级切二进制时 graceful drain 能真正生效。
         modules.multica.enable = true;
+        # nova13 是构建节点，不挂 agent runtime：daemon 没有登录态会无限重启，
+        # 多出来的 4 个 runtime 也会和 zen14 抢同一批任务。CLI 仍照常安装。
+        modules.multica.daemon.enable = false;
 
         # dsh（DeepSeek Harness）在 jojo 共享 home 已启用；访问走 nova13 的 Caddy 反代
         # （http://dsh.local → 127.0.0.1:3080）。注意：dsh 禁止 --host 0.0.0.0
@@ -406,82 +409,12 @@ in
     piPackage
     multicaPackage
     tradingagentsWrapped
+    # `k0s` 只被 k0sworker.service 按 store 路径引用，不进系统 profile，
+    # `sudo k0s ...` 会报 command not found。放进 profile 才能直接用。
+    config.services.k0s.package
     pkgs.kubernetes-helm
     pkgs.kubectl
   ];
-
-  environment.etc."multica/values.yaml".source = multicaK8s.valuesFile;
-  environment.etc."multica/extra-resources.yaml".source = multicaK8s.extraResourcesFile;
-  environment.etc."multica/post-renderer".source = multicaK8s.postRenderer;
-
-  systemd.services.multica-k0s-apply = {
-    description = "Deploy Multica to k0s cluster via Helm";
-    # k0s API（6443）从 2026-10-28 起 TLS 握手超时，这个 oneshot 无限重试，
-    # 而它挂在 multi-user.target 下：每次 switch 的 activation 都会被拖住，
-    # 并一直持有 /run/nixos/switch-to-configuration.lock，后续 rebuild 也会卡。
-    # 集群恢复后把下面改回 [ "multi-user.target" ] 并手动 start 一次。
-    wantedBy = lib.mkForce [ ];
-    after = [
-      "network-online.target"
-      "sops-install-secrets.service"
-      "k0sworker.service"
-    ];
-    wants = [
-      "network-online.target"
-      "sops-install-secrets.service"
-    ];
-    path = with pkgs; [
-      kubectl
-      kubernetes-helm
-      coreutils
-      bash
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    script = ''
-      set -euo pipefail
-
-      kubeconfig="/home/jojo/.kube/config-k0s.yml"
-
-      if [ ! -s "$kubeconfig" ]; then
-        echo "kubeconfig not ready: $kubeconfig"
-        exit 1
-      fi
-
-      for _ in $(seq 1 60); do
-        if ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" cluster-info >/dev/null 2>&1; then
-          break
-        fi
-        sleep 5
-      done
-
-      jwt_secret=$(tr -d '\n' < ${config.sops.secrets."multica/JWT_SECRET".path})
-      postgres_password=$(tr -d '\n' < ${config.sops.secrets."multica/POSTGRES_PASSWORD".path})
-
-      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" create namespace ${multicaK8s.namespace} --dry-run=client -o yaml | \
-        ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f -
-
-      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" -n ${multicaK8s.namespace} create secret generic ${multicaK8s.secretName} \
-        --from-literal=JWT_SECRET="$jwt_secret" \
-        --from-literal=POSTGRES_PASSWORD="$postgres_password" \
-        --from-literal=MULTICA_DEV_VERIFICATION_CODE="888888" \
-        --dry-run=client -o yaml | \
-        ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f -
-
-      ${pkgs.kubernetes-helm}/bin/helm upgrade --install ${multicaK8s.releaseName} ${multicaK8s.chart} \
-        --kubeconfig "$kubeconfig" \
-        --namespace ${multicaK8s.namespace} \
-        --create-namespace \
-        --values /etc/multica/values.yaml \
-        --post-renderer /etc/multica/post-renderer \
-        --wait \
-        --timeout 10m
-
-      ${pkgs.kubectl}/bin/kubectl --kubeconfig "$kubeconfig" apply -f /etc/multica/extra-resources.yaml
-    '';
-  };
 
   # 本地通过 SSH 隧道推送到集群内 registry（HTTP registry；zot 已退役 2026-08-14）。
   virtualisation.containers.registries.insecure = [
