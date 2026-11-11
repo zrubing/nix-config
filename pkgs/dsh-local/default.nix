@@ -857,16 +857,44 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
   # profile artifact seeder used by split integrations"）—— 它同时被用作 wrapper 的
   # runtimeInput，所以脚本名必须叫 dsh-sync-profiles、接受一个可选的 profile 名参数。
   mkProfileSeeder =
-    { profiles, artifacts }:
+    {
+      profiles,
+      artifacts,
+      # profile 名 → 物化目录名。默认用上游的 `nix-` 前缀；
+      # 需要「字面名」的消费者（multica 只认 profile 名 `multica`）在这里覆盖。
+      # 模板目录恒为上游名 `nix-<name>`，本参数只影响 ~/.dsh/profiles 下的目录名。
+      materializedNames ? { },
+      # profile 名 → 要从 package.json 的 bundle 清单里剔除的包名。
+      # 上游会给「既非 web 也非 tui」的 profile 自动追加 @deepseek-ai/dsh-headless；
+      # multica 的 runtime bundle 自带 headless-runner 行，多一个 headless 会让
+      # CLI 的选项解析落到 headless 实现上，`--probe`/`--stdio` 直接报
+      # "unknown option"（2026-11-11 实测，base+runtime 可用、加 headless 即坏）。
+      dropBundles ? { },
+    }:
     let
-      # 物化名 = 上游的 nix- 前缀；模板目录名就是它。
-      targets = map (name: "nix-${name}") (builtins.attrNames profiles);
+      targets = map (name: {
+        template = "nix-${name}";
+        materialized = materializedNames.${name} or "nix-${name}";
+      }) (builtins.attrNames profiles);
       # sync_profile 的实参：<profile 名> <模板目录> <目标目录>。
+      # 名与目标目录都用物化名：install/validate 用的 .nix-managed marker
+      # 记录的就是目标目录名。
       syncArgs =
-        target:
-        "${lib.escapeShellArg target} ${lib.escapeShellArg "${artifacts.profileTemplates}/${target}"} \"$home/profiles/${target}\"";
-      syncBody = target: "  sync_profile ${syncArgs target}";
-      syncArm = target: "  ${target}) sync_profile ${syncArgs target} ;;";
+        t:
+        "${lib.escapeShellArg t.materialized} ${lib.escapeShellArg "${artifacts.profileTemplates}/${t.template}"} \"$home/profiles/${t.materialized}\"";
+      syncBody = t: "  sync_profile ${syncArgs t}";
+      syncArm = t: "  ${t.materialized}) sync_profile ${syncArgs t} ;;";
+      # 同步完 package.json 后再剔除 dropBundles 里列的包名。
+      stripArms = lib.concatStrings (
+        lib.mapAttrsToList (
+          name: drops:
+          let
+            target = materializedNames.${name} or "nix-${name}";
+            dropJson = builtins.toJSON drops;
+          in
+          "    ${target}) jq --argjson drops ${lib.escapeShellArg dropJson} '.dsh.profile.bundles -= $drops' \"$2/package.json\" > \"$2/.package.json.tmp\" && mv -f \"$2/.package.json.tmp\" \"$2/package.json\" ;;\n"
+        ) dropBundles
+      );
     in
     upstreamPkgs.writeShellApplication {
       name = "dsh-sync-profiles";
@@ -874,6 +902,7 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
         coreutils
         diffutils
         gnugrep
+        jq
         util-linux
       ];
       inheritPath = false;
@@ -955,6 +984,13 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
           fi
         }
 
+        # $1 = 物化 profile 名，$2 = 目标目录。没有 strip 规则的 profile 走空分支。
+        strip_bundles() {
+          case "$1" in
+        ${stripArms}    *) return 0 ;;
+          esac
+        }
+
         sync_profile() {
           local profile=$1 source=$2 destination=$3 file
 
@@ -971,6 +1007,8 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
           for file in $nixOwned; do
             copy_owned_file "$source/$file" "$destination/$file"
           done
+
+          strip_bundles "$profile" "$destination"
         }
 
         case "''${1:-}" in
@@ -996,6 +1034,8 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
       profiles,
       defaultProfile ? null,
       homePatch ? null,
+      materializedNames ? { },
+      dropBundles ? { },
     }:
     let
       args = {
@@ -1029,8 +1069,13 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
     (upstreamPkgs.dsh.dsh.override (
       args
       // {
-        profileSeeder = mkProfileSeeder { inherit profiles artifacts; };
-        profileBundleCheckProfiles = artifacts.bundleCheckProfiles;
+        profileSeeder = mkProfileSeeder { inherit profiles artifacts materializedNames dropBundles; };
+        # 自检跑的是物化后的 profile 名：multica 不带 nix- 前缀，
+        # 直接拿上游的 nix- 名去跑会报 "profile does not exist"。
+        profileBundleCheckProfiles = lib.mapAttrs (
+          _group: names:
+          map (name: materializedNames.${lib.removePrefix "nix-" name} or name) names
+        ) artifacts.bundleCheckProfiles;
       }
     )).overrideAttrs
       (_: {

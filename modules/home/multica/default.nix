@@ -67,10 +67,23 @@ in
         Service = {
           Type = "simple";
           ExecStart = "${lib.getExe pkgs.${namespace}.multica} daemon start --foreground";
+          # dsh 的 multica runtime 需要与交互 shell 同一份环境（MCP token 等）：
+          # 缺 token 时 MCP 条目的 headers 会退化成 {}，dsh 启动即校验失败，
+          # daemon 的 --probe 拿不到结果。
+          EnvironmentFile = lib.optional (
+            config.${namespace}.modules.dsh.envFile != null
+          ) config.${namespace}.modules.dsh.envFile;
           Environment = [
             "PATH=/run/current-system/sw/bin:/etc/profiles/per-user/%u/bin:%h/.local/bin"
             "MULTICA_SERVER_URL=http://multica-api.local"
             "MULTICA_APP_URL=http://multica.local"
+            # dsh.env 里带了 HTTP(S)_PROXY，daemon 走代理会拿不到 *.local（502）。
+            # 这些变量排在 EnvironmentFile 之后，按 systemd 语义覆盖文件里的值。
+            "HTTP_PROXY="
+            "HTTPS_PROXY="
+            "http_proxy="
+            "https_proxy="
+            "NO_PROXY=multica.local,multica-api.local,localhost,127.0.0.1,::1"
           ];
           Restart = "on-failure";
           RestartSec = 5;

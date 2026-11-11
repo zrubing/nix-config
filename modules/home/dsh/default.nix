@@ -228,6 +228,16 @@ let
   # 三条 profile 共用的本地 bundle 再叠上 llm-pi-ai 的 provider 表。
   hostBundles = dshLocal.hostBundles ++ [ llmRoutesBundle ];
 
+  # Multica 的 DSH runtime bridge。上游只发 TS 源码，packages/dsh-multica-runtime
+  # 负责编译，这里再按 dsh bundle 的布局收口（lib/node_modules + nix-support 清单）。
+  multicaRuntimeBundle = dshLocal.mkBundle {
+    name = "@multica-ai/dsh-runtime";
+    version = "0.2.0-private.1";
+    src = pkgs.${namespace}.dsh-multica-runtime;
+    patch = "${pkgs.${namespace}.dsh-multica-runtime}/cordis.patch.yml";
+    meta.description = "Multica runtime bridge for DeepSeek Harness";
+  };
+
   dshPackage = dshLocal.mkDsh {
     # 不设 `mode`：本仓库用自定义播种器（pkgs/dsh-local 的 mkProfileSeeder）替换了
     # 上游的 dsh-sync-profiles。上游的 managed 会在每次启动抹掉运行时设置，mutable
@@ -238,6 +248,10 @@ let
         bundles = hostBundles ++ dshLocal.webBundles ++ [ webPermissionBundle webConnectionBundle presetDefaultBundle ];
       };
       headless.bundles = hostBundles;
+      # multica runtime：与 headless 同一套 host bundle（provider 表、MCP、权限
+      # 全部同源），只多挂一个 @multica-ai/dsh-runtime。不声明 requiresWeb/Tui，
+      # 上游会按 headless 组合装配 —— 正是 daemon 的 stdio 模式需要的形态。
+      multica.bundles = hostBundles ++ [ multicaRuntimeBundle ];
     } // lib.optionalAttrs cfg.plugins.tui.enable {
       dsh-tui = {
         requiresTui = true;
@@ -273,6 +287,17 @@ let
     # CLI 默认 profile 恒为 web：dsh 的 wrapper 在 argv 里没有 --profile 时会注入
     # 这个值（上游 dsh-seed-wrapper）。服务单元也显式传同一个名字 —— 两者一致，
     # 不会出现 "select a profile only once"（wrapper 见到 --profile 就不再注入）。
+    # multica 只认字面名为 `multica` 的 profile（daemon 里写死，没有覆盖变量），
+    # 所以这一个 profile 不走 `nix-` 前缀；其余四个保持前缀不变。
+    materializedNames = {
+      multica = "multica";
+    };
+    # 上游给非 web/tui profile 自动追加 dsh-headless；multica 的 runtime bundle
+    # 已经自带 headless-runner 行，两个同时在场时 CLI 选项解析走 headless 实现，
+    # daemon 的 `--probe` 会直接被判成 unknown option。只剔除这一个。
+    dropBundles = {
+      multica = [ "@deepseek-ai/dsh-headless" ];
+    };
     defaultProfile = profileNames.web;
   };
 
@@ -1346,6 +1371,13 @@ in
       #
       # 端点读不到时只 WARN 不写：宁可保留上一次渲染好的文件，也不要写一份没有
       # 端点的表（那会让 relay/openai 两条路由在运行期凭空消失）。
+      # 播种器只在 dsh 启动时跑，而 multica daemon 是**在自己的进程里**探测
+      # ~/.dsh/profiles/multica 的。switch 后主动跑一次，让 profile 立刻就位，
+      # 不必等下一次任何 dsh 调用（daemon 每 2 分钟也会重探一次，这是兜底）。
+      home.activation.dshSyncProfiles = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        ${lib.getExe dshPackage} --version >/dev/null 2>&1 || true
+      '';
+
       home.activation.dshProfileProviders = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         template=${profilePatch}
         env_file=${lib.escapeShellArg (if cfg.envFile != null then cfg.envFile else "")}
