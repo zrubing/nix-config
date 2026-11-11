@@ -84,6 +84,12 @@ in
             "http_proxy="
             "https_proxy="
             "NO_PROXY=multica.local,multica-api.local,localhost,127.0.0.1,::1"
+          ]
+          # 顶替 `dsh` 这个可执行文件：multica 的 dsh runtime 改成「把任务挂到
+          # 常驻 dsh-web host 上」，不再每任务起一个 dsh 进程。dsh 模块没启用时
+          # 保持 null（daemon 回落到 PATH 上的 dsh + profile multica）。
+          ++ lib.optionals config.${namespace}.modules.dsh.enable [
+            "MULTICA_DSH_PATH=${config.${namespace}.modules.dsh.multicaBridge}/bin/dsh"
           ];
           Restart = "on-failure";
           RestartSec = 5;

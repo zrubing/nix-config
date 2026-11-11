@@ -307,6 +307,22 @@ let
   # 会回退 `dsh --profile`（本机实测首帧：入口 0.9~1.6s，回退线 5.7~6.6s）。
   dshHostPackage = dshLocal.mkDshHostPackage dshPackage;
 
+  # Multica 的 DSH runtime 桥：顶替 `dsh` 可执行文件，把 multica 的 stdio 协议
+  # 翻译成对常驻 dsh-web host 的 remote RPC（不再每任务起一个 dsh 进程）。
+  multicaBridge = pkgs.callPackage ../../../pkgs/dsh-multica-bridge {
+    inherit dshHostPackage;
+    dshVersion = dshLocal.dshVersion;
+    nodejs = pkgs.nodejs;
+    dshTuiRemoteTree = "${dshTuiRemotePkg}/libexec";
+  };
+
+  # multica 按**可执行文件名**识别 agent（basename 必须是 dsh，否则整条 dsh
+  # 探测被跳过，agents 列表里根本没有它）。所以桥要以 `dsh` 的名字出现。
+  multicaBridgeAsDsh = pkgs.runCommand "dsh-multica-bridge-as-dsh" { } ''
+    mkdir -p $out/bin
+    ln -s ${multicaBridge}/bin/dsh-multica-bridge $out/bin/dsh
+  '';
+
   # 入口本体：取自**装配进 profile 的那份** TUI bundle，与 profile 里的 dsh-tui 行同源。
   tuiHostEntry = "${dshLocal.upstreamBundles.tui}/lib/node_modules/@deepseek-harness-tui/dsh-tui/lib/types/dsh-adapter/host-entry.js";
 
@@ -1214,9 +1230,21 @@ in
       default = null;
       description = "EnvironmentFile for the dsh web service (sops template output).";
     };
+
+    # 由本模块自己产出（readOnly）：multica daemon 通过 MULTICA_DSH_PATH 使用它。
+    # 别处只需读，不需要也不应该给它赋值。
+    multicaBridge = mkOption {
+      type = types.package;
+      readOnly = true;
+      internal = true;
+      description = "Multica runtime bridge that attaches tasks to the running dsh web host.";
+    };
   };
 
   config = lib.mkMerge [
+    # readOnly 的内部产物：multica daemon 通过 MULTICA_DSH_PATH 使用它。
+    { ${namespace}.modules.dsh.multicaBridge = multicaBridgeAsDsh; }
+
     (lib.mkIf cfg.enable {
       # 本地 TUI 启动器只在启用 dsh-tui profile 时投递 —— 它引用的 profile 必须存在，
       # 否则 dsh 会以 "profile does not exist" 失败。

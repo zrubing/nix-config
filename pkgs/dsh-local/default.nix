@@ -1131,6 +1131,7 @@ in
 {
   inherit
     upstreamPkgs
+    dshVersion
     kernelPatched
     upstreamBundles
     mkBundle
