@@ -49,8 +49,8 @@ let
   # 故仍由 age 密文提供——合并时按 provider 整体以 overlay 为准，只补回密文的
   # baseUrl（规则见 modules/home/agenix）。
   llmRoutes = import ../llm-routes/routes.nix { inherit lib; };
+  deepseekRelayRoute = llmRoutes.deepseekRelay;
   relayRoute = llmRoutes.relay;
-  geminiRoute = llmRoutes.geminiCarbonRelay;
 
   # 共享 schema（dsh 规范式）→ pi models.json 的 provider 条目
   providerEntry = route: {
@@ -81,18 +81,18 @@ let
     # 才会触发，短会话完全不参与（不花钱）。DeepSeek 官方未公布 TTL（只说长期不用的
     # 条目会自动清空），取保守端 1 小时：真实 TTL 更长只是少续几次，不会更贵（一次
     # 续命 ≈ 0.007/M × 前缀）。该字段在 routes.nix 的模型元数据里声明（pi 专有概念，
-    # dsh 侧无对应字段，与 cost 同）；没声明的模型（如 gemini-4-carbon）不参与保温。
+    # dsh 侧无对应字段，与 cost 同）；没声明的模型（relay 的这三条）不参与保温。
     // lib.optionalAttrs (m ? promptCache) { inherit (m) promptCache; };
 
   piProviders = {
-    # relay：baseUrl 只在密文里（overlay 不写，合并时补回）。
-    "${relayRoute.name}" = providerEntry relayRoute;
-    # gemini-4-carbon-relay：与 relay 同一个网关，baseUrl 也只在密文里——但密文
-    # 里没有这条 provider 的条目。baseUrlFrom 是合并脚本的指令：从密文里
-    # <另一个 provider> 的 baseUrl 继承，字段本身不落进 models.json。这样端点
-    # 仍只有一个来源（age 密文），新增同网关路由不需要再动密文。
-    "${geminiRoute.name}" = providerEntry geminiRoute // {
-      baseUrlFrom = relayRoute.name;
+    # deepseek-relay：baseUrl 只在密文里（overlay 不写，合并时补回）。
+    "${deepseekRelayRoute.name}" = providerEntry deepseekRelayRoute;
+    # relay：与 deepseek-relay 同一个网关，baseUrl 也只在密文里——但密文里没有
+    # 这条 provider 的条目。baseUrlFrom 是合并脚本的指令：从密文里 <另一个
+    # provider> 的 baseUrl 继承，字段本身不落进 models.json。这样端点仍只有一个
+    # 来源（age 密文），新增同网关路由不需要再动密文。
+    "${relayRoute.name}" = providerEntry relayRoute // {
+      baseUrlFrom = deepseekRelayRoute.name;
     };
   };
 
@@ -164,6 +164,14 @@ let
     # pi 原生前缀缓存保温：streaming = 活跃会话期内、缓存即将过期前重发一次；
     # idle 才管会话之间。上游默认就是 streaming，这里写死防止默认值漂移。
     cacheWarming = "streaming";
+    # 每个模型的启动思考档（key = 精确的 provider/modelId，见 docs/settings.md）。
+    # dsh 只有路由级单一默认档（relay 取 xhigh），做不到按模型分档；pi 用这里分：
+    # opus 默认 xhigh、fable 默认 medium、gemini 默认 high。
+    modelThinkingLevels = {
+      "relay/claude-opus-5-5" = "xhigh";
+      "relay/claude-fable-5-2" = "medium";
+      "relay/gemini-4-carbon" = "high";
+    };
     # —— settings.json 不支持 `providers` 键（pi 源码 Settings 接口无此字段），
     #    modelOverrides 已移到下方 piModelsOverlayJson，经 agenix merge 进 models.json
   };

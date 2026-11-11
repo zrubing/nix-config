@@ -554,8 +554,10 @@ let
   # 读 autosync 发布的 catalog（见下方 adapter 注释），故 adapter 留在下面；
   # 容量不再有本地覆盖——网关 /v1/models 是唯一来源。
   llmRoutes = import ../llm-routes/routes.nix { inherit lib; };
+  # deepseek-relay：企业 relay 网关上的 DeepSeek 专用令牌
+  deepseekRelayRoute = llmRoutes.deepseekRelay;
+  # relay：同一网关、另一把按模型授权的令牌（gemini + claude 三家共用）
   relayRoute = llmRoutes.relay;
-  geminiRoute = llmRoutes.geminiCarbonRelay;
   # nvidia-nim adapter 与本文件的 emitter 共用同一套级别枚举
   inherit (llmRoutes) thinkingLevels;
 
@@ -575,11 +577,11 @@ let
   # routes.nix 再加进来——半迁移的条目在这里列出来只会制造第二个事实源。
   dshModelsRoutesJson = pkgs.writeText "dsh-models-routes.json" (builtins.toJSON {
     routes."deepseek-relay" = {
-      inherit (relayRoute) api apiKeyEnv models;
+      inherit (deepseekRelayRoute) api apiKeyEnv models;
       # 人工元数据的 id 集合：`--update` 靠它判断「锁里新增的 id 有没有元数据」，
       # 从而把「补一条」的提醒提前到提交之前，而不是等 rebuild 求值报错。
-      metaIds = builtins.attrNames llmRoutes.relayModelMeta;
-      baseURLEnv = relayRoute.baseURLEnv;
+      metaIds = builtins.attrNames llmRoutes.deepseekRelayModelMeta;
+      baseURLEnv = deepseekRelayRoute.baseURLEnv;
       mode = "reconcile";
       # 与 bundle 行（pkgs/dsh-local 的 deepseek-relay-autosync）逐字一致的
       # 收窄与默认档：两处不一致时 CLI 会把「运行期其实不会修」的条目报成
@@ -958,7 +960,7 @@ let
   # YAML 传输。同一份文本派生两个产物：
   #
   #   bundleProviders  —— 进 bundle 层（llmRoutesBundle）。**不含** baseURL 还是
-  #                       占位符的路由（deepseek-relay / gemini-4-carbon-relay /
+  #                       占位符的路由（deepseek-relay / relay /
   #                       openai）：它们的端点是运行时才有的，store 里不能有，所以
   #                       只活在下面那份 profile 渲染结果里。于是 bundle 层零
   #                       `!!js`，pi-ai 的 Config() 永远看到字符串。
@@ -991,38 +993,38 @@ let
         # 保留该 key 实际可访问的 deepseek-flash。
         # relay 角色白名单无 developer（实测 400）→ 路由级 supportsDeveloperRole。
         deepseek-relay:
-          apiKeyEnv: ${relayRoute.apiKeyEnv}
-          displayName: ${relayRoute.displayName}
-          api: ${relayRoute.api}
+          apiKeyEnv: ${deepseekRelayRoute.apiKeyEnv}
+          displayName: ${deepseekRelayRoute.displayName}
+          api: ${deepseekRelayRoute.api}
           # baseURL 由 activation 从 dsh.env 替换（占位符 → 字面量）。写成 quoted：
           # 替换后是 https://... 形态，引号让 YAML 侧不必依赖字符集。
           baseURL: "${relayBaseUrlPlaceholder}"
-  ${routeCompatYaml relayRoute}
+  ${routeCompatYaml deepseekRelayRoute}
           # 路由级默认思考档。dsh 的 llm-pi-ai 把 profile.reasoning 交给每个
           # 模型当默认值（describableReasoningLevel → defaultEffort），模型
           # 选择器以此为初值；前提是模型自己声明了对应档（见下）。
-          reasoning: ${relayRoute.reasoning}
+          reasoning: ${deepseekRelayRoute.reasoning}
           # 职责划分：本表提供 *能力元数据*（reasoningEfforts/compat/容量），
           # 因为 /v1/models 只给 id；id 集合的增删由
           # dsh-autosync/deepseek-relay 对 /v1/models 同步（scope 限
           # deepseek-*，其余手工条目不受影响）。每条必须显式声明
           # reasoningEfforts，缺失 = 该模型"无推理能力"→ 选择器不显示思考强度。
           models:
-  ${routeModelsYaml relayRoute}
-        # gemini-4-carbon-relay：同一个企业 relay 网关、另一把按模型授权的
-        # key（clan vars gemini-4-carbon-relay/api-key）。端点复用同一占位符，
-        # activation 一次替换所有实例（见 home.activation.dshProfileProviders）。
-        # 模型集合是 routes.nix 里的字面清单（本轮只要 gemini-4-carbon 一个 id），
+  ${routeModelsYaml deepseekRelayRoute}
+        # relay：同一个企业 relay 网关、另一把按模型授权的 key（clan vars
+        # relay/api-key）。端点复用同一占位符，activation 一次替换所有实例
+        # （见 home.activation.dshProfileProviders）。模型清单是 routes.nix 里的
+        # 字面声明（gemini-4-carbon / claude-opus-5-5 / claude-fable-5-2），
         # 不跟 models.lock.json 对账；要跟随网关清单再补 autosync 描述符。
-        gemini-4-carbon-relay:
-          apiKeyEnv: ${geminiRoute.apiKeyEnv}
-          displayName: ${geminiRoute.displayName}
-          api: ${geminiRoute.api}
+        relay:
+          apiKeyEnv: ${relayRoute.apiKeyEnv}
+          displayName: ${relayRoute.displayName}
+          api: ${relayRoute.api}
           baseURL: "${relayBaseUrlPlaceholder}"
-  ${routeCompatYaml geminiRoute}
-          reasoning: ${geminiRoute.reasoning}
+  ${routeCompatYaml relayRoute}
+          reasoning: ${relayRoute.reasoning}
           models:
-  ${routeModelsYaml geminiRoute}
+  ${routeModelsYaml relayRoute}
         # opencode-go 是 pi-ai 内置 catalog 路由（OpenCode Go 网关，
         # 含 deepseek-v4-pro/flash、glm-5.2、kimi-k3、qwen3.7 等模型），
         # 认证环境变量 OPENCODE_API_KEY 与 jojo home 注入一致。
@@ -1148,7 +1150,7 @@ let
   '';
 
   # bundle 层那份：整表减去所有 baseURL 仍是运行期占位符的路由（目前三条：
-  # deepseek-relay / gemini-4-carbon-relay / openai）。判据是占位符本身而不是
+  # deepseek-relay / relay / openai）。判据是占位符本身而不是
   # 路由名清单：新增一条同网关路由时只改上面的 provider 表，这里自动跟随。
   # 减掉而不是留空 baseURL 的原因：resolveProfiles 在 apply 期就会为「声明了
   # models 却没有 baseURL、catalog 又描述不了」的路由抛错，整根 llm-pi-ai 纤维

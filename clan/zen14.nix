@@ -175,14 +175,15 @@
     '';
   };
 
-  # Gemini 4 Carbon relay 的独立 API key：与 deepseek-relay 同一个 relay 网关，
-  # 但令牌按模型授权（deepseek-relay 的 key 在 /v1/models 只列出 deepseek-flash）。
-  # 消费方：home sops 渲染进 dsh.env 与 default.env 的
-  # GEMINI_CARBON_RELAY_API_KEY，供 dsh / pi 的 gemini-4-carbon-relay 路由使用。
-  # 换值：clan vars set zen14 gemini-4-carbon-relay/api-key
-  clan.core.vars.generators.gemini-4-carbon-relay = {
+  # 多厂商 relay 的独立 API key：与 deepseek-relay 同一个 relay 网关，但令牌按
+  # 模型授权（deepseek-relay 的 key 在 /v1/models 只列出 deepseek-flash，这把
+  # 能列出 claude-* / gemini-* / gpt-* 二十多条）。
+  # 消费方：home sops 渲染进 dsh.env 与 default.env 的 RELAY_API_KEY，供 dsh / pi
+  # 的 relay 路由使用（gemini-4-carbon、claude-opus-5-5、claude-fable-5-2）。
+  # 换值：clan vars set zen14 relay/api-key
+  clan.core.vars.generators.relay = {
     prompts.api-key = {
-      description = "Gemini 4 Carbon relay API key (sk-...)";
+      description = "Multi-vendor relay API key (sk-...)";
       type = "hidden";
     };
     files.api-key.secret = true;

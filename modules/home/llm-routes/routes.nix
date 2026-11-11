@@ -1,10 +1,11 @@
 # LLM 路由的共享事实（单一来源）。
 #
 # 范围刻意收窄到「两个消费方真的都要读」的东西：
-#   relay / geminiCarbonRelay —— dsh 与 pi 都声明这两个 provider（dsh 走 cordis
+#   relay / deepseekRelay —— dsh 与 pi 都声明这两个 provider（dsh 走 cordis
 #                   patch，pi 走 models-overlay.json），字段必须一致，否则同一
 #                   网关两侧的 key / 模型集合 / 能力元数据会各自漂移。两条路由
-#                   共用同一个 baseURL（值见 relay.baseURLEnv），只是 key 不同。
+#                   共用同一个 baseURL（值见 deepseekRelay.baseURLEnv），只是
+#                   key 与模型集合不同。
 # 本文件只产出数据（含求值期校验），不做渲染：dsh 用它已有的 YAML emitter，
 # pi 用它自己的 schema 转换器。
 {
@@ -76,7 +77,7 @@ let
   # 探针实测：1M 上下文、384k 输出（mt=384000 与 32768 均 200）、纯红 1x1 PNG
   # 探针 200（认图）；不传 thinking 参数也自带 reasoning_content（即 off 档实际
   # 仍会思考，故不声明 off —— 不提供关不掉的档位）。
-  relayModelMeta = {
+  deepseekRelayModelMeta = {
     "deepseek-flash" = {
       name = "DeepSeek V4.1 Flash";
       contextWindow = 1000000;
@@ -106,22 +107,37 @@ let
       };
     };
   };
-  # Gemini 4 Carbon：同一 relay 网关上的另一条令牌（模型授权不同，key 也不同）。
-  # 容量与档位取自 models.dev 的 google/vertex slice（2026-11-11 抓取）：
-  #   limit.context 1048576；reasoning_options effort low|medium|high。
-  # output 两个 slice 不一致（google 32768、google-vertex 65536）；2026-11-11 探针
-  # 实测网关对 max_tokens 65536 与 131072 都返回 200（不校验模型上限），故取
-  # models.dev 记的 Vertex 值 65536，不自己发明更大的数字。
+  # 三条 openai-completions 共用：网关是 OpenAI 兼容层，thinking 走
+  # reasoning_effort；max_tokens 是它的字段名（探针见下）。
+  openaiCompat = {
+    thinkingFormat = "openai";
+    supportsReasoningEffort = true;
+    maxTokensField = "max_tokens";
+  };
+
+  # 多厂商 relay：与 deepseek-relay 同一个网关，另一把按模型授权的令牌
+  # （2026-11-11 用 deepseek-relay 的 key 打 /v1/models 只列 deepseek-flash；
+  # 换成这把后同一端点返回 claude-* / gemini-* / gpt-* 二十多条 —— 网关按令牌
+  # 收窄模型集合）。
+  #
+  # 容量/档位/定价取自 models.dev（2026-11-11 抓取），不靠猜：
+  #   gemini-4-carbon    google/vertex slice：1M ctx；output 两个 slice 不一致
+  #                      （32768 / 65536），探针实测 max_tokens 65536 与 131072
+  #                      都 200（网关不校验模型上限），取 Vertex 值 65536
+  #   claude-opus-5-5    anthropic slice：1M ctx / 128k output；effort low..max
+  #   claude-fable-5-2   同上；定价 8/40（2026-11-09 发布）
   #
   # 探针实测（2026-11-11，本 key）：
-  #   - 纯文本 200；不传 reasoning_effort 也会思考（thinking 默认开，回答前就花掉
-  #     上百 reasoning token），故不声明 off 档。
-  #   - reasoning_effort: low/medium/high 全部 200，且 completion_tokens_details
-  #     .reasoning_tokens > 0 → compat.thinkingFormat = "openai" 成立，参数没有被
-  #     静默丢弃。三档在这条简单题上 token 数接近，档位粒度未细究。
-  #   - 1x1 PNG 附件 200（prompt_tokens 1388），故 input 声明 image。
-  #   - developer 角色 200；保守起见仍按 supportsDeveloperRole = false 走 system。
-  geminiCarbonModelMeta = {
+  #   - 三个模型纯文本均 200；max_tokens 65536/131072 均被接受（网关不拒绝超过
+  #     模型上限的值，所以上限一律取 models.dev 的数字）
+  #   - gemini-4-carbon：不传 reasoning_effort 也会思考（thinking 默认开），
+  #     reasoning_effort low/medium/high 均生效（reasoning_tokens > 0）
+  #   - claude-opus-5-5 / claude-fable-5-2：reasoning_effort high/max/xhigh 均
+  #     200（网关接受该键），但 usage 里 reasoning_tokens 恒为 0，实际思考深度
+  #     无法从响应侧验证
+  #   - 1x1 PNG 附件 200（三个模型都试过）
+  #   - developer 角色 200；保守起见仍按 supportsDeveloperRole = false 走 system
+  relayModelMeta = {
     "gemini-4-carbon" = {
       name = "Gemini 4 Carbon";
       contextWindow = 1048576;
@@ -132,11 +148,7 @@ let
         medium = "medium";
         high = "high";
       };
-      compat = {
-        thinkingFormat = "openai";
-        supportsReasoningEffort = true;
-        maxTokensField = "max_tokens";
-      };
+      compat = openaiCompat;
       # pi 专有（dsh patch schema 无 cost 字段）：官方 API 定价（USD / 1M token），
       # 企业网关是否按此计费以账单为准。
       cost = {
@@ -144,6 +156,46 @@ let
         output = 10;
         cacheRead = 0.1;
         cacheWrite = 0;
+      };
+    };
+    "claude-opus-5-5" = {
+      name = "Claude Opus 5.5";
+      contextWindow = 1000000;
+      maxTokens = 128000;
+      input = [ "text" "image" ];
+      reasoningEfforts = {
+        low = "low";
+        medium = "medium";
+        high = "high";
+        xhigh = "xhigh";
+        max = "max";
+      };
+      compat = openaiCompat;
+      cost = {
+        input = 4;
+        output = 20;
+        cacheRead = 0.2;
+        cacheWrite = 5;
+      };
+    };
+    "claude-fable-5-2" = {
+      name = "Claude Fable 5.2";
+      contextWindow = 1000000;
+      maxTokens = 128000;
+      input = [ "text" "image" ];
+      reasoningEfforts = {
+        low = "low";
+        medium = "medium";
+        high = "high";
+        xhigh = "xhigh";
+        max = "max";
+      };
+      compat = openaiCompat;
+      cost = {
+        input = 8;
+        output = 40;
+        cacheRead = 0.2;
+        cacheWrite = 10;
       };
     };
   };
@@ -183,7 +235,7 @@ let
   };
 in
 {
-  inherit thinkingLevels compatKeys relayModelMeta opencodeFreeModelMeta modelLock;
+  inherit thinkingLevels compatKeys deepseekRelayModelMeta opencodeFreeModelMeta modelLock;
 
   # opencode-go 的免费档：同一网关、同一把 key，`-free` 后缀单独成路由。
   # 清单同样由锁文件给 id，元数据在这里（取自 models.dev 的 opencode slice，
@@ -221,7 +273,7 @@ in
   # deepseek-v4-flash / v4-pro / *-byte / vision-exp 全部 403「该令牌无权访问
   # 模型」，仅 deepseek-flash 200。换 key 或网关放开权限后改这里一处，两侧同时
   # 跟随。
-  relay = {
+  deepseekRelay = {
     name = "deepseek-relay";
     displayName = "DeepSeek Relay";
     api = "openai-completions";
@@ -245,7 +297,7 @@ in
     models = validate "deepseek-relay" (
       map (
         id:
-        (relayModelMeta.${id} or (
+        (deepseekRelayModelMeta.${id} or (
           throw "llm-routes: models.lock.json 里有 deepseek-relay/${id}，但 routes.nix 没有它的元数据（容量/档位不能猜，请手工补一条）"
         ))
         // {
@@ -255,31 +307,38 @@ in
     );
   };
 
-  # Gemini 4 Carbon 走**同一个** relay 网关（同一个 baseURL），但用另一把按模型
-  # 授权的 key：2026-11-11 用 deepseek-relay 的 key 打 /v1/models，清单只有
-  # deepseek-flash；换成这把 key 后同一端点返回 claude-* / gemini-* / gpt-* 二十
-  # 多条 —— 网关按令牌收窄模型集合。
+  # 多厂商 relay 路由：同一个网关、同一把 key，三家模型共用一条路由。
   #
-  # 非 catalog 路由（同 relay）：pi-ai 没有内置条目，能力元数据只能在这里声明。
-  # 模型集合是**字面清单**而不是锁文件：本轮只明确要 gemini-4-carbon 一个 id
-  # （网关里还有 gemini-4-argon、gemini-3.x 等）。要跟随网关清单时再迁到
+  # 非 catalog 路由：pi-ai 没有这些 id 的内置条目，能力元数据只能在这里声明。
+  # 模型集合是**字面清单**而不是锁文件：本轮只要这三个 id（网关里还有
+  # gemini-4-argon、gemini-3.x、gpt-* 等）。要跟随网关清单时再迁到
   # models.lock.json，并补一条 autosync 描述符（见 pkgs/dsh-local 的
   # deepseek-relay 行）—— 那一步会给每条新 id 触发「缺元数据」的求值报错。
-  geminiCarbonRelay = {
-    name = "gemini-4-carbon-relay";
-    displayName = "Gemini 4 Carbon Relay";
+  relay = {
+    name = "relay";
+    displayName = "Relay";
     api = "openai-completions";
-    apiKeyEnv = "GEMINI_CARBON_RELAY_API_KEY";
+    apiKeyEnv = "RELAY_API_KEY";
     # 与 deepseek-relay 同一个端点事实：值来自 clan vars openai-relay/base-url，
     # 渲染进 dsh.env 的 DEEPSEEK_RELAY_BASE_URL（env 名保留历史拼写，见 dsh 模块）。
     baseURLEnv = "DEEPSEEK_RELAY_BASE_URL";
     compat = {
       supportsDeveloperRole = false;
     };
-    reasoning = "high";
-    models = validate "gemini-4-carbon-relay" [
-      (geminiCarbonModelMeta."gemini-4-carbon" // {
+    # 路由级默认思考档：dsh 只有这一个默认（做不到按模型分档），取 opus 的 xhigh。
+    # gemini 只提供到 high，dsh 的 describableReasoningLevel 对不支持的档位返回
+    # undefined（回落 provider 默认），不会报错。pi 侧的 per-model 默认在
+    # settings.json 的 modelThinkingLevels（见 modules/home/pi）。
+    reasoning = "xhigh";
+    models = validate "relay" [
+      (relayModelMeta."gemini-4-carbon" // {
         id = "gemini-4-carbon";
+      })
+      (relayModelMeta."claude-opus-5-5" // {
+        id = "claude-opus-5-5";
+      })
+      (relayModelMeta."claude-fable-5-2" // {
+        id = "claude-fable-5-2";
       })
     ];
   };
