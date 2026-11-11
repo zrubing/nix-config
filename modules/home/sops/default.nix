@@ -125,6 +125,15 @@ in
       format = "binary";
     };
 
+    # Gemini 4 Carbon relay 独立 key：同一 relay 网关，另一把按模型授权的令牌
+    # （2026-11-11 实测 deepseek-relay 的 key 在 /v1/models 只列 deepseek-flash）。
+    # 密文由 clan vars 的 gemini-4-carbon-relay generator 管理，渲染进 dsh.env 与
+    # default.env 的 GEMINI_CARBON_RELAY_API_KEY（dsh 与 pi 两侧同一个 env 名）。
+    sops.secrets."gemini-4-carbon-relay/api_key" = {
+      sopsFile = ../../../vars/per-machine/zen14/gemini-4-carbon-relay/api-key/secret;
+      format = "binary";
+    };
+
     # ApiPost MCP token：密文由 clan vars 管理（clan/zen14.nix 的 apipost-mcp-token
     # generator，写入 vars/per-machine/zen14/apipost-mcp-token/）。加密 recipients
     # 同时含 machines/zen14 与 users/jojo，故这里可用 jojo 的 age(ssh) key 解密。
@@ -395,6 +404,11 @@ in
         # 2026-09-14 之前 pi 侧 key 硬编码在 age 密文里且与 dsh 不同源（dsh key
         # 对 v4-flash/v4-pro 全部 403，pi key 可访问），现已统一到同一 secret。
         export DEEPSEEK_RELAY_API_KEY="${config.sops.placeholder."deepseek-relay/api_key"}"
+        # Gemini 4 Carbon relay：同一个网关的另一把令牌（clan vars
+        # gemini-4-carbon-relay/api-key），dsh.env 里同名变量供 dsh 的
+        # gemini-4-carbon-relay 路由使用。base URL 与 deepseek-relay 同源，
+        # 由 pi 的 models.json 合并脚本按 baseUrlFrom 从密文继承，不重复声明。
+        export GEMINI_CARBON_RELAY_API_KEY="${config.sops.placeholder."gemini-4-carbon-relay/api_key"}"
         # GH_TOKEN 复用 github-mcp/api_token 同一份 PAT（clan/zen14.nix github-mcp-token），
         # 供 gh CLI / git 等读标准 GH_TOKEN 完成认证。单一来源，随 MCP token 一起轮换。
         export GH_TOKEN="${config.sops.placeholder."github-mcp/api_token"}"
@@ -449,6 +463,7 @@ in
         DEEPSEEK_API_KEY=${config.sops.placeholder."deepseek/api_key"}
         OPENAI_API_KEY=${config.sops.placeholder."openai/api_key"}
         DEEPSEEK_RELAY_API_KEY=${config.sops.placeholder."deepseek-relay/api_key"}
+        GEMINI_CARBON_RELAY_API_KEY=${config.sops.placeholder."gemini-4-carbon-relay/api_key"}
         DEEPSEEK_RELAY_BASE_URL=${config.sops.placeholder."deepseek-relay/base_url"}
         OPENROUTER_API_KEY=${config.sops.placeholder."openrouter/api_key"}
         RUNINFRA_GATEWAY_KEY=${config.sops.placeholder."runinfra/gateway_key"}

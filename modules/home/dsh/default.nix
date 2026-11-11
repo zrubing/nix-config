@@ -33,7 +33,7 @@
 #
 #   1. 端点不落 store —— 模板里是占位符 `@DEEPSEEK_RELAY_BASE_URL@`，activation 时
 #      从 dsh.env 取真值替换，写进 profile（0600）。与 sops template 同一形态。
-#   2. bundle 层一个 `!!js` 都没有（deepseek-relay / openai 两条整条从 bundle 移出，
+#   2. bundle 层一个 `!!js` 都没有（带运行期端点的路由整条从 bundle 移出，
 #      端点只在这份渲染结果里），所以 pi-ai 的 `Config()` 永远看到字符串 —— kernel
 #      侧「校验前先求值 !!js」那个补丁因此不再需要，已删。
 #   3. 只有 llm-pi-ai 这一行归 nix；其它行（agent-default-model、ui-settings-general、
@@ -42,7 +42,7 @@
 # 语义 = rebuild 回到声明态，运行时改动活到下次 rebuild；真改过才重启 dsh-web。
 #
 # 代价（明确接受）：没被渲染过的 profile（`--from-default-profile`、手敲
-# `dsh plugin` 建的目录）里没有 relay / openai 这两条路由 —— 选中时 pi-ai 报
+# `dsh plugin` 建的目录）里没有这些带端点的路由 —— 选中时 pi-ai 报
 # "needs a baseURL"，是响的失败，不会静默走错端点。
 let
   cfg = config.${namespace}.modules.dsh;
@@ -555,12 +555,13 @@ let
   # 容量不再有本地覆盖——网关 /v1/models 是唯一来源。
   llmRoutes = import ../llm-routes/routes.nix { inherit lib; };
   relayRoute = llmRoutes.relay;
+  geminiRoute = llmRoutes.geminiCarbonRelay;
   # nvidia-nim adapter 与本文件的 emitter 共用同一套级别枚举
   inherit (llmRoutes) thinkingLevels;
 
-  # relay 路由的 models: 块（YAML，已预缩进到绝对列 10）
-  relayModelsYaml = yamlIndent10 (
-    lib.concatStringsSep "\n" (lib.concatMap yamlScalarModel relayRoute.models)
+  # 某条路由的 models: 块（YAML，已预缩进到绝对列 10）
+  routeModelsYaml = route: yamlIndent10 (
+    lib.concatStringsSep "\n" (lib.concatMap yamlScalarModel route.models)
   );
 
   # ── 模型清单的声明式化：离线对账 ─────────────────────────────────────────
@@ -655,16 +656,16 @@ let
     ++ lib.optional (compatKeys != [ ]) "  compat:"
     ++ (lib.map (k: "    ${k}: ${yamlScalar compat.${k}}") compatKeys);
 
-  # relay 路由的 provider 级 compat 块（YAML，绝对列位：compat 在列 8、键在列 10，
+  # 路由的 provider 级 compat 块（YAML，绝对列位：compat 在列 8、键在列 10，
   # 与 provider 级其他字段对齐）。
   # 缩进规则（实测）：`''` 会剥掉共同缩进，而插值值**原样插入**、不继承源缩进——
   # 所以多行插值块必须自带完整绝对缩进，源里 ${...} 前面的空格只参与公共缩进计算。
-  # 与下面 indent10 的模型块同一手法。
-  relayCompatYaml = lib.concatStringsSep "\n" (
+  # 与上面 indent10 的模型块同一手法。
+  routeCompatYaml = route: lib.concatStringsSep "\n" (
     [ "        compat:" ]
     ++ lib.map
-      (k: "          ${k}: ${yamlScalar relayRoute.compat.${k}}")
-      (builtins.attrNames relayRoute.compat)
+      (k: "          ${k}: ${yamlScalar route.compat.${k}}")
+      (builtins.attrNames route.compat)
   );
 
   # ---- runinfra models adapter（seed，非权威）----------------------------
@@ -956,15 +957,17 @@ let
   # 单一事实来源是 modules/home/llm-routes/routes.nix 与 models.lock.json；这里只做
   # YAML 传输。同一份文本派生两个产物：
   #
-  #   bundleProviders  —— 进 bundle 层（llmRoutesBundle）。**不含** deepseek-relay 与
-  #                       openai：这两条的 baseURL 是运行时才有的端点，store 里不能
-  #                       有，所以它们只活在下面那份 profile 渲染结果里。于是 bundle
-  #                       层零 `!!js`，pi-ai 的 Config() 永远看到字符串。
+  #   bundleProviders  —— 进 bundle 层（llmRoutesBundle）。**不含** baseURL 还是
+  #                       占位符的路由（deepseek-relay / gemini-4-carbon-relay /
+  #                       openai）：它们的端点是运行时才有的，store 里不能有，所以
+  #                       只活在下面那份 profile 渲染结果里。于是 bundle 层零
+  #                       `!!js`，pi-ai 的 Config() 永远看到字符串。
   #   profilePatch     —— activation 渲染进 profile 层：完整表，端点写占位符
   #                       （relayBaseUrlPlaceholder），activation 时从 dsh.env 换成
   #                       字面量。occupies 整行 llm-pi-ai（config 整块替换）。
   #
-  # 端点占位符只出现在上面这两条的 baseURL 上；其余字段全是字面量。
+  # 端点占位符出现在所有需要运行期端点的路由的 baseURL 上；其余字段全是字面量。
+  # 判据统一用这个字符串本身（bundle 过滤 + activation 替换），不维护路由名清单。
   relayBaseUrlPlaceholder = "@DEEPSEEK_RELAY_BASE_URL@";
 
   llmPiAiProvidersFull = pkgs.writeText "dsh-llm-pi-ai-providers-full.yml" ''
@@ -994,7 +997,7 @@ let
           # baseURL 由 activation 从 dsh.env 替换（占位符 → 字面量）。写成 quoted：
           # 替换后是 https://... 形态，引号让 YAML 侧不必依赖字符集。
           baseURL: "${relayBaseUrlPlaceholder}"
-  ${relayCompatYaml}
+  ${routeCompatYaml relayRoute}
           # 路由级默认思考档。dsh 的 llm-pi-ai 把 profile.reasoning 交给每个
           # 模型当默认值（describableReasoningLevel → defaultEffort），模型
           # 选择器以此为初值；前提是模型自己声明了对应档（见下）。
@@ -1005,7 +1008,21 @@ let
           # deepseek-*，其余手工条目不受影响）。每条必须显式声明
           # reasoningEfforts，缺失 = 该模型"无推理能力"→ 选择器不显示思考强度。
           models:
-  ${relayModelsYaml}
+  ${routeModelsYaml relayRoute}
+        # gemini-4-carbon-relay：同一个企业 relay 网关、另一把按模型授权的
+        # key（clan vars gemini-4-carbon-relay/api-key）。端点复用同一占位符，
+        # activation 一次替换所有实例（见 home.activation.dshProfileProviders）。
+        # 模型集合是 routes.nix 里的字面清单（本轮只要 gemini-4-carbon 一个 id），
+        # 不跟 models.lock.json 对账；要跟随网关清单再补 autosync 描述符。
+        gemini-4-carbon-relay:
+          apiKeyEnv: ${geminiRoute.apiKeyEnv}
+          displayName: ${geminiRoute.displayName}
+          api: ${geminiRoute.api}
+          baseURL: "${relayBaseUrlPlaceholder}"
+  ${routeCompatYaml geminiRoute}
+          reasoning: ${geminiRoute.reasoning}
+          models:
+  ${routeModelsYaml geminiRoute}
         # opencode-go 是 pi-ai 内置 catalog 路由（OpenCode Go 网关，
         # 含 deepseek-v4-pro/flash、glm-5.2、kimi-k3、qwen3.7 等模型），
         # 认证环境变量 OPENCODE_API_KEY 与 jojo home 注入一致。
@@ -1051,7 +1068,7 @@ let
           models:
   ${opencodeFreeModelsYaml}
         # 本表只做 YAML 传输，产出两个文件（见上方 llmRoutesBundle / profilePatch）：
-        # bundle 层那份减掉 deepseek-relay 与 openai（端点属于 profile 渲染），
+        # bundle 层那份减掉所有「baseURL 仍是占位符」的路由（端点属于 profile 渲染），
         # profile 层那份是完整表 + 端点占位符。改 route/模型只改这里 + rebuild。
         # openrouter 是 pi-ai 内置 catalog 路由（https://openrouter.ai/api/v1，
         # openai-completions），catalog 内置 276 个模型，无需手工声明 models。
@@ -1130,16 +1147,19 @@ let
               contextWindow: 272000
   '';
 
-  # bundle 层那份：整表减去两条带端点的路由。减掉而不是留空 baseURL 的原因：
-  # resolveProfiles 在 apply 期就会为「声明了 models 却没有 baseURL、catalog 又描述
-  # 不了」的路由抛错，整根 llm-pi-ai 纤维跟着挂 —— 新 profile 直接起不来。
-  # 减掉则是「没有这条路由」，请求不到等于选择器里不出现，不会误伤启动。
+  # bundle 层那份：整表减去所有 baseURL 仍是运行期占位符的路由（目前三条：
+  # deepseek-relay / gemini-4-carbon-relay / openai）。判据是占位符本身而不是
+  # 路由名清单：新增一条同网关路由时只改上面的 provider 表，这里自动跟随。
+  # 减掉而不是留空 baseURL 的原因：resolveProfiles 在 apply 期就会为「声明了
+  # models 却没有 baseURL、catalog 又描述不了」的路由抛错，整根 llm-pi-ai 纤维
+  # 跟着挂 —— 新 profile 直接起不来。减掉则是「没有这条路由」，请求不到等于
+  # 选择器里不出现，不会误伤启动。
   bundleProviders = pkgs.runCommand "dsh-llm-pi-ai-providers-bundle.yml" {
     nativeBuildInputs = [ pkgs.yq-go ];
   } ''
-    SRC=${llmPiAiProvidersFull} yq -n '
+    SRC=${llmPiAiProvidersFull} PH=${relayBaseUrlPlaceholder} yq -n '
       load(strenv(SRC)).providers as $p
-      | [ { "id": "llm-pi-ai", "config": { "providers": ($p | del(.deepseek-relay, .openai)) } } ]
+      | [ { "id": "llm-pi-ai", "config": { "providers": ($p | with_entries(select(.value.baseURL != strenv(PH)))) } } ]
     ' > $out
   '';
 
@@ -1398,7 +1418,7 @@ in
       #   3. 其它行（agent-default-model / ui-settings-general / dsh-tui）原样保留。
       #
       # 端点读不到时只 WARN 不写：宁可保留上一次渲染好的文件，也不要写一份没有
-      # 端点的表（那会让 relay/openai 两条路由在运行期凭空消失）。
+      # 端点的表（那会让所有带端点的路由在运行期凭空消失）。
       # 播种器只在 dsh 启动时跑，而 multica daemon 是**在自己的进程里**探测
       # ~/.dsh/profiles/multica 的。switch 后主动跑一次，让 profile 立刻就位，
       # 不必等下一次任何 dsh 调用（daemon 每 2 分钟也会重探一次，这是兜底）。
@@ -1420,7 +1440,9 @@ in
 
         # 一行：模板取第 0 行 → 换成真端点 → 顶掉 profile 里同 id 的行（没有就追加）。
         # 顺序会变（llm-pi-ai 落到末尾），不影响：patch 按 id 生效，本文件没有 insert 行。
-        render='load(strenv(TPL))[0] as $t | ($t | .config.providers["deepseek-relay"].baseURL = strenv(RELAY) | .config.providers.openai.baseURL = strenv(RELAY)) as $row | [.[] | select(.id != "llm-pi-ai")] + [$row]'
+        # 端点的判据是「baseURL 仍是占位符」而不是路由名：新增一条同网关路由时
+        # 只改上面的 provider 表，这里自动跟随（与 bundleProviders 同一判据）。
+        render='load(strenv(TPL))[0] as $t | ($t | (.config.providers[] | select(.baseURL == "${relayBaseUrlPlaceholder}") | .baseURL) |= strenv(RELAY)) as $row | [.[] | select(.id != "llm-pi-ai")] + [$row]'
 
         changed=
         for target in ${lib.concatMapStringsSep " " (name: lib.escapeShellArg name) (builtins.attrValues profileNames)}; do

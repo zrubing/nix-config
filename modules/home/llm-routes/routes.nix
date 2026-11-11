@@ -1,9 +1,10 @@
 # LLM 路由的共享事实（单一来源）。
 #
 # 范围刻意收窄到「两个消费方真的都要读」的东西：
-#   relay        —— dsh 与 pi 都声明这个 provider（dsh 走 cordis patch，
-#                   pi 走 models-overlay.json），字段必须一致，否则同一网关
-#                   两侧的 key / 模型集合 / 能力元数据会各自漂移。
+#   relay / geminiCarbonRelay —— dsh 与 pi 都声明这两个 provider（dsh 走 cordis
+#                   patch，pi 走 models-overlay.json），字段必须一致，否则同一
+#                   网关两侧的 key / 模型集合 / 能力元数据会各自漂移。两条路由
+#                   共用同一个 baseURL（值见 relay.baseURLEnv），只是 key 不同。
 # 本文件只产出数据（含求值期校验），不做渲染：dsh 用它已有的 YAML emitter，
 # pi 用它自己的 schema 转换器。
 {
@@ -95,6 +96,53 @@ let
         input = 0.22;
         output = 0.66;
         cacheRead = 0.007;
+        cacheWrite = 0;
+      };
+      # pi 专有：前缀缓存保温的「best-effort 寿命」。只有声明了它的模型才进入
+      # warming 候选；DeepSeek 未公布 TTL，取保守端 1 小时（渲染细节见
+      # modules/home/pi 的 piModel）。
+      promptCache = {
+        short = 3600;
+      };
+    };
+  };
+  # Gemini 4 Carbon：同一 relay 网关上的另一条令牌（模型授权不同，key 也不同）。
+  # 容量与档位取自 models.dev 的 google/vertex slice（2026-11-11 抓取）：
+  #   limit.context 1048576；reasoning_options effort low|medium|high。
+  # output 两个 slice 不一致（google 32768、google-vertex 65536）；2026-11-11 探针
+  # 实测网关对 max_tokens 65536 与 131072 都返回 200（不校验模型上限），故取
+  # models.dev 记的 Vertex 值 65536，不自己发明更大的数字。
+  #
+  # 探针实测（2026-11-11，本 key）：
+  #   - 纯文本 200；不传 reasoning_effort 也会思考（thinking 默认开，回答前就花掉
+  #     上百 reasoning token），故不声明 off 档。
+  #   - reasoning_effort: low/medium/high 全部 200，且 completion_tokens_details
+  #     .reasoning_tokens > 0 → compat.thinkingFormat = "openai" 成立，参数没有被
+  #     静默丢弃。三档在这条简单题上 token 数接近，档位粒度未细究。
+  #   - 1x1 PNG 附件 200（prompt_tokens 1388），故 input 声明 image。
+  #   - developer 角色 200；保守起见仍按 supportsDeveloperRole = false 走 system。
+  geminiCarbonModelMeta = {
+    "gemini-4-carbon" = {
+      name = "Gemini 4 Carbon";
+      contextWindow = 1048576;
+      maxTokens = 65536;
+      input = [ "text" "image" ];
+      reasoningEfforts = {
+        low = "low";
+        medium = "medium";
+        high = "high";
+      };
+      compat = {
+        thinkingFormat = "openai";
+        supportsReasoningEffort = true;
+        maxTokensField = "max_tokens";
+      };
+      # pi 专有（dsh patch schema 无 cost 字段）：官方 API 定价（USD / 1M token），
+      # 企业网关是否按此计费以账单为准。
+      cost = {
+        input = 2;
+        output = 10;
+        cacheRead = 0.1;
         cacheWrite = 0;
       };
     };
@@ -205,6 +253,35 @@ in
         }
       ) modelLock."deepseek-relay"
     );
+  };
+
+  # Gemini 4 Carbon 走**同一个** relay 网关（同一个 baseURL），但用另一把按模型
+  # 授权的 key：2026-11-11 用 deepseek-relay 的 key 打 /v1/models，清单只有
+  # deepseek-flash；换成这把 key 后同一端点返回 claude-* / gemini-* / gpt-* 二十
+  # 多条 —— 网关按令牌收窄模型集合。
+  #
+  # 非 catalog 路由（同 relay）：pi-ai 没有内置条目，能力元数据只能在这里声明。
+  # 模型集合是**字面清单**而不是锁文件：本轮只明确要 gemini-4-carbon 一个 id
+  # （网关里还有 gemini-4-argon、gemini-3.x 等）。要跟随网关清单时再迁到
+  # models.lock.json，并补一条 autosync 描述符（见 pkgs/dsh-local 的
+  # deepseek-relay 行）—— 那一步会给每条新 id 触发「缺元数据」的求值报错。
+  geminiCarbonRelay = {
+    name = "gemini-4-carbon-relay";
+    displayName = "Gemini 4 Carbon Relay";
+    api = "openai-completions";
+    apiKeyEnv = "GEMINI_CARBON_RELAY_API_KEY";
+    # 与 deepseek-relay 同一个端点事实：值来自 clan vars openai-relay/base-url，
+    # 渲染进 dsh.env 的 DEEPSEEK_RELAY_BASE_URL（env 名保留历史拼写，见 dsh 模块）。
+    baseURLEnv = "DEEPSEEK_RELAY_BASE_URL";
+    compat = {
+      supportsDeveloperRole = false;
+    };
+    reasoning = "high";
+    models = validate "gemini-4-carbon-relay" [
+      (geminiCarbonModelMeta."gemini-4-carbon" // {
+        id = "gemini-4-carbon";
+      })
+    ];
   };
 
 }

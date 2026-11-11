@@ -175,6 +175,23 @@
     '';
   };
 
+  # Gemini 4 Carbon relay 的独立 API key：与 deepseek-relay 同一个 relay 网关，
+  # 但令牌按模型授权（deepseek-relay 的 key 在 /v1/models 只列出 deepseek-flash）。
+  # 消费方：home sops 渲染进 dsh.env 与 default.env 的
+  # GEMINI_CARBON_RELAY_API_KEY，供 dsh / pi 的 gemini-4-carbon-relay 路由使用。
+  # 换值：clan vars set zen14 gemini-4-carbon-relay/api-key
+  clan.core.vars.generators.gemini-4-carbon-relay = {
+    prompts.api-key = {
+      description = "Gemini 4 Carbon relay API key (sk-...)";
+      type = "hidden";
+    };
+    files.api-key.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/api-key > $out/api-key
+    '';
+  };
+
   # DeepSeek 官方平台（api.deepseek.com）的 API key。原先存私有 nix-secrets 仓库的
   # sops env.yaml（deepseek/api_key），2026-09-20 迁入 clan vars——官方 key 与
   # relay key 各自单一来源，轮换只改 clan vars，不再需要改私有仓库 + 更新

@@ -50,37 +50,50 @@ let
   # baseUrl（规则见 modules/home/agenix）。
   llmRoutes = import ../llm-routes/routes.nix { inherit lib; };
   relayRoute = llmRoutes.relay;
+  geminiRoute = llmRoutes.geminiCarbonRelay;
 
   # 共享 schema（dsh 规范式）→ pi models.json 的 provider 条目
-  relayProvider = {
-    name = relayRoute.displayName;
-    api = relayRoute.api;
-    apiKey = "$" + relayRoute.apiKeyEnv;
-    compat = relayRoute.compat;
-    models = lib.map (m: {
-      inherit (m) id name contextWindow maxTokens;
-      input = m.input or [ "text" ];
-      # 缺级补 null = 该级不支持（pi 的 thinkingLevelMap 三态语义）
-      thinkingLevelMap = lib.genAttrs llmRoutes.thinkingLevels (
-        l: if builtins.hasAttr l (m.reasoningEfforts or { }) then m.reasoningEfforts.${l} else null
-      );
-      reasoning = (lib.filter (l: l != "off" && builtins.hasAttr l (m.reasoningEfforts or { })) llmRoutes.thinkingLevels) != [ ];
-      cost = m.cost or {
-        input = 0;
-        output = 0;
-        cacheRead = 0;
-        cacheWrite = 0;
-      };
-      # pi 原生前缀缓存保温（0.86+）的资格声明：只有声明了「best-effort 寿命」的
-      # 模型才进入 warming 候选，没这条 = 永不续命。pi 只在「避免的 miss 成本 ≥ $0.05」
-      # 时才真续——按本路由 cacheRead 0.007 / input 0.22 算，前缀要 ~235k token 以上才会
-      # 触发，短会话完全不参与（不花钱）。DeepSeek 官方未公布 TTL（只说长期不用的条目
-      # 会自动清空），取保守端 1 小时：真实 TTL 更长只是少续几次，不会更贵（一次续命
-      # ≈ 0.007/M × 前缀）。pi 专有概念，dsh 侧无对应字段，故留在 pi 渲染器里（同 cost）。
-      promptCache = {
-        short = 3600;
-      };
-    } // lib.optionalAttrs (m ? compat) { inherit (m) compat; }) relayRoute.models;
+  providerEntry = route: {
+    name = route.displayName;
+    api = route.api;
+    apiKey = "$" + route.apiKeyEnv;
+    models = lib.map piModel route.models;
+  } // lib.optionalAttrs (route ? compat) { inherit (route) compat; };
+
+  piModel = m: {
+    inherit (m) id name contextWindow maxTokens;
+    input = m.input or [ "text" ];
+    # 缺级补 null = 该级不支持（pi 的 thinkingLevelMap 三态语义）
+    thinkingLevelMap = lib.genAttrs llmRoutes.thinkingLevels (
+      l: if builtins.hasAttr l (m.reasoningEfforts or { }) then m.reasoningEfforts.${l} else null
+    );
+    reasoning = (lib.filter (l: l != "off" && builtins.hasAttr l (m.reasoningEfforts or { })) llmRoutes.thinkingLevels) != [ ];
+    cost = m.cost or {
+      input = 0;
+      output = 0;
+      cacheRead = 0;
+      cacheWrite = 0;
+    };
+  } // lib.optionalAttrs (m ? compat) { inherit (m) compat; }
+    # pi 原生前缀缓存保温（0.86+）的资格声明：只有声明了「best-effort 寿命」的
+    # 模型才进入 warming 候选，没这条 = 永不续命。pi 只在「避免的 miss 成本 ≥ $0.05」
+    # 时才真续——按 relay 的 cacheRead 0.007 / input 0.22 算，前缀要 ~235k token 以上
+    # 才会触发，短会话完全不参与（不花钱）。DeepSeek 官方未公布 TTL（只说长期不用的
+    # 条目会自动清空），取保守端 1 小时：真实 TTL 更长只是少续几次，不会更贵（一次
+    # 续命 ≈ 0.007/M × 前缀）。该字段在 routes.nix 的模型元数据里声明（pi 专有概念，
+    # dsh 侧无对应字段，与 cost 同）；没声明的模型（如 gemini-4-carbon）不参与保温。
+    // lib.optionalAttrs (m ? promptCache) { inherit (m) promptCache; };
+
+  piProviders = {
+    # relay：baseUrl 只在密文里（overlay 不写，合并时补回）。
+    "${relayRoute.name}" = providerEntry relayRoute;
+    # gemini-4-carbon-relay：与 relay 同一个网关，baseUrl 也只在密文里——但密文
+    # 里没有这条 provider 的条目。baseUrlFrom 是合并脚本的指令：从密文里
+    # <另一个 provider> 的 baseUrl 继承，字段本身不落进 models.json。这样端点
+    # 仍只有一个来源（age 密文），新增同网关路由不需要再动密文。
+    "${geminiRoute.name}" = providerEntry geminiRoute // {
+      baseUrlFrom = relayRoute.name;
+    };
   };
 
   # ── 缓存优化：只用「不注册 session_before_compact」的方案 ──
@@ -159,10 +172,7 @@ let
   # runinfra 由本地扩展运行时注册，模型清单与 per-model 容量都来自 dsh 发布的
   # catalog，这里不再叠加 modelOverrides（那份覆盖值只在 dsh 侧生效，随 catalog 传出）。
   piModelsOverlayJson = builtins.toJSON {
-    providers = {
-      # relay：字段全部来自 routes.nix；只有 baseUrl 仍需 age 密文提供。
-      "${relayRoute.name}" = relayProvider;
-    };
+    providers = piProviders;
   };
   # pi-blackhole 独立配置文件（不读 settings.json 的 observational-memory 块）
   # 阈值按 1M 上下文窗口调优：compactAfterTokens = 60% 窗口（官方建议 60-70%），
