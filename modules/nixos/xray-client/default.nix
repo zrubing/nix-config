@@ -48,10 +48,29 @@ let
       sleep 1
     done
 
+    # v6 冗余腿的地址：显式配置优先，留空就从 proxy 出站的域名实时解析 AAAA。
+    # 写死 anycast 地址会在对方换段时静默失效，而这个值本来就能从 DNS 拿到。
+    v6addr=${lib.escapeShellArg cfg.v6Fallback.address}
+    v6flag=${if cfg.v6Fallback.enable then "true" else "false"}
+    if [ "$v6flag" = true ] && [ -z "$v6addr" ]; then
+      v6domain="$(${pkgs.jq}/bin/jq -r '.outbounds[] | select(.tag == "proxy") | .settings.vnext[0].address // empty' ${secretPath} | head -n1)"
+      case "$v6domain" in
+        "") ;;
+        *:*) v6addr="$v6domain" ;;
+        *)
+          v6addr="$(getent ahostsv6 "$v6domain" | head -n1 | cut -d' ' -f1)" || v6addr=""
+          ;;
+      esac
+      if [ -z "$v6addr" ]; then
+        v6flag=false
+        echo "v6 冗余腿：解析不到 $v6domain 的 AAAA 记录，本次跳过" >&2
+      fi
+    fi
+
     ${pkgs.jq}/bin/jq \
       --argjson mark ${toString cfg.mihomoBypass.mark} \
-      --argjson v6 ${if cfg.v6Fallback.enable then "true" else "false"} \
-      --arg v6addr ${lib.escapeShellArg cfg.v6Fallback.address} \
+      --argjson v6 "$v6flag" \
+      --arg v6addr "$v6addr" \
       --argjson v6port ${toString cfg.v6Fallback.port} '
       def withSockopt:
         .streamSettings = (.streamSettings // {})
@@ -211,10 +230,11 @@ in
 
       address = mkOption {
         type = types.str;
-        default = "2606:4700:3031::6815:1283";
+        default = "";
         description = ''
-          IPv6 字面量，需与配置密文里出站域名（a6.alydev.top）的 AAAA 记录一致。
-          Cloudflare anycast 地址，SNI/Host 仍取原域名，所以换地址不影响证书。
+          留空表示启动时从 proxy 出站的域名解析 AAAA；只有想固定到某个地址
+          （例如临时绕开 DNS）时才填。Cloudflare 的 anycast 段会变，写死会让
+          这条腿在某天静默失效。
         '';
       };
 
@@ -285,10 +305,12 @@ in
       path = lib.optionals cfg.mihomoBypass.enable [
         pkgs.iproute2
         pkgs.jq
-        # prepare 脚本里用到的裸命令（tr/sed/grep/install/chmod）
         pkgs.coreutils
         pkgs.gnused
         pkgs.gnugrep
+        # prepare 脚本用 getent 解析 v6 冗余腿的 AAAA。
+        # glibc.bin 从 2.42 起不再带 getent，它是独立包。
+        pkgs.getent
       ];
       wantedBy = [ "multi-user.target" ];
       # agenix 的路径是稳定的 /run/agenix/...，换密文内容时 unit 文本不变，
