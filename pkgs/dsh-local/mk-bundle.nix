@@ -12,22 +12,23 @@
 #
 # 它以 `buildNpmPackage` 为构造器，于是每个 bundle 都必须提供 npmDeps /
 # npmConfigHook，只为走一遍 `npm install` 把源码原样放进 $out。本仓库这些插件零运行时
-# 依赖（peer 全由 kernel 提供），实测 `npmDeps = null` 时 npmConfigHook 直接以
+# 依赖（peer 全由 installation 提供），实测 `npmDeps = null` 时 npmConfigHook 直接以
 # "no dependencies were specified" 失败。所以这里自己做等价的三件事：
 #
 #   1. 产物布局 `$out/lib/node_modules/<name>`；
 #   2. `nix-support/dsh-bundles.json` 清单 —— 由上游的 dshBundleResolver 生成并校验
 #      （它要求声明的 patch 文件真实存在且路径不逃逸包根）；
-#   3. 一份指向 kernel node_modules 的软链，让裸 `@deepseek-ai/*` 导入（cordis、
-#      dsh-compaction-basic 等 peer）解析得到 —— 等价于上游的 linkKernelNodeModules。
-#      软链而非拷贝：kernel 拥有全部 peer，同一运行时包在整棵树里只应存在一份
+#   3. 一份指向 installation node_modules 的软链，让裸 `@deepseek-ai/*` 导入（cordis、
+#      dsh-compaction-basic 等 peer）解析得到 —— 与上游 buildDshBundle 的
+#      share-installation-packages.mjs 同一意图（把依赖链回 installation）。
+#      软链而非拷贝：installation 拥有全部 peer，同一运行时包在整棵树里只应存在一份
 #      （上游注释的 "must not resolve twice"）。
 {
   lib,
   stdenvNoCC,
   nodejs-slim,
   dshBundleResolver,
-  kernelPatched,
+  runtime,
 }:
 
 {
@@ -59,7 +60,7 @@
 }:
 
 let
-  kernelNodeModules = "${kernelPatched}/lib/deepseek-harness/node_modules";
+  installationNodeModules = "${runtime}/node_modules";
 
   # `patch = null` 的落地形态。空文件会让 dsh 跳过整个 bundle，所以是 `[]` 而不是
   # 零字节。
@@ -77,8 +78,8 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
 
-    [ -d ${kernelNodeModules} ] || {
-      printf 'dsh-local: kernel node_modules is missing: %s\n' ${kernelNodeModules} >&2
+    [ -d ${installationNodeModules} ] || {
+      printf 'dsh-local: installation node_modules is missing: %s\n' ${installationNodeModules} >&2
       exit 1
     }
 
@@ -104,9 +105,9 @@ stdenvNoCC.mkDerivation {
       fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n")
     ' "$dest/package.json"
 
-    # 裸 @deepseek-ai/* 导入靠这份软链解析（peer 全在 kernel 里）。
+    # 裸 @deepseek-ai/* 导入靠这份软链解析（peer 全在 installation 里）。
     if [ ! -e "$dest/node_modules" ] && [ ! -L "$dest/node_modules" ]; then
-      ln -s ${kernelNodeModules} "$dest/node_modules"
+      ln -s ${installationNodeModules} "$dest/node_modules"
     fi
 
     # 包名必须与安装路径一致：Loader 按名字从安装锚点解析，不一致时下游只报

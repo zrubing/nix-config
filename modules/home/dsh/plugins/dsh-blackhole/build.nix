@@ -17,7 +17,7 @@
 #     bundle disabled at startup with "incompatible with dsh <version>".
 #
 # Consumed by pkgs/dsh-local/default.nix, which wraps the result in a dsh bundle:
-#   blackholeAdapter = import ./plugins/dsh-blackhole/build.nix { inherit lib pkgs inputs kernelPatched; };
+#   blackholeAdapter = import ./plugins/dsh-blackhole/build.nix { inherit lib pkgs inputs runtimePatched; };
 # The generated preset then references the package by name:
 #   @jojo/dsh-blackhole/compaction  (compaction isolate)
 #   @jojo/dsh-blackhole             (agent scope)
@@ -25,12 +25,12 @@
   lib,
   pkgs,
   inputs,
-  # 打过本地补丁的 kernel：裸 @deepseek-ai/* 导入从这里解析。
-  kernelPatched,
+  # 打过本地补丁的 installation：裸 @deepseek-ai/* 导入从这里解析。
+  runtimePatched,
 }:
 let
   pibh = inputs.pi-blackhole-src;
-  dshNodeModules = "${kernelPatched}/lib/deepseek-harness/node_modules";
+  dshNodeModules = "${runtimePatched}/node_modules";
 in
 pkgs.runCommand "dsh-blackhole" {
   pname = "dsh-blackhole";

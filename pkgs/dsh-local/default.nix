@@ -2,7 +2,7 @@
 #
 # ## 这一层存在的理由
 #
-# 上游打包仓库（Moraxyc/deepseek-harness.nix）提供 kernel、workspace、官方 bundle
+# 上游打包仓库（Moraxyc/deepseek-harness.nix）提供 installation、workspace、官方 bundle
 # 以及把插件组织成 bundle 的组合模型。本仓库在此之上还需要三样它没有的东西：
 #
 #   1. 本地补丁 —— web-auth-bypass（内网免浏览器 token，Host/Origin fence 保留）；
@@ -28,8 +28,8 @@
 }:
 
 let
-  # 上游自带那份 nixpkgs：本地 bundle 的构建工具与清单格式以它为准。kernel 与官方
-  # bundle 不走这里，直接用 inputs.deepseek-harness 的输出（含其 cachix 缓存）。
+  # 上游自带那份 nixpkgs：本地 bundle 的构建工具与清单格式以它为准。installation 与
+  # 官方 bundle 不走这里，直接用 inputs.deepseek-harness 的输出（含其 cachix 缓存）。
   upstreamPkgs = import inputs.deepseek-harness.inputs.nixpkgs {
     inherit system;
     overlays = [ inputs.deepseek-harness.overlays.default ];
@@ -38,27 +38,32 @@ let
   inherit (upstreamPkgs.dsh) buildDshBundle;
   inherit (buildDshBundle) dshBundleResolver;
 
-  # ── 底座：kernel + bundle 都来自 inputs.deepseek-harness（单一来源）──────────
+  # ── 底座：installation + bundle 都来自 inputs.deepseek-harness（单一来源）────
   #
-  # 2026-10-29 换源：此前 kernel 取自 llm-agents 的 npm 产物、装配代码与 bundle
-  # 清单取自这里，两个 input 跟的版本线不同（llm-agents 跟 npm `next`，本仓库跟
-  # GitHub main）。0.2.2-alpha.2 的 optional-bundles.json 新增 4 个包，npm 上只有
-  # 同版本 alpha，rc.4 的依赖树里没有 → 一次 `nix flake update` 就把构建打断在
-  # `cp: cannot stat ... dsh-cua-bundle`。现在 kernel/bundle/装配代码同一 rev，
-  # 版本恒自洽。
+  # 2026-11-12 换模型：上游 d9000414「build dsh on the shared upstream installation」
+  # 删掉了 dsh-kernel 与「每个 bundle 各自 deploy」的装配方式，改成一份 installation：
   #
-  # 代价是 kernel 变成源码构建产物，但有 cachix（deepseek-harness-nix，已在本机
-  # substituters 里）：0.2.2-alpha.2 实测 kernel 与 65 个 bundle 全部命中，只下载
-  # 不编译。npm 那条线反而没有缓存可用（cache.numtide.com 上只有 llm-agents 的
-  # 产物，与本仓库的补丁/组合无关）。
+  #   · dsh-runtime = @deepseek-ai/dsh 的完整安装树，布局
+  #     <runtime>/node_modules/{@deepseek-ai/*,…}（pnpm deploy + prune/minify 过的成品，
+  #     有 cachix）。CLI 与两个 desktop 共用它，装配包只是它的 wrapper。
+  #   · 官方 bundle（base/headless/web-app，以及 installation 自带的可选包）不再各自
+  #     deploy：buildDshBundle.fromInstallation 只产出一份 manifest，packageRoot 指进
+  #     installation，profile 里按名字从 installation 解析。
+  #   · 第三方 bundle（dsh-tui、本仓库的本地 bundle）仍是独立包：播种器把
+  #     $DSH_HOME/profiles/<name>/node_modules/<包名> 软链到包目录（见 mkProfileSeeder
+  #     的 sync_profile_links）。
   #
-  # 布局正好是本文件下游各层一直假设的那份：
-  #   <kernel>/lib/deepseek-harness/{lib,config,node_modules,package.json}
-  # 所以 kernelPatched 只剩「复制 + 打三个补丁」，不再做布局整形。
-  dshKernel = inputs.deepseek-harness.packages.${system}.dsh-kernel;
-  dshVersion = dshKernel.version;
+  # 本文件因此只剩两件事：给 installation 打两个本地补丁（runtimePatched），以及按
+  # 旧方式构建本地 bundle。bundle 的 peer 解析改为链回 <runtime>/node_modules —— 与
+  # installation 共用同一份包实例（上游 share-installation-packages.mjs 的同一意图）。
+  #
+  # 代价：runtimePatched 需要复制整棵安装树（395MB）才能就地改两个文件；好处是
+  # 解析路径单一，不存在「一半包在补丁树、一半在原树」导致的重复实例。上游那份由
+  # cachix（deepseek-harness-nix，已在本机 substituters 里）供给，只有这一层本地重构。
+  dshRuntime = inputs.deepseek-harness.packages.${system}.dsh-runtime;
+  dshVersion = dshRuntime.version;
 
-  # ── kernel 本地补丁 ─────────────────────────────────────────────────────
+  # ── installation 本地补丁 ───────────────────────────────────────────────
   #
   # 为什么改编译产物而不是源码：上游 dsh-workspace 从源码构建整个 monorepo，打源码
   # 补丁意味着放弃 cachix 缓存（本地实测 76 个 derivation 需重建）。本仓库只要改一行
@@ -126,11 +131,11 @@ let
   # bundle 层里的 `!!js` 标量（端点走 env）。现在端点只存在于 activation 渲染出的
   # profile 行里、是字面量，bundle 层一个 `!!js` 都没有，pi-ai 的 Config() 永远看到
   # 字符串，那个顺序问题不再有触发面。
-  kernelPatched =
+  runtimePatched =
     let
       version = dshVersion;
-      rel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-client-connection/lib/index.js";
-      configEditorRel = "lib/deepseek-harness/node_modules/@deepseek-ai/dsh-config-editor/lib/index.js";
+      rel = "node_modules/@deepseek-ai/dsh-client-connection/lib/index.js";
+      configEditorRel = "node_modules/@deepseek-ai/dsh-config-editor/lib/index.js";
 
       # admit() 尾部的鉴权判决（alpha.4 起 requestRejection 只是它的薄包装，/api 路由
       # 与 socket 升级都直接调 admit）。整段删掉，只留前面的 fence 与 disposed。
@@ -145,53 +150,35 @@ let
       ];
       admitAllowed = "\t\treturn { peer: this.browserPeer };\n";
     in
-    upstreamPkgs.runCommand "dsh-kernel-patched"
+    upstreamPkgs.runCommand "dsh-runtime-patched"
       {
-        pname = "dsh-kernel";
+        pname = "dsh-runtime";
         inherit version;
         nativeBuildInputs = [ upstreamPkgs.gnused ];
-        # 装配包读 kernel 的 passthru 算 PATH：缺了就是 "attribute 'runtimeDeps' missing"。
-        # 上游 kernel 的 runtimeDeps 实测只有 bashInteractive（eval 验证），照抄。
+        # 装配包读 runtime 的 passthru 算 PATH（package.nix 的
+        # `inherit (runtime.passthru) runtimeDeps`）：缺了就是 "attribute
+        # 'runtimeDeps' missing"。直接沿用 installation 自己那份清单。
         passthru = {
-          runtimeDeps = [ upstreamPkgs.bashInteractive ];
+          inherit (dshRuntime.passthru) runtimeDeps;
         };
+        meta = dshRuntime.meta or { };
       }
       ''
-        app="$out/lib/deepseek-harness"
-        src=${dshKernel}/lib/deepseek-harness
-        mkdir -p "$app" "$out/bin"
-
-        # lib / config / package.json 取真副本：node 的 import.meta.url 与模块解析都按
-        # realpath 走，软链会让 $app/lib/bin.js 回到 kernel 那份目录，绕过下面的补丁。
-        # 两者合计 124KB，复制无成本。
-        cp -r "$src/lib" "$app/lib"
-        cp -r "$src/config" "$app/config"
-        cp "$src/package.json" "$app/package.json"
-        chmod -R u+w "$app/lib" "$app/config" "$app/package.json"
-
-        # node_modules 445MB / 189 个 @deepseek-ai 包：逐条软链，不复制。真路径落在
-        # kernel 自己的 store 目录里，包之间的解析仍走那份完整树（hoisted 单层）。
-        mkdir -p "$app/node_modules/@deepseek-ai"
-        for p in "$src"/node_modules/*; do
-          name=$(basename "$p")
-          [ "$name" = "@deepseek-ai" ] && continue
-          ln -s "$p" "$app/node_modules/$name"
-        done
-        for p in "$src"/node_modules/@deepseek-ai/*; do
-          ln -s "$p" "$app/node_modules/@deepseek-ai/$(basename "$p")"
-        done
-        [ -e "$src"/node_modules/.bin ] && ln -s "$src"/node_modules/.bin "$app/node_modules/.bin"
-
-        # 只有要打补丁的两个包取真副本（store 只读，不能就地改）。
-        for pkg in dsh-client-connection dsh-config-editor; do
-          rm "$app/node_modules/@deepseek-ai/$pkg"
-          cp -r "$src/node_modules/@deepseek-ai/$pkg" "$app/node_modules/@deepseek-ai/$pkg"
-          chmod -R u+w "$app/node_modules/@deepseek-ai/$pkg"
-        done
+        # 整棵树取真副本（395MB，秒级）：只链子目录会让「被链的包 import 兄弟包」时
+        # 绕回上游树，补丁只对一部分调用者生效（两份 dsh-client-connection 实例）。
+        # 真副本里每个文件的真实路径都在 $out 下，解析路径唯一。
+        #
+        # 硬链接（`cp -al`）在 sandbox 里不可用：build 的 $out 与只读 store 挂在
+        # overlay 的不同层，`ln` 直接 EXDEV（2026-11-12 实测，同一 device id 也失败）。
+        # 代价只是 store 里多一份 runtime；这份 derivation 按输入哈希缓存，只有上游
+        # rev 变化时才重新执行，不是每次 switch 都跑。
+        mkdir -p "$out"
+        cp -a ${dshRuntime}/. "$out"/
+        chmod -R u+w "$out"
 
         f="$out/${rel}"
         [ -f "$f" ] || {
-          printf 'dsh-local: kernel layout changed, missing %s\n' ${rel} >&2
+          printf 'dsh-local: installation layout changed, missing %s\n' ${rel} >&2
           exit 1
         }
 
@@ -209,7 +196,7 @@ return isTrustedApiRequest(request, this.trustedHosts, carrier?.host, carrier?.p
         # ── 补丁 2：dsh-config-editor 的 edit 脱离调用者归因 ─────────────────
         ce="$out/${configEditorRel}"
         [ -f "$ce" ] || {
-          printf 'dsh-local: kernel layout changed, missing %s\n' ${configEditorRel} >&2
+          printf 'dsh-local: installation layout changed, missing %s\n' ${configEditorRel} >&2
           exit 1
         }
 
@@ -239,22 +226,34 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
 
   # ── 官方 + 可选 bundle：直接用上游打包好的那一套 ──────────────────────────
   #
-  # inputs.deepseek-harness 的 legacyPackages.bundles 是与 kernel 同一 rev 构建的
-  # 全套 bundle（base/headless/web-app/tui + 16 个可选），布局就是装配包的契约：
-  #   $out/lib/node_modules/<包名> + nix-support/dsh-bundles.json
+  # inputs.deepseek-harness 的 legacyPackages.bundles 是与 installation 同一 rev 的
+  # 全套 bundle（base/headless/web-app/tui + 16 个可选）。新装配模型下它们分两类：
   #
-  # 必须给全量：装配包自己按 optional-bundles.json 的 attr 名从这里取（上游
-  # pkgs/dsh/package.nix 的 `bundles.${entry.attr}`），少一个就是 "attribute
+  #   · installation 自带的（base/headless/web-app + 官方可选包）：输出里只有
+  #     nix-support/dsh-bundles.json，packageRoot 指进 <runtime>/node_modules。
+  #     播种时 installation 里已有同名包 → 不生成 profile 软链，dsh 按名字从
+  #     installation 解析。
+  #   · 第三方（tui 等）：仍是完整包（$out/lib/node_modules/<包名>），播种器把
+  #     profile/node_modules/<包名> 链到它。
+  #
+  # 必须给全量：装配包按名字从 scope 取（package.nix 的 `inherit (bundles) base
+  # headless tui web-app` 与 optional-bundles 的 attr），少一个就是 "attribute
   # 'xxx' missing"。
   #
   # 原样传 scope，不要 filterAttrs 过滤：scope 里除了 bundle 还有 callPackage 等
   # 辅助属性，以及 removed-bundles.nix 注入的「已移除」条目（值是 throw，为的是
   # 给人话错误）。任何遍历式过滤（isDerivation 也要先求值）都会强制这些 throw，
   # 于是求值期就炸在一条用户根本没引用的 bundle 上。装配层只按名字取，不遍历。
+  #
+  # 这些 bundle 的 manifest 记的是**上游** runtime 的 packageRoot。对本仓库无害：
+  # 播种器只拿 packageRoot 决定「要不要链」，而 installation 里已有同名包时一律
+  # 不链（判据见上游 profiles.nix 的 makeProfileTemplate），于是实际加载的永远是
+  # runtimePatched 那份。
   upstreamBundles = inputs.deepseek-harness.legacyPackages.${system}.bundles;
 
   mkBundle = import ./mk-bundle.nix {
-    inherit lib dshBundleResolver kernelPatched;
+    inherit lib dshBundleResolver;
+    runtime = runtimePatched;
     inherit (upstreamPkgs) stdenvNoCC nodejs-slim;
   };
 
@@ -322,7 +321,7 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
   # 上游 flake 的 `dsh.bundles` 只覆盖它自己打包的那批（2026-10-15 实测 55 个里
   # 没有 acp）。官方把 ACP 作为「随 core 版本一起发布的独立 bundle」分发：
   # `@deepseek-ai/dsh-acp`（服务端插件）与 `@deepseek-ai/dsh-acp-app`（profile
-  # bundle，插入 acp 行）。这里按 **kernel 版本**抓 npm tarball —— core 升级时对应
+  # bundle，插入 acp 行）。这里按 **dsh 版本**抓 npm tarball —— core 升级时对应
   # 版本要么同时存在（正常），要么抓取直接失败（上游漏发），不会出现「core 升了、
   # acp 还是旧版」的静默错配。
 
@@ -417,7 +416,7 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
       extras,
     }:
     let
-      kernelNodeModules = "${kernelPatched}/lib/deepseek-harness/node_modules";
+      installationNodeModules = "${runtimePatched}/node_modules";
     in
     upstreamPkgs.runCommand (lib.strings.sanitizeDerivationName "${name}-with-deps") {
       nativeBuildInputs = [ upstreamPkgs.nodejs-slim ];
@@ -448,7 +447,7 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
       # 额外包落在自己的 scope 下并覆盖同名内核副本（bundle 拥有它自己声明的那份）。
       rm -f "$dest/node_modules"
       mkdir -p "$dest/node_modules"
-      for entry in ${kernelNodeModules}/*; do
+      for entry in ${installationNodeModules}/*; do
         entryName=$(basename "$entry")
         case "$entryName" in
           @*)
@@ -482,7 +481,7 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
   #
   #   dsh-acp     —— 服务端插件本体。patch = []（顶层 acp 行由 acp-app 的 patch
   #                  插入，两边都插会撞成重复 id）。运行期只 import 一个外部包
-  #                  （SDK），其余全是 kernel 里的 peer，所以走 linkExtraNodeModules。
+  #                  （SDK），其余全是 installation 里的 peer，所以走 linkExtraNodeModules。
   #                  acp-app 并不 import 它，只在 patch 里按名字引用它 —— 于是它
   #                  必须作为 bundle 出现在某个 profile 的清单里才会被装进安装树：
   #                  Loader 解析顶层行名时找的正是安装锚点。
@@ -510,7 +509,7 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
 
   # pi-blackhole 适配器要 esbuild 打上游纯 TS 核心，单独走自己的 build.nix。
   blackholeAdapter = import (pluginsDir + "/dsh-blackhole/build.nix") {
-    inherit lib inputs kernelPatched;
+    inherit lib inputs runtimePatched;
     inherit (upstreamPkgs) pkgs;
   };
 
@@ -520,8 +519,9 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
   #
   # 有些本地包不自己挂顶层行，而是被 preset 的 `plugins` 数组按名字引用
   # （三个 shell-env 实现包、两个 tool 包、blackhole）。
-  # 它们仍必须是 bundle —— 只有出现在 `dsh.profile.bundles` 里的包才会被 symlinkJoin
-  # 进安装的 node_modules，进而才能被名字解析到 —— 但 patch 为空，不产生顶层行。
+  # 它们仍必须是 bundle —— 只有出现在 `dsh.profile.bundles` 里的包才会被播种器软链进
+  # $DSH_HOME/profiles/<name>/node_modules，进而才能被名字解析到 —— 但 patch 为空，
+  # 不产生顶层行。
   # 这与官方 `dsh-tool-bash` 的处境完全相同：包在安装里，挂载与否由 preset 决定。
   # （autosync 不走这条路：它自己既声明三条路由行、也实现它们，见下。）
 
@@ -824,7 +824,9 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
   presetsPatch = import ./presets.nix {
     inherit lib rewrites blackholeCompaction;
     inherit (upstreamPkgs) pkgs;
-    webAppPresetsDir = "${upstreamBundles.web-app}/lib/node_modules/@deepseek-ai/dsh-web-app/presets";
+    # web-app 是 installation 自带的 bundle，新模型下它的输出只有 manifest，
+    # 包本体在 <runtime>/node_modules 里 —— 读文案/预设必须走 installation。
+    webAppPresetsDir = "${runtimePatched}/node_modules/@deepseek-ai/dsh-web-app/presets";
   };
 
   # ── profile 播种器（替换上游的 dsh-sync-profiles）─────────────────────────
@@ -991,6 +993,46 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
           esac
         }
 
+        # 把模板声明的 bundle 软链进 profile 的 node_modules。
+        #
+        # 新装配模型里 dsh 解析 bundle 的两个锚点是「installation」和「profile 目录」
+        # （app-boot 的 resolveBundleDir：安装锚点优先，再退回 profile），后者靠 Node
+        # 的常规查找 —— 也就是 $profile/node_modules/<包名> 必须真实存在。installation
+        # 自带的包（base/headless/web-app…）由上游模板判定后跳过（模板里的 .nix-links
+        # 只列 installation 里没有的那些），所以这里只需要处理第三方与本地 bundle。
+        #
+        # 只清理指向 store 的旧软链：profile 里由运行期装出来的包（external bundles，
+        # pnpm 写进 node_modules 的真目录）不能被误删。
+        sync_profile_links() {
+          local source=$1 destination=$2 modules link name target
+
+          [ -f "$source/.nix-links" ] || return 0
+          modules="$destination/node_modules"
+          mkdir -p "$modules"
+
+          for link in "$modules"/* "$modules"/@*/*; do
+            [ -L "$link" ] || continue
+            target=$(readlink -- "$link")
+            case "$target" in
+              ${builtins.storeDir}/*) ;;
+              *) continue ;;
+            esac
+            name=''${link#"$modules"/}
+            grep -Fxq -- "$name"$'\t'"$target" "$source/.nix-links" || rm -f -- "$link"
+          done
+
+          while IFS=$'\t' read -r name target; do
+            [ -n "$name" ] || continue
+            link="$modules/$name"
+            [ "$(readlink -- "$link" 2>/dev/null)" != "$target" ] || continue
+            if [ -e "$link" ] && [ ! -L "$link" ]; then
+              die "refusing to replace installed package with a Nix bundle link: $link"
+            fi
+            mkdir -p -- "$(dirname -- "$link")"
+            ln -sfn -- "$target" "$link"
+          done < "$source/.nix-links"
+        }
+
         sync_profile() {
           local profile=$1 source=$2 destination=$3 file
 
@@ -998,6 +1040,11 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
 
           if [ ! -e "$destination" ] && [ ! -L "$destination" ]; then
             install_profile_dir "$(dirname -- "$destination")" "$source" "$destination"
+            sync_profile_links "$source" "$destination"
+            # 首次播种也要剔除 dropBundles：以前这条分支直接 return，于是
+            # multica 从零播种时 @deepseek-ai/dsh-headless 留在清单里，
+            # daemon 的 --probe 被判成 unknown option（2026-11-12 实测）。
+            strip_bundles "$profile" "$destination"
             return 0
           fi
 
@@ -1008,6 +1055,7 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
             copy_owned_file "$source/$file" "$destination/$file"
           done
 
+          sync_profile_links "$source" "$destination"
           strip_bundles "$profile" "$destination"
         }
 
@@ -1022,13 +1070,12 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
 
   # 按 profile 装配 dsh。
   #
-  # `bundles` 覆盖而非追加：上游 `defaultBundles ? with bundles; [headless web-app]`
-  # 与内部 profiles.nix 的 webBundle/tuiBundle/headlessBundle 都从这个参数取值，
-  # 所以这里给重绑定过 kernel 的那份，整链才会用上打过补丁的 kernel。
+  # `bundles` 给上游那份 scope：装配包只从里面取 base/headless/tui/web-app 与
+  # optional-bundles 的 attr 名，用来算模板的 bundle 清单与 patch 叠加顺序。
   #
-  # profile 的 bundles 列表同时决定三件事：patch 叠加顺序、profile package.json 的
-  # 组合清单、以及什么被 symlinkJoin 进安装的 node_modules（通过 composeBundles 走
-  # profilesForComposition）。所以本地 bundle 必须出现在某个 profile 的列表里才会被装。
+  # profile 的 bundles 列表决定两件事：patch 叠加顺序，以及播种到
+  # $DSH_HOME/profiles/<name>/node_modules 的软链集合（第三方/本地 bundle）。
+  # 所以本地 bundle 必须出现在某个 profile 的列表里才会出现在 profile 里。
   mkDsh =
     {
       profiles,
@@ -1040,7 +1087,10 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
     let
       args = {
         bundles = upstreamBundles;
-        dsh-kernel = kernelPatched;
+        # 新装配模型：installation 是 `runtime`，不再是 `dsh-kernel`。装配包只做
+        # wrapper（exec <runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js），
+        # profile 的 bundle 解析锚点也指向这份 installation。
+        runtime = runtimePatched;
         inherit profiles defaultProfile homePatch;
         # 传了 profileSeeder 后 wrapper 就改看 profileDefaultProfile（见上游
         # package.nix 的 launcherDefaultProfile 三元式）；不传它，argv 里没有
@@ -1048,11 +1098,9 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
         profileDefaultProfile = defaultProfile;
       };
 
-      # profile 模板里 `requiresWeb/Tui` 追加的官方 bundle 取自**装配包自己的**
-      # `bundles`（profiles.nix 的 webBundle/tuiBundle）。过去这里从
-      # `upstreamPkgs.dsh.dsh` 取，拿到的是未重绑定的那份：模板清单指向未打补丁
-      # 的官方 tui bundle，与安装树不同源，还额外触发一次 dsh-tui 源码构建。
-      # seeder 本身是装配包的入参，回指装配包会递归，所以先装一份不带 seeder 的，
+      # profile 模板里 `requiresWeb/Tui` 追加的官方 bundle 取自装配包自己的
+      # `bundles` scope（profiles.nix 的 webBundle/tuiBundle），与 runtimePatched 同一
+      # rev。seeder 本身是装配包的入参，回指装配包会递归，所以先装一份不带 seeder 的，
       # 只取它的 mkProfileArtifacts（纯模板计算，不构建整包）。
       artifactSource = upstreamPkgs.dsh.dsh.override args;
       artifacts = artifactSource.passthru.mkProfileArtifacts { inherit profiles; };
@@ -1100,9 +1148,9 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
   #   package.json   装配包的 manifest —— profile-boot 的 INSTALL_ANCHOR 就是
   #                  <pkg>/package.json，profile bundle 从它旁边解析
   #   lib/           → 装配包的 lib：**必须落到真路径**，ESM 的 import.meta.url 决定
-  #                  INSTALL_ANCHOR；指到 kernelPatched 那层会解析不到任何 bundle
+  #                  INSTALL_ANCHOR；指到 runtimePatched 那层会解析不到任何 bundle
   #                  （实测：18 个 bundle 全部 "cannot resolve profile bundle"）
-  #   node_modules/  → 装配包的 node_modules（symlinkJoin 后的全量 bundle 在这里）
+  #   node_modules/  → installation 的 node_modules（@deepseek-ai/dsh 与官方 bundle）
   #   dsh            必须是 $out 里的真文件：findHostDsh 对候选取 realpath，若是指向
   #                  store 脚本的 symlink，realpath 又会走出本目录 → 找不到包目录
   #
@@ -1117,9 +1165,9 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
       }
       ''
         mkdir -p $out
-        cp ${dsh}/lib/deepseek-harness/package.json $out/package.json
-        ln -s ${dsh}/lib/deepseek-harness/lib $out/lib
-        ln -s ${dsh}/lib/deepseek-harness/node_modules $out/node_modules
+        cp ${runtimePatched}/node_modules/@deepseek-ai/dsh/package.json $out/package.json
+        ln -s ${runtimePatched}/node_modules/@deepseek-ai/dsh/lib $out/lib
+        ln -s ${runtimePatched}/node_modules $out/node_modules
         cat > $out/dsh <<SHELL
         #!${upstreamPkgs.runtimeShell}
         exec ${dsh}/bin/dsh "$@"
@@ -1132,7 +1180,8 @@ in
   inherit
     upstreamPkgs
     dshVersion
-    kernelPatched
+    runtimePatched
+    dshRuntime
     upstreamBundles
     mkBundle
     patchText

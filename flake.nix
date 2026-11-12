@@ -39,21 +39,28 @@
 
     # 社区 Nix 打包层（Moraxyc/deepseek-harness.nix）—— dsh 的唯一来源。
     #
-    # 2026-10-29 起 kernel、官方 bundle、装配代码、bundle 清单全部取自这一个 rev：
-    #   · kernel  = packages.<system>.dsh-kernel（源码构建产物，有 cachix）；
-    #   · bundles = legacyPackages.<system>.bundles（base/headless/web-app/tui +
-    #     16 个可选，与 kernel 同 rev，版本恒自洽）。
+    # 2026-10-29 起 installation、官方 bundle、装配代码、bundle 清单全部取自这一个 rev：
+    #   · installation = packages.<system>.dsh-runtime（@deepseek-ai/dsh 安装树，
+    #     源码构建产物，有 cachix）；
+    #   · bundles      = legacyPackages.<system>.bundles（base/headless/web-app/tui +
+    #     16 个可选，与 installation 同 rev，版本恒自洽）。
     # 此前 kernel 取自 llm-agents 的 npm 产物，两个 input 跟的版本线不同
     # （llm-agents 跟 npm `next`，本仓库跟 GitHub main）—— 0.2.2-alpha.2 新增的
     # 4 个 bundle 在 npm 上没有对应版本，一次 update 就把构建打断。
     #
     # 缓存：deepseek-harness-nix.cachix.org（已在本机 substituters 里）实测有效，
-    # kernel 与全部 bundle 命中，`nix flake update` 是下载不是编译（2026-10-29
-    # 核查：0.2.2-alpha.2 的 kernel/dsh/5 个抽查 bundle narinfo 全 200）。
+    # installation/dsh/官方 bundle 全部命中，`nix flake update` 是下载不是编译。
+    # 唯一不在缓存里的是本仓库的 runtimePatched（见 pkgs/dsh-local）：它按输入哈希
+    # 缓存，只在上游 rev 变化或补丁本身改动时重跑一次。
     #
     # 为什么引它而不是 vendored（2026-09-29 决策）：本仓库此前把它的
     # pkgs/ + lib/ 复制进 pkgs/dsh-moraxyc*（26 个文件），只能手工跟上游。
     # 消费方式见 modules/home/dsh 与 pkgs/dsh-local。
+    #
+    # 2026-11-12 已移植到上游新装配模型（d9000414 引入的 dsh-runtime），
+    # pkgs/dsh-local 里 kernelPatched → runtimePatched、dsh-kernel → runtime。
+    # 不要把这个 input 钉回旧 rev：旧模型（dsh-kernel + 每个 bundle 各自 deploy）
+    # 已从上游删除。
     deepseek-harness = {
       url = "github:Moraxyc/deepseek-harness.nix";
     };

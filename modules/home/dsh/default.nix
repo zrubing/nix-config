@@ -47,7 +47,7 @@
 let
   cfg = config.${namespace}.modules.dsh;
 
-  # dsh 包 = 上游 kernel + 本地补丁 + 本地 bundle 装配，全部在 pkgs/dsh-local 里。
+  # dsh 包 = 上游 installation（runtimePatched）+ 本地 bundle，全部在 pkgs/dsh-local 里。
   # 传入的那份文本由 modules/ 渲染 —— pkgs/ 不反向依赖 modules/：
   #   mcpEntries —— MCP 条目的 cordis insert 行（servers.nix 的统一源）。
   # llm-pi-ai 的 provider 表不从这里下去：它在本模块里 own 自己的 bundle
@@ -134,8 +134,8 @@ let
   # `$DSH_HOME/profiles/nix-<短名>` —— 加前缀是为了永不与手敲 `dsh plugin` 建的
   # profile 撞名。defaultProfile 要用物化后的全名（上游会断言它在 managed 列表里）。
   #
-  # `bundles` 同时决定三件事：patch 叠加顺序、profile package.json 的组合清单、
-  # 以及什么被 symlinkJoin 进 dsh 安装目录 —— 所以本地 bundle 必须出现在这里才会被装。
+  # `bundles` 决定 patch 叠加顺序与 profile 的 bundle 清单；本地 bundle 只有出现在
+  # 这里，播种器才会把它软链进 profile 的 node_modules（installation 自带的除外）。
   profileNames = {
     web = "nix-web";
     headless = "nix-headless";
@@ -180,16 +180,34 @@ let
   #      重启进程不会让已签发的 cookie 失效）；
   #   3. 此后到 cookie 过期前都不用再拿 token。新增设备/清 cookie 时才重来一次。
   #
-  # 与 webPermissionBundle 是不同的插件 id（client-connection vs sandbox-policy），
+  # 与 webPermissionBundle 是不同的插件 id（connection vs sandbox-policy），
   # 且 config 是整块替换：这里只写 cookieMaxAgeDays，不碰 trustedHosts ——
   # trustedHosts 走 `--trusted-host` 那个命令行服务，不在这份 config 里。
+  #
+  # id 在 0.2.2-rc.1 从 `client-connection` 改成 `connection`（同一个
+  # @deepseek-ai/dsh-client-connection 插件）。写错时 dsh 只打一行
+  # `patch: entry "..." not found` 然后跳过，cookie 静默退回默认 7 天 ——
+  # `--dump-config 2>&1 | grep 'not found'` 是升级后该跑的检查。
+  #
+  # config 必须是**上游整份**再改一个键：上游这一行带着
+  # `trustedHosts: !!js ctx.webStartup.trustedHosts`（`--trusted-host` 的值由
+  # 命令行服务注入），整块替换若只写 cookieMaxAgeDays，内网 Host 头直接 403
+  # （2026-11-12 实测：`curl -H 'Host: <LAN 名>' /api/...` → 403）。
+  # 与 presetDefaultRow / tuiDisplayRow 同法：运行时从上游 bundle 原文提取。
+  webConnectionRow = pkgs.runCommand "dsh-web-connection-row.yml" {
+    nativeBuildInputs = [ pkgs.yq-go ];
+  } ''
+    yq -n '
+      (load("${dshLocal.runtimePatched}/node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml")
+        | [.. | select(tag == "!!map") | select(.id? == "connection")]
+        | .[0].config) as $cfg
+      | [ { "id": "connection", "config": ($cfg | .cookieMaxAgeDays = 3650) } ]
+    ' > $out
+  '';
+
   webConnectionBundle = mkRowBundle {
     name = "dsh-web-connection";
-    patch = dshLocal.patchText "dsh-web-connection" ''
-      - id: client-connection
-        config:
-          cookieMaxAgeDays: 3650
-    '';
+    patch = webConnectionRow;
     description = "dsh web profile: 10-year browser cookie (token-free after first mint)";
   };
 
@@ -207,7 +225,7 @@ let
     nativeBuildInputs = [ pkgs.yq-go ];
   } ''
     yq -n '
-      (load("${dshLocal.upstreamBundles.web-app}/lib/node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml")
+      (load("${dshLocal.runtimePatched}/node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml")
         | [.. | select(tag == "!!map") | select(.id? == "agent-preset-registry")]
         | .[0].config) as $cfg
       | [ { "id": "agent-preset-registry", "config": ($cfg | .default = "my-standard") } ]
