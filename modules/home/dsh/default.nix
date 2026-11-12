@@ -244,7 +244,22 @@ let
   # 不声明 requiresTui 的后果是 dsh-tui 在 installCheck 里被当成 headless 跑 `--help`，
   # 而 TUI 会接管终端 → 检查超时失败。
   # 三条 profile 共用的本地 bundle 再叠上 llm-pi-ai 的 provider 表。
-  hostBundles = dshLocal.hostBundles ++ [ llmRoutesBundle ];
+  #
+  # `experimental-session-search` 是上游自带的跨 session 检索（默认不挂）。
+  # 本仓库的 `recall` 只读**当前** session 的事件日志，所以「这个决定以前讨论过
+  # 吗」这类问题它结构上答不了——2026-11-12 实测：模型只能手写 zstd+python 扫
+  # `~/.dsh/sessions` 才找回三天前的结论。挂上它补的正是这一段：
+  #   - 五个只读工具 session_search / session_event_search / session_trace /
+  #     session_event_trace / session_event_read；
+  #   - 授权按 `cwd` 精确匹配，只看得见同一个 workspace 的历史 session；
+  #   - 索引是 `:memory:` SQLite FTS5，openAt: first-search，首次搜索才建。
+  # 代价是每次请求多带五份短 schema 与一段固定提示（约 500 token），所以它是
+  # 显式列在这里、不是跟着 base 一起来。上游标 experimental，升级时留意它的
+  # cordis.patch.yml（`optional-session-search` 组）是否改名。
+  hostBundles = dshLocal.hostBundles ++ [
+    llmRoutesBundle
+    dshLocal.upstreamBundles.experimental-session-search
+  ];
 
   # Multica 的 DSH runtime bridge。上游只发 TS 源码，packages/dsh-multica-runtime
   # 负责编译，这里再按 dsh bundle 的布局收口（lib/node_modules + nix-support 清单）。
