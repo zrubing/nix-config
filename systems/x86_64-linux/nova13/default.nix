@@ -330,6 +330,9 @@ in
       enable = true;
       configSecretFile = "xray-client-conf.json.age";
       userId = 987;
+      # 与 zen14 同一份节点清单：v6 冗余腿的节点在 meta 里，本机也要起
+      # 1088 那个入站，否则该节点在本机是死的。
+      v6Fallback.enable = true;
     };
     desktop-programs.enable = false;
     # nova13 是 k0s worker（build/proxy 角色），不需要桌面虚拟化栈（libvirtd/qemu/virt-manager）。

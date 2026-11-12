@@ -472,6 +472,9 @@ in
       configSecretFile = "xray-client-conf.json.age";
       # 固定 uid/gid，供 nftables 在构建期用数字 skuid 匹配，避免构建沙箱无法解析用户名。
       userId = 983;
+      # 同一条 CDN 入口的 v6 冗余腿（127.0.0.1:1088），供 mihomo 的
+      # 美-1-vless-xhttp-v6 节点使用。
+      v6Fallback.enable = true;
     };
     trojan-go.enable = true;
     ollama.enable = false;

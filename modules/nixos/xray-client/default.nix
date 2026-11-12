@@ -48,7 +48,11 @@ let
       sleep 1
     done
 
-    ${pkgs.jq}/bin/jq --argjson mark ${toString cfg.mihomoBypass.mark} '
+    ${pkgs.jq}/bin/jq \
+      --argjson mark ${toString cfg.mihomoBypass.mark} \
+      --argjson v6 ${if cfg.v6Fallback.enable then "true" else "false"} \
+      --arg v6addr ${lib.escapeShellArg cfg.v6Fallback.address} \
+      --argjson v6port ${toString cfg.v6Fallback.port} '
       def withSockopt:
         .streamSettings = (.streamSettings // {})
         | .streamSettings.sockopt = ((.streamSettings.sockopt // {}) + { mark: $mark })
@@ -65,6 +69,27 @@ let
           withSockopt
         end
       ))
+
+      # v6 冗余腿：把 proxy 复制一份，只把地址换成 IPv6 字面量。
+      # 域名写法的出站虽然自带 v4→v6 的连接回退（实测黑洞 v4 后仍能通），
+      # 但回退发生在连接失败时；v4 只是拥塞/被限速时不会切。这里给出独立的
+      # v6 出站，让 mihomo 侧的 url-test 按延迟决定走哪族。
+      | if $v6 then
+          .inbounds = ((.inbounds // []) + [
+            { tag: "socks-v6", listen: "127.0.0.1", port: $v6port,
+              protocol: "socks", settings: { auth: "noauth", udp: true } }
+          ])
+          | .outbounds = ((.outbounds // []) + [
+              (.outbounds[] | select(.tag == "proxy")
+                | .tag = "proxy-v6"
+                | .settings.vnext[0].address = $v6addr)
+            ])
+          | .routing.rules = ([
+              { type: "field", inboundTag: ["socks-v6"], outboundTag: "proxy-v6" }
+            ] + ((.routing // {}).rules // []))
+        else
+          .
+        end
     ' ${secretPath} > ${generatedConfigTmpPath}
 
     # jq 对空输入是「退出码 0 + 零字节输出」，不拦的话后面 xray -test 只会给一个
@@ -170,6 +195,37 @@ in
         description = "Priority for fwmark policy routing rules used by xray-client.";
       };
 
+    };
+
+    v6Fallback = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          额外派生一个只走 IPv6 的 socks 入站（默认 127.0.0.1:1088），出站固定连
+          address 的 IPv6 字面量。用途是同一条 CDN 路径的 v4/v6 冗余：v4 只是
+          拥塞或限速时，域名出站不会切族，必须有一条独立的 v6 出站才能让上层
+          url-test 挑到。
+        '';
+      };
+
+      address = mkOption {
+        type = types.str;
+        default = "2606:4700:3031::6815:1283";
+        description = ''
+          IPv6 字面量，需与配置密文里出站域名（a6.alydev.top）的 AAAA 记录一致。
+          Cloudflare anycast 地址，SNI/Host 仍取原域名，所以换地址不影响证书。
+        '';
+      };
+
+      port = mkOption {
+        type = types.port;
+        default = 1088;
+        description = ''
+          v6 冗余入站的本地监听端口，必须与 nix-secrets 的
+          proxy-nodes.meta.json 里那条 socks 节点的 port 一致。
+        '';
+      };
     };
   };
 
