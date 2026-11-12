@@ -70,7 +70,7 @@ export function normalizeLedger(raw) {
       observer: Number.isFinite(cursors.observer) ? Number(cursors.observer) : -1,
       reflector: Number.isFinite(cursors.reflector) ? Number(cursors.reflector) : -1,
       dropper: Number.isFinite(cursors.dropper) ? Number(cursors.dropper) : -1,
-      // 稳定游标：observerSeq = 已覆盖到的 surface event seq，
+      // 稳定游标：observerSeq = 已覆盖到的事件 seq，
       // reflectorId = 最后一条已反思 observation 的 id（见 om.js）。
       observerSeq: Number.isFinite(cursors.observerSeq) ? Number(cursors.observerSeq) : undefined,
       reflectorId: typeof cursors.reflectorId === "string" ? cursors.reflectorId : undefined,

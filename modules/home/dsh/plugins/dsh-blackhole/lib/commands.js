@@ -111,7 +111,7 @@ function apply(ctx, config) {
   ctx.commands.register({
     name: "blackhole-recall",
     description: "Search session history — same engine as the `recall` tool.",
-    input: { hint: "<query> [page:N] [scope:all] [mode:file|touched]" },
+    input: { hint: "<query> [page:N] [pageSize:N] [mode:file|touched]" },
     handler: async (invocation) => {
       const args = parseRecallArgs(invocation.rawInput);
       const text = await recallExecute(args, { agent: invocation.agent }, { imageText: createImageText(ctx) });
@@ -126,11 +126,10 @@ function parseRecallArgs(raw) {
   const args = {};
   let tokens = s.split(/\s+/).filter(Boolean);
   args.page = numberArg(tokens, "page:");
+  args.pageSize = numberArg(tokens, "pageSize:");
   const modeTok = tokens.find((t) => t.startsWith("mode:"));
   if (modeTok) { args.mode = modeTok.split(":")[1]; }
-  const scopeTok = tokens.find((t) => t.startsWith("scope:"));
-  if (scopeTok) { args.scope = scopeTok.split(":")[1]; }
-  tokens = tokens.filter((t) => !/^(page|mode|scope):/.test(t));
+  tokens = tokens.filter((t) => !/^(page|pageSize|mode):/.test(t));
   const query = tokens.join(" ");
   if (query) args.query = query;
   else args.query = "";

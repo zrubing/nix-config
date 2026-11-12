@@ -24,8 +24,18 @@ import {
   findReflectionsForEntryIds, formatRelatedObservations, MEMORY_ID_PATTERN,
 } from "./core/om-core.js";
 
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 10;
+/** Page window the model asked for, clamped so one call cannot flood the context. */
+const MAX_PAGE_SIZE = 50;
 const DEFAULT_RECENT = 25;
+/**
+ * Shell output shorter than this is a header or an echo (`=== 定组/自己定 ===`,
+ * `ok`), not evidence. Those lines are dense in the exact query terms, so BM25
+ * ranks them above the discussion they were grepping for.
+ */
+const SHELL_ECHO_MAX_CHARS = 120;
+/** Tool names whose short output is echo noise rather than a finding. */
+const SHELL_TOOLS = new Set(["bash", "pwsh", "shell", "zsh", "sh", "terminal"]);
 /** Lines a drill-down renders when the query gives no window. */
 const DRILLDOWN_PAGE_LINES = 30;
 /** Byte cap for a single :full drill-down / the whole response. */
@@ -83,8 +93,47 @@ function buildView(exec, options) {
   const rows = toPiMessagesFromEvents(exec.agent?.session, imageText);
   const piMessages = rows.map((row) => row.message);
   const entries = rows.map((row) => renderMessage(row.message, row.seq, String(row.seq)));
+  const scoreMessages = piMessages.map(scoringMessage);
   const posBySeq = new Map(rows.map((row, pos) => [String(row.seq), pos]));
-  return { piMessages, entries, posBySeq };
+  return { piMessages, scoreMessages, entries, posBySeq };
+}
+
+// ── search index hygiene ────────────────────────────────────────────────────
+//
+// The index must not contain what the search itself wrote. A `grep "组边界"`
+// command is not evidence that the term was discussed — it is a previous query
+// coming back, and it made every search boost the commands that produced it
+// until the real discussion fell off the first page. Only content-bearing
+// arguments (write/edit bodies) are indexed, which is what the tool
+// description already promised.
+//
+// Rendering keeps the full arguments (`#N` expansion must still show the
+// command/output), so this is a second, parallel view used for scoring only.
+
+/** Does this tool-call argument object carry a file body? */
+function carriesContent(args) {
+  if (!args || typeof args !== "object") return false;
+  if (typeof args.content === "string" && args.content) return true;
+  if (Array.isArray(args.edits) && args.edits.length > 0) return true;
+  return typeof args.oldText === "string" || typeof args.newText === "string";
+}
+
+/** Drop non-content tool-call arguments, and shell echo output, from scoring. */
+function scoringMessage(message) {
+  if (message?.role === "toolResult"
+    && SHELL_TOOLS.has(String(message.toolName ?? "").toLowerCase())
+    && textOf(message.content).length < SHELL_ECHO_MAX_CHARS) {
+    return { ...message, content: [] };
+  }
+  const content = message?.content;
+  if (!Array.isArray(content)) return message;
+  let changed = false;
+  const stripped = content.map((part) => {
+    if (part?.type !== "toolCall" || carriesContent(part.arguments)) return part;
+    changed = true;
+    return { ...part, arguments: {} };
+  });
+  return changed ? { ...message, content: stripped } : message;
 }
 
 // ── response budget ─────────────────────────────────────────────────────────
@@ -289,10 +338,18 @@ function renderMemoryRecall(memoryId, result, view) {
 
 // ── execute ─────────────────────────────────────────────────────────────────
 
+/** `pageSize` is the only way to widen a page; `PAGE_SIZE` is the default. */
+function pageSizeOf(args) {
+  const n = Number(args.pageSize);
+  if (!Number.isFinite(n)) return PAGE_SIZE;
+  return Math.min(MAX_PAGE_SIZE, Math.max(1, Math.trunc(n)));
+}
+
 async function run(args, exec, options) {
   const view = buildView(exec, options);
-  const { entries, piMessages } = view;
+  const { entries, piMessages, scoreMessages } = view;
   const q = (args.query ?? "").trim();
+  const pageSize = pageSizeOf(args);
   const wantsExpand = Array.isArray(args.expand) && args.expand.length > 0;
 
   // #N:path drill-down
@@ -327,10 +384,10 @@ async function run(args, exec, options) {
     const touched = getTouchedFiles(piMessages, entries);
     if (touched.length === 0) return "No file operations found in session history.";
     const page = Math.max(1, args.page ?? 1);
-    const start = (page - 1) * PAGE_SIZE;
-    const totalPages = Math.ceil(touched.length / PAGE_SIZE);
+    const start = (page - 1) * pageSize;
+    const totalPages = Math.ceil(touched.length / pageSize);
     const lines = touched
-      .slice(start, start + PAGE_SIZE)
+      .slice(start, start + pageSize)
       .map((t) => `  ${t.path}    ${t.entries.map((e) => `#${e.index} (${e.toolName})`).join(", ")}`);
     const header = totalPages > 1
       ? `Page ${page}/${totalPages} (${touched.length} total files)`
@@ -351,7 +408,8 @@ async function run(args, exec, options) {
 
   const page = Math.max(1, args.page ?? 1);
   const mode = args.mode ?? "hybrid";
-  const search = searchEntriesDetailed(entries, piMessages, q, undefined, mode);
+  // Scored against the hygienic view; rendered/expanded from the full one.
+  const search = searchEntriesDetailed(entries, scoreMessages, q, undefined, mode);
   let hits = search.hits;
   const truncatedNote = search.truncated
     ? ` — showing ${hits.length} of ${search.totalBeforeCap} matches, refine your query for more precise results`
@@ -376,13 +434,13 @@ async function run(args, exec, options) {
     hits.sort((a, b) => a.index - b.index);
   }
 
-  const totalPages = Math.ceil(hits.length / PAGE_SIZE);
+  const totalPages = Math.ceil(hits.length / pageSize);
   if (hits.length > 0 && page > totalPages) {
     return `Page ${page} is outside the available range 1-${totalPages} (${hits.length} matches). Use a page between 1 and ${totalPages}.`;
   }
-  const start = (page - 1) * PAGE_SIZE;
-  const pageHits = hits.slice(start, start + PAGE_SIZE);
-  // The header reports matches on this page; the window is PAGE_SIZE wide.
+  const start = (page - 1) * pageSize;
+  const pageHits = hits.slice(start, start + pageSize);
+  // The header reports matches on this page; the window is `pageSize` wide.
   return formatHits(pageHits, q, page, totalPages, hits.length, expandedCount, truncatedNote);
 }
 
@@ -400,9 +458,12 @@ function apply(ctx, config) {
       "both with optional :offset:limit or :full; 12-char hex ids recover observation/reflection sources; " +
       "mode:file for file-content-only, mode:touched aggregates files-by-path. " +
       "Use this to recover details lost to compaction. " +
-      "If a query returns nothing, try fewer terms or a regex pattern. " +
+      "Results are literal term matches ranked by relevance, 10 per page: a query built from your own wording " +
+      "(a grep pattern, a summary you wrote) finds what you wrote, not what the user said — page through, " +
+      "or retry with the words the original message would have used. " +
       "When a drill-down path matches multiple files, the options are listed — narrow it with a more specific substring. " +
-      "Write and edit payloads are searchable; bash output is only reachable via #N:text. " +
+      "Only write/edit bodies are indexed as file content; shell command text and short shell output are not indexed " +
+      "(reach them via #N or #N:text). " +
       "A recovered image renders as [Image: \"<path>\"; <mime>; <WxH>. Use read_image to view it.] — pass that path to read_image to see the picture again.",
     // `parameters` must be a full JSON Schema with an object root. dsh's
     // raw `ctx.tools.register()` does NOT normalize a bare property map (only
@@ -422,6 +483,10 @@ function apply(ctx, config) {
           description: "Entry indices to return full untruncated content for. Standalone or with query.",
         },
         page: { type: "number", description: "Page (1-based) for paginated results." },
+        pageSize: {
+          type: "number",
+          description: "Results per page (default 10, max 50). Use it instead of expecting a match cap.",
+        },
         mode: { type: "string", enum: ["hybrid", "file", "touched"], description: "What content to search." },
       },
     },

@@ -7,9 +7,10 @@
 //      budget), not a multi-turn agentLoop. The observer still works a long
 //      chunk in one call; only the newest-first window is capped to
 //      observerChunkMaxTokens.
-//   2. Cursors are tracked as the index into `Session.deriveMessages()` that
-//      the observer last covered, so it only processes NEW content. Combined
-//      with content-dedup, this avoids re-observing the same material.
+//   2. Cursors are the durable event seq the observer last covered, so it only
+//      processes NEW content. A seq survives compaction `replace`; the array
+//      index it replaced did not. Combined with content-dedup, this avoids
+//      re-observing the same material.
 //
 // Stage cadence is token-gated (observeAfterTokens / reflectAfterTokens /
 // pool pressure), model resolution walks the fallback chain with persisted
@@ -60,34 +61,36 @@ function sessionModelOf(ctx) {
 }
 
 /**
- * Collect text-bearing conversation entries (user + assistant) with their
- * durable surface event sequence. `Session.surface.nodes` and
- * `Session.deriveMessages()` are the same ordered surface (one node per derived
- * message), so the seq is the stable identity of "which material this is" —
- * unlike an array index, a compaction `replace` cannot invalidate it.
+ * Collect text-bearing conversation entries with their durable event seq.
+ *
+ * The seq comes from the event itself, not from a position in
+ * `deriveMessages()`: pairing the two arrays by index required
+ * `surface.nodes.length === deriveMessages().length`, which any message that
+ * derives to null (an assistant turn with empty content) breaks — and every
+ * worker stage then threw. Reading the log removes the invariant instead of
+ * checking it, and matches how `recall` numbers `#N`.
+ *
+ * Messages already covered by the cursor are filtered by the caller, so the
+ * full log is safe here: a compaction `replace` never rewrites a seq.
  */
 function collectSourceEntries(agent) {
   const session = agent?.session;
-  const messages = session?.deriveMessages?.() ?? [];
-  const nodes = session?.surface?.nodes ?? [];
-  if (nodes.length !== messages.length) {
-    // A drift here would silently pair messages with foreign seqs; fail loud.
-    throw new Error(`surface/derivation mismatch: ${nodes.length} nodes vs ${messages.length} messages`);
-  }
+  const events = session?.snapshotEvents?.() ?? [];
   const entries = [];
-  messages.forEach((msg, index) => {
-    if (!msg || msg.role === "system") return;
+  for (const event of events) {
+    const msg = session.deriveEventMessage?.(event);
+    if (!msg || msg.role === "system" || msg.role === "developer") continue;
     let text = "";
     if (msg.role === "user") {
       const blocks = msg.content || [];
-      if (blocks.every((p) => p?.type === "tool-result")) return;
+      if (blocks.every((p) => p?.type === "tool-result")) continue;
       text = textOfBlocks(blocks.filter((p) => p?.type !== "tool-result"));
     } else {
       text = textOfBlocks(msg.content);
     }
-    if (!text) return;
-    entries.push({ seq: nodes[index], role: msg.role === "user" ? "user" : "assistant", text });
-  });
+    if (!text) continue;
+    entries.push({ seq: event.seq, role: msg.role === "user" ? "user" : "assistant", text });
+  }
   return entries;
 }
 
@@ -168,8 +171,8 @@ async function runWorkerStage(ctx, store, cfg, worker, prompt, input, signal) {
 
 async function observeStage(agent, ctx, cfg, store, signal, force) {
   const entries = collectSourceEntries(agent);
-  // 游标 = 已覆盖到的 surface seq（单调、压缩不回收）。旧 ledger 的数组下标游标
-  // 不再使用：压缩会把被遮蔽的节点从 deriveMessages() 里删掉，下标随之失效。
+  // 游标 = 已覆盖到的事件 seq（单调、压缩不回收）。旧 ledger 的数组下标游标
+  // 不再使用：压缩会把被遮蔽的节点从 surface 里删掉，下标随之失效。
   const cursor = store.cursors.observerSeq ?? -1;
   const newEntries = entries.filter((e) => e.seq > cursor);
   if (newEntries.length === 0) return;
@@ -284,15 +287,21 @@ async function dropStage(ctx, cfg, store, signal) {
 
 // ── orchestration ───────────────────────────────────────────────────────────
 
-let running = false;
+/**
+ * Sessions with a pipeline in flight. Per session, not global: a subagent's
+ * turn close must not silently cancel the main agent's observation round
+ * (a global flag made whichever agent fired first win and the other drop).
+ */
+const running = new Set();
+
 async function runPipeline(agent, ctx, options = {}) {
-  if (running) return; // never hammer; retry next turn
-  running = true;
+  const sessionId = agent?.id;
+  if (sessionId == null) return;
+  if (running.has(sessionId)) return; // never hammer; retry next turn
+  running.add(sessionId);
   try {
     const cfg = loadConfig();
     if (!cfg.memory) return;
-    const sessionId = agent?.id;
-    if (sessionId == null) return;
     const store = storeFor(sessionId, cfg);
     // Retry gate: after a failed run, wait before trying again.
     if (store.lastErrorAt && Date.now() - store.lastErrorAt < RETRY_GATE_MS) return;
@@ -303,7 +312,7 @@ async function runPipeline(agent, ctx, options = {}) {
       await reflectStage(ctx, cfg, store, controller.signal);
       await dropStage(ctx, cfg, store, controller.signal);
     } catch (stageError) {
-      // 抛出的 stage（例如 surface/deriveMessages 形状漂移）必须能在
+      // 抛出的 stage（例如 LLM 路由或 ledger 写盘出错）必须能在
       // /blackhole-memory status 里看到，而不是只静默跳过这一轮。
       store.lastErrorAt = Date.now();
       store.lastError = stageError?.message ?? String(stageError);
@@ -312,7 +321,7 @@ async function runPipeline(agent, ctx, options = {}) {
       persist(sessionId, cfg, store);
     }
   } finally {
-    running = false;
+    running.delete(sessionId);
   }
 }
 

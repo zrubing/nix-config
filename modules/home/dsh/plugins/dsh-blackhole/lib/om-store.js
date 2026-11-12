@@ -302,17 +302,46 @@ export function ledgerStats(sessionId) {
   };
 }
 
-/** Remove orphaned pending/ledger files for sessions no longer present. */
+/**
+ * Session ids that still own a persisted log directory under `$DSH_HOME/sessions`.
+ *
+ * `ctx.sessions.list()` only knows the sessions loaded in THIS process. After a
+ * dsh restart that set is empty, so "not live" must not be read as "orphaned":
+ * the ledger is the only copy of the observations, and blanking it loses them.
+ */
+function persistedSessionIds() {
+  const ids = new Set();
+  const root = join(dshHome(), "sessions");
+  try {
+    for (const group of readdirSync(root)) {
+      let entries;
+      try { entries = readdirSync(join(root, group)); } catch { continue; }
+      for (const entry of entries) ids.add(entry);
+    }
+  } catch { /* no sessions dir yet */ }
+  return ids;
+}
+
+/**
+ * Blank ledger/pending files whose session no longer exists at all.
+ *
+ * Two files in this directory are NOT ledgers and must survive:
+ *   - `config.json` is shared by every session; the old matcher treated it as a
+ *     session named "config" and wrote `{}` over it, silently resetting the
+ *     worker model and thresholds.
+ */
 export function cleanupOrphans(liveSessionIds) {
   const live = new Set((liveSessionIds || []).map(String));
+  const persisted = persistedSessionIds();
   let removed = 0;
   try {
     for (const file of readdirSync(blackholeDir())) {
       if (!file.endsWith(".json")) continue;
+      if (file === "config.json") continue;
       const m = file.match(/^(.+?)(\.pending)?\.json$/);
       if (!m) continue;
       const id = m[1];
-      if (live.has(id)) continue;
+      if (live.has(id) || persisted.has(id)) continue;
       try {
         statSync(join(blackholeDir(), file));
         writeFileSync(join(blackholeDir(), file), "{}");

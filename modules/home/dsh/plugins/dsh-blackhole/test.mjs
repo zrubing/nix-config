@@ -1,6 +1,8 @@
 // 回归测试：观测/反思游标必须在压缩重写 surface 之后继续推进；
 // recall 必须从全量事件日志取数、`#N` 恒等于事件 seq、记忆 id 能回放 source 正文；
 // 压缩摘要里的 (#N) 必须与 recall 同一编号空间；图片条目必须带 read_image 句柄。
+// cleanup 只能清真孤儿（配置与已落盘 session 必须留下）；recall 只索引内容型
+// 工具参数（agent 自己的 grep 命令不得命中）；分页窗口可调。
 // 用法：先 `bash scripts/build.sh`（生成 lib/core/*.js），再 node 本文件。
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -30,21 +32,28 @@ const { recallExecute, createImageText } = await import("./lib/recall.js").catch
   process.exit(1);
 });
 
-/** A stand-in for one dsh surface: nodes carry durable seqs, messages derive 1:1. */
+/**
+ * A stand-in for one dsh session: an append-only event log plus the live
+ * surface. Compaction rewrites the surface only — the log keeps every event,
+ * exactly like dsh (which is why the observer reads the log, not the surface).
+ */
 function makeAgent(id, initialNodes) {
-  let nodes = [...initialNodes];
+  let events = [...initialNodes];
+  const toEvent = (n) => ({ seq: n.seq, message: { role: n.role, content: [{ type: "text", text: n.text }] } });
   return {
     id,
     session: {
-      surface: { get nodes() { return nodes.map((n) => n.seq); } },
-      deriveMessages: () => nodes.map((n) => ({ role: n.role, content: [{ type: "text", text: n.text }] })),
+      snapshotEvents: () => events.map(toEvent),
+      deriveEventMessage: (event) => event.message ?? null,
     },
-    /** Simulate a compaction replace: shadowed seqs collapse into one checkpoint. */
+    /** Simulate a compaction replace: shadowed seqs collapse into one new checkpoint event. */
     compact(removeSeqs, checkpointSeq) {
-      const kept = nodes.filter((n) => !removeSeqs.includes(n.seq));
-      nodes = [{ seq: checkpointSeq, role: "user", text: "<compacted-summary>checkpoint</compacted-summary>" }, ...kept];
+      events = [
+        ...events,
+        { seq: checkpointSeq, role: "user", text: "<compacted-summary>checkpoint</compacted-summary>" },
+      ];
     },
-    append(node) { nodes = [...nodes, node]; },
+    append(node) { events = [...events, node]; },
   };
 }
 
@@ -290,5 +299,70 @@ assert.match(imageHit, /#20/, "图片句柄可被文本检索命中");
 const imageDegraded = await recallExecute({ query: "#20:text" }, { agent: imageAgent });
 assert.match(imageDegraded, /has no path readable from here/, "没有附件服务时降级为无路径句柄，不抛错");
 console.log("ok 9: 图片条目渲染 read_image 句柄（无服务时降级）");
+
+// ── 10) cleanup 只清真的孤儿：配置与「当前进程没加载」的 session 都留下 ───────
+// 回归：cleanupOrphans 把 config.json 当成 session "config" 清空（设置退回默认），
+// 且只认 ctx.sessions.list()（内存里的 session）——dsh 一重启，历史账本全被抹掉。
+const omStore = await import("./lib/om-store.js");
+const persistedId = "session-persisted-test";
+const orphanId = "session-orphan-test";
+fs.mkdirSync(path.join(home, "sessions", "--home-workspace--", persistedId), { recursive: true });
+fs.writeFileSync(ledgerPath(persistedId), JSON.stringify({
+  version: 1,
+  observations: [{ id: "ffffffffffff", timestamp: "2026-11-12 10:00", relevance: "low", content: "kept", source: "t", sourceEntryIds: [], status: "active" }],
+  reflections: [], cursors: {}, cooldowns: {},
+}, null, 2));
+fs.writeFileSync(ledgerPath(orphanId), JSON.stringify({
+  version: 1,
+  observations: [{ id: "00000000000a", timestamp: "t", relevance: "low", content: "gone", source: "t", sourceEntryIds: [], status: "active" }],
+  reflections: [], cursors: {}, cooldowns: {},
+}, null, 2));
+const cleanupRemoved = omStore.cleanupOrphans([]);
+assert.ok(cleanupRemoved > 0, "cleanup reports work");
+assert.ok(fs.readFileSync(configPath, "utf8").includes("test-model"), "config.json survives cleanup");
+assert.equal(loadLedger(persistedId).observations.length, 1, "persisted session survives with no live sessions");
+assert.equal(loadLedger(orphanId).observations.length, 0, "a session with no log directory is blanked");
+console.log("ok 10: cleanup 保留 config 与已落盘的 session，只清孤儿");
+
+// ── 11) 索引卫生：agent 自己的 grep 命令不算命中 ─────────────────────────────
+// 回归：hybrid 打分把工具调用参数也索引，于是 `grep "切分"` 命中它自己，
+// 每次搜索都在抬高上次搜索留下的命令，把真正的讨论挤到第二页。
+const hygieneAgent = {
+  id: "session-hygiene-test",
+  session: {
+    snapshotEvents: () => [
+      { seq: 1, message: { role: "user", content: [{ type: "text", text: "第一次讨论：组边界应该由服务端决定" }] } },
+      { seq: 2, message: { role: "assistant", content: [{ type: "tool-call", id: "b1", name: "bash", arguments: JSON.stringify({ command: 'grep -rn "组边界" docs/ | head' }) }] } },
+      { seq: 3, message: { role: "tool", toolCallId: "b1", content: [{ type: "text", text: "=== 组边界 ===\n" }] } },
+      { seq: 4, message: { role: "assistant", content: [{ type: "tool-call", id: "w1", name: "write", arguments: JSON.stringify({ file_path: "docs/x.md", content: "组边界 由 App 触发，服务端编号" }) }] } },
+    ],
+    deriveEventMessage: (event) => event.message ?? null,
+  },
+};
+const hygieneOut = await recallExecute({ query: "组边界" }, { agent: hygieneAgent });
+assert.match(hygieneOut, /#1/, "the human message is still a hit");
+assert.match(hygieneOut, /#4/, "write/edit bodies stay searchable");
+assert.doesNotMatch(hygieneOut, /#2/, "the agent's own grep command is not a hit");
+assert.doesNotMatch(hygieneOut, /#3/, "a short shell echo is not a hit");
+const commandEntry = await recallExecute({ query: "#2" }, { agent: hygieneAgent });
+assert.match(commandEntry, /grep -rn/, "expansion still shows the command (only scoring is stripped)");
+console.log("ok 11: 只索引内容型工具参数，grep 命令与短回显不进打分");
+
+// ── 12) 分页窗口：默认 10 条，pageSize 可放大到 50 ────────────────────────────
+const pageEvents = Array.from({ length: 25 }, (_, i) => ({
+  seq: i + 1,
+  message: { role: "user", content: [{ type: "text", text: `条目 ${i + 1} PAGEHIT` }] },
+}));
+const pageAgent = {
+  id: "session-page-test",
+  session: { snapshotEvents: () => pageEvents, deriveEventMessage: (event) => event.message ?? null },
+};
+const firstPage = await recallExecute({ query: "PAGEHIT" }, { agent: pageAgent });
+assert.match(firstPage, /Page 1\/3/, "default window holds 10 of 25 matches");
+const widePage = await recallExecute({ query: "PAGEHIT", pageSize: 25 }, { agent: pageAgent });
+assert.match(widePage, /^25 matches/, "pageSize widens the window");
+const clampedPage = await recallExecute({ query: "PAGEHIT", pageSize: 999 }, { agent: pageAgent });
+assert.match(clampedPage, /^25 matches/, "pageSize is clamped to the available matches");
+console.log("ok 12: 默认 10 条/页，pageSize 生效");
 
 console.log("\nall cursor regressions pass (DSH_HOME=" + home + ")");
