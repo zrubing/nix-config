@@ -9,9 +9,10 @@
 let
   cfg = config.${namespace}.modules.skills;
 
-  # OpenSpec skills：构建时用 openspec CLI 按全局 workflows 生成到 store，
-  # openspec 升级后自动重新生成（SKILL.md 带 generatedBy 版本标记），无需手动同步。
-  # 沙箱里无全局配置，先写一份与 ~/.config/openspec/config.json 一致的 config 再 init。
+  # OpenSpec skills：构建时用 openspec CLI 生成到 store，升级后自动重新生成，
+  # 无需手动同步。生成集合由下面那份全局 config.json 决定（2.0 实测）：
+  #   workflows 选工作流，delivery=both 额外带出 sync-specs；不写 config 时
+  #   2.0 默认吐 6 个（多 update-change），所以必须显式写死，不能用默认值。
   # 注意：nix 构建的 pty winsize 为 0x0（columns=0），ora 渲染会除零死循环，
   # 必须把 stdout/stderr 重定向到文件（非 TTY）让 spinner 静默。
   openspecSkills = pkgs.runCommand "openspec-skills" {
@@ -27,13 +28,24 @@ let
     mkdir -p $TMPDIR/proj
     cd $TMPDIR/proj
     # stdout/stderr 重定向到文件：否则 ora 在 pty（columns=0）下渲染死循环
-    timeout 60 openspec init --tools pi --no-animation --no-copilot-cloud . > $TMPDIR/init.log 2>&1 || {
+    timeout 60 openspec init --tools pi --no-animation . > $TMPDIR/init.log 2>&1 || {
       echo "openspec init FAILED, log:" >&2
       tail -30 $TMPDIR/init.log >&2
       exit 1
     }
+    # 2.0 起落点是 .agents/skills（1.x 是 .pi/skills）。只装 sharedSkills 里声明的
+    # 那几个，名字或路径漂移时立刻失败：否则 $out/<skill> 缺失要到 home-manager
+    # 链接阶段才暴露，而 cp 空 glob 只会报一句 missing destination。
     mkdir -p $out
-    cp -r $TMPDIR/proj/.pi/skills/* $out/
+    for s in propose explore apply-change archive-change sync-specs; do
+      src=$TMPDIR/proj/.agents/skills/openspec-$s
+      test -d "$src" || {
+        echo "openspec init 未生成 openspec-$s，log:" >&2
+        tail -30 $TMPDIR/init.log >&2
+        exit 1
+      }
+      cp -r "$src" $out/
+    done
   '';
 
   # ── 共享 skill 清单（单一事实来源）─────────────────────────────────────
@@ -60,6 +72,7 @@ let
       openspec-explore.source = "${openspecSkills}/openspec-explore";
       openspec-apply-change.source = "${openspecSkills}/openspec-apply-change";
       openspec-archive-change.source = "${openspecSkills}/openspec-archive-change";
+      openspec-sync-specs.source = "${openspecSkills}/openspec-sync-specs";
       caveman.source = "${inputs.caveman-skills}/skills/caveman";
       grill-me.source = "${inputs.mattpocock-skills}/skills/productivity/grill-me";
       # ADHD 系 skill（2026-09-09 从手动真实目录转为声明式，rev pin 在 flake.nix）：
