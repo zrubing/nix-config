@@ -1120,10 +1120,27 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
         profileSeeder = mkProfileSeeder { inherit profiles artifacts materializedNames dropBundles; };
         # 自检跑的是物化后的 profile 名：multica 不带 nix- 前缀，
         # 直接拿上游的 nix- 名去跑会报 "profile does not exist"。
-        profileBundleCheckProfiles = lib.mapAttrs (
-          _group: names:
-          map (name: materializedNames.${lib.removePrefix "nix-" name} or name) names
-        ) artifacts.bundleCheckProfiles;
+        #
+        # multica 从 `all` 里剔除：hook 用 `dsh --profile <p> --help` 探活，而
+        # multica 的 CLI 归 @multica-ai/dsh-runtime 的 headless-runner（`dropBundles`
+        # 掉了 dsh-headless，否则 daemon 的 `--probe` 会被 headless 的选项解析吃掉）。
+        # 那个 runner 不实现 `--help`，回 `unsupported mode: --help` + exit 2，自检
+        # 必然失败（实测 2026-11-12）。它的装配与 web profile 同源（hostBundles 相同），
+        # 真正的探活方式是 daemon 启动时的 `--probe`。
+        profileBundleCheckProfiles = (
+          let
+            skip = [ "multica" ];
+          in
+          lib.mapAttrs (
+            group: names:
+            map (name: materializedNames.${lib.removePrefix "nix-" name} or name) names
+          ) artifacts.bundleCheckProfiles
+          // {
+            all = lib.filter (
+              name: !builtins.elem name (map (n: materializedNames.${n} or n) skip)
+            ) (map (name: materializedNames.${lib.removePrefix "nix-" name} or name) artifacts.bundleCheckProfiles.all);
+          }
+        );
       }
     )).overrideAttrs
       (_: {

@@ -24,6 +24,12 @@
 #         { env = "VAR"; prefix = "…"; } 表示加前缀（如 "Bearer "）。变量由
 #         ~/.config/dsh.env（sops 渲染，dsh-web 启动时 source）提供。
 #
+#         这类条目必须带 disabled 守卫（见 dshEntry）：变量缺席时
+#         `!!js process.env.VAR` 求值成 undefined，而 schemastery 的 config
+#         校验会因此整条失败 —— 不是"没有 token"而是"插件加载失败"，dsh 直接
+#         拒绝启动（实测：`dsh: startup failed: 1 required plugin did not
+#         activate`）。构建期的 profile 自检没有 sops 变量，必然踩到。
+#
 #   codex = 渲染进 ~/.codex/config.toml 的 [mcp_servers.<name>] 表。codex 不支持
 #           ${VAR} 插值（只有同名转发的 env_vars），故密钥用 { sops = "…"; } 指向
 #           sops 路径，由 codex 模块传入的 sopsPlaceholder 求值成占位符，随
@@ -128,11 +134,30 @@ let
         ++ lib.optional (cfg ? env) "env = ${tomlInlineTable cfg.env}"
     );
 
+  # 该条 dsh config 引用到的宿主 env 变量名（url / headers / env 三处的 { env = … }）。
+  #
+  # 用来生成 disabled 守卫。为什么需要守卫：`!!js process.env.VAR` 在变量缺席时
+  # 求值成 undefined，键还在、值不是字符串 —— schemastery 校验整条 config 失败，
+  # 插件加载失败，dsh 拒绝启动。守卫让这一行在变量缺席时**整条禁用**（loader 对
+  # disabled 的行直接不 init，不做 config 校验），于是缺 token 只丢一个 server，
+  # 不会拖垮整个进程；构建期自检（没有 sops 变量）也因此是"少几个 server"而不是
+  # 硬失败。
+  envRefsOf =
+    cfg:
+    let
+      refsOf = v: if lib.isAttrs v && (v ? env) then [ v.env ] else [ ];
+      fromAttrs = attrs: lib.concatMap refsOf (lib.attrValues attrs);
+    in
+    lib.unique (refsOf (cfg.url or null) ++ fromAttrs (cfg.headers or { }) ++ fromAttrs (cfg.env or { }));
+
   # 单个 server 的 cordis patch 条目（列 0 起，与 providerPatch 其他 insert 条目对齐：
   # `- insert:` 列 0 / `- id:` 列 4 / config 字段列 8 / 子项列 10）
   dshEntry = name: s:
     let
       cfg = s.dsh;
+      envRefs = envRefsOf cfg;
+      # YAML 里 `!!js !…` 会把 `!process` 当成标签，所以表达式整体加引号。
+      envGuard = "!!js '${lib.concatMapStringsSep " || " (v: "!process.env.${v}") envRefs}'";
       cfgLines =
         [
           "serverName: ${yamlScalar name}"
@@ -157,6 +182,9 @@ let
         "- insert:"
         "    - id: mcp-${name}"
         "      name: '@deepseek-ai/dsh-mcp-client'"
+      ]
+      ++ lib.optional (envRefs != [ ]) "      disabled: ${envGuard}"
+      ++ [
         "      config:"
       ]
       ++ lib.map (l: "        ${l}") cfgLines
