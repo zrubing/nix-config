@@ -1,8 +1,8 @@
 diff --git a/scripts/run-ci-group.mjs b/scripts/run-ci-group.mjs
-index b1cf086..3eef29f 100644
+index 4b700c7..450e2a0 100644
 --- a/scripts/run-ci-group.mjs
 +++ b/scripts/run-ci-group.mjs
-@@ -1280,6 +1280,9 @@ const GROUPS = {
+@@ -1429,6 +1429,9 @@ const GROUPS = {
  // /model 标签选择器派生回归：provider 分组（首现排序、显示名回退、
  // 计数）、最近使用目录交集/持久化与初始提供商/模型焦点。
      ["verify-model-picker-groups", ['node', 'scripts/verify-model-picker-groups.mjs']],
@@ -197,10 +197,10 @@ index 0000000..cc3eae0
 +check('zero failures', failed === 0, `${failed} failed`)
 +process.exit(failed === 0 ? 0 : 1)
 diff --git a/src/adapter/ports/channel-session.ts b/src/adapter/ports/channel-session.ts
-index 845f9ce..ff8a72c 100644
+index 20ddf6a..220752a 100644
 --- a/src/adapter/ports/channel-session.ts
 +++ b/src/adapter/ports/channel-session.ts
-@@ -128,7 +128,13 @@ export interface SessionSummary {
+@@ -130,7 +130,13 @@ export interface SessionSummary {
    readonly title: SessionTitle
    /** Working directory recorded in the header; '' when it recorded none. */
    readonly cwd: string
@@ -216,10 +216,10 @@ index 845f9ce..ff8a72c 100644
     * Last activity: the later of the log's own mtime and this install's
     * last-used note. Both are lower bounds on "when this session was last
 diff --git a/src/adapter/ports/channel-view.ts b/src/adapter/ports/channel-view.ts
-index cda3dbd..714021b 100644
+index d8103ec..214ef47 100644
 --- a/src/adapter/ports/channel-view.ts
 +++ b/src/adapter/ports/channel-view.ts
-@@ -1103,8 +1103,9 @@ export interface AgentViewRow {
+@@ -1156,8 +1156,9 @@ export interface AgentViewRow {
    readonly live: boolean
    /** True when this is the session the TUI terminal is attached to. */
    readonly current: boolean
@@ -286,10 +286,10 @@ index bd36b02..0e7db13 100644
              )
            })}
 diff --git a/src/components/sidePanel/InfoPanel.tsx b/src/components/sidePanel/InfoPanel.tsx
-index a917a43..e9470c7 100644
+index 8137b81..a18d371 100644
 --- a/src/components/sidePanel/InfoPanel.tsx
 +++ b/src/components/sidePanel/InfoPanel.tsx
-@@ -128,7 +128,16 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
+@@ -129,7 +129,16 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
        Math.max(6, Math.floor(contentWidth / 2)),
      )
  
@@ -307,7 +307,7 @@ index a917a43..e9470c7 100644
      label: string
      value: React.ReactNode
      valueColor?: keyof Theme
-@@ -162,8 +171,8 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
+@@ -163,8 +172,8 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
        <ScrollBox ref={scrollRef} flexDirection="column" maxHeight={Math.max(3, height)} flexGrow={1}>
          <Section title={t('info-section-session')}>
            <Row label={t('info-row-title')} value={channel.sessionTitle !== '' ? channel.sessionTitle : none} />
@@ -319,7 +319,7 @@ index a917a43..e9470c7 100644
            <Row label={t('info-row-branch')} value={channel.gitBranch !== undefined && channel.gitBranch !== '' ? channel.gitBranch : none} />
          </Section>
 diff --git a/src/dsh-adapter/channel/agent-view-projection.ts b/src/dsh-adapter/channel/agent-view-projection.ts
-index 46220a4..35ef253 100644
+index 968fb2a..38476d0 100644
 --- a/src/dsh-adapter/channel/agent-view-projection.ts
 +++ b/src/dsh-adapter/channel/agent-view-projection.ts
 @@ -162,7 +162,7 @@ export function createAgentViewProjection(
@@ -356,20 +356,21 @@ index 30934f0..5386cc9 100644
            refreshModelDisplay(session)
            changed = true
 diff --git a/src/dsh-adapter/contract.ts b/src/dsh-adapter/contract.ts
-index 1d3505e..8c3d495 100644
+index fd30f28..6571279 100644
 --- a/src/dsh-adapter/contract.ts
 +++ b/src/dsh-adapter/contract.ts
-@@ -14,7 +14,9 @@
+@@ -14,8 +14,9 @@
   * single natural-language boot notice the logo header shows (see LogoV2).
   */
- import { readFileSync } from 'node:fs'
-+import { join } from 'node:path'
+ import { readFileSync, realpathSync } from 'node:fs'
+-import { dirname } from 'node:path'
++import { dirname, join } from 'node:path'
  import { fileURLToPath } from 'node:url'
 +import { findHostDsh } from './host-dsh.js'
- import { ADAPTER_TYPE_PACKAGES, HOST_TYPE_PACKAGES } from './host-contract.js'
+ import { ADAPTER_TYPE_PACKAGES, HOST_MODULES, HOST_PACKAGE, HOST_TYPE_PACKAGES } from './host-contract.js'
  
  /** Primary validated upstream line (newest). */
-@@ -232,9 +234,15 @@ export function installedUpstreamVersion(packageName: string): UpstreamVersionTu
+@@ -267,9 +268,15 @@ export function installedUpstreamVersion(packageName: string): UpstreamVersionTu
   *    `installedUpstreamVersions` 的既有清单成员）的已装版本——它就是
   *    upstreamDriftSummary 用来判定「内核在不在验证线」的同一份数据。
   *
@@ -386,7 +387,7 @@ index 1d3505e..8c3d495 100644
    try {
      const hostManifest = JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('@deepseek-ai/dsh/package.json')), 'utf8')) as { version?: unknown }
      if (typeof hostManifest.version === 'string' && hostManifest.version !== '') return hostManifest.version
-@@ -244,6 +252,24 @@ export function installedKernelVersion(): string | undefined {
+@@ -279,6 +286,24 @@ export function installedKernelVersion(): string | undefined {
    return installedUpstreamVersions()['@deepseek-ai/dsh-agent']
  }
  
@@ -409,10 +410,10 @@ index 1d3505e..8c3d495 100644
 +}
 +
  /**
-  * Whether the installed version of `packageName` is at or beyond `minimum`
-  * (a literal like `'0.1.0-rc.8'`). Unparseable or older installs return
+  * 已装宿主（`@deepseek-ai/dsh`）包的真实目录；源码 checkout（宿主不是本包
+  * 依赖）下为 undefined。
 diff --git a/src/dsh-adapter/index.ts b/src/dsh-adapter/index.ts
-index fddb010..56c647a 100644
+index 511ee21..5ac2a21 100644
 --- a/src/dsh-adapter/index.ts
 +++ b/src/dsh-adapter/index.ts
 @@ -30,7 +30,7 @@ export const name = 'dsh-tui'
@@ -425,10 +426,10 @@ index fddb010..56c647a 100644
  /**
   * dsh-tui plugin configuration: session attachment, model route, working
 diff --git a/src/dsh-adapter/plugin.ts b/src/dsh-adapter/plugin.ts
-index aae0356..5f0150f 100644
+index e7ad25a..f9d064e 100644
 --- a/src/dsh-adapter/plugin.ts
 +++ b/src/dsh-adapter/plugin.ts
-@@ -48,6 +48,7 @@ import { migratePresetPref, presetOverrideFromEnv, readPresetPref } from '../pre
+@@ -58,6 +58,7 @@ import { migratePresetPref, presetOverrideFromEnv, readPresetPref } from '../pre
  import { readEffortPref } from '../effortPrefs.js'
  import { composePreset, filterMinimalPresetTools, resolvePersistedPreset, resolvePersistedRoute, runningPresetOf } from './presets.js'
  import { createFreshAgent, isUnstoredFreshSession } from './fresh-agent.js'
@@ -436,7 +437,7 @@ index aae0356..5f0150f 100644
  import { ensurePackagedPresets } from './packaged-presets.js'
  import { registerBundledPresets } from './bundled-presets.js'
  import { ensureLegacySessionEventTypes, snapshotLiveSessionEvents } from './compat/index.js'
-@@ -620,7 +621,11 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+@@ -1499,7 +1500,11 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
    const configuredBackend = parseBackendChoice(config.backend)
    const rememberedBackend = readKernelPrefs().backend
    const entryKernel = runtimeOptions.entryKernel
@@ -449,7 +450,7 @@ index aae0356..5f0150f 100644
      ...(handoffBackend === undefined ? {} : { handoff: handoffBackend }),
      configured: configuredBackend,
      envRaw: rawBackend,
-@@ -722,16 +727,28 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+@@ -1601,16 +1606,28 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
    // in /kernel is then one Enter away from installing what is missing.
    // Explicit choices (flag/Config/handoff) and explicit resume targets keep
    // the hard failure: silently swapping what the user named would be worse.
@@ -480,7 +481,7 @@ index aae0356..5f0150f 100644
    /** The in-process DSH kernel's startup session: settled by `attachDsh`
     *  (the profile's dsh-tui row) or by a failed composition. */
    let settleDshStartup: { resolve(startup: ChannelStartup): void; reject(error: unknown): void } | undefined
-@@ -747,7 +764,7 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+@@ -1626,7 +1643,7 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
    // A boot that fails before the channel holds the startup must not leak an
    // unhandled rejection.
    dshStartup?.catch(() => undefined)
@@ -489,7 +490,7 @@ index aae0356..5f0150f 100644
      try {
        const startupInput = {
          cwd: sessionCwd,
-@@ -922,7 +939,9 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+@@ -1816,7 +1833,9 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
      settingsService: tuiSettings,
      // The backend reports its model with its first turn (`system/init`);
      // until then the status line names the backend.
@@ -500,7 +501,7 @@ index aae0356..5f0150f 100644
      ...(backendStart === undefined || backendPermissions === undefined ? {} : {
        backendLabel: backendStart.label,
        openSession: backendStart.open,
-@@ -965,7 +984,7 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+@@ -1859,7 +1878,7 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
      // sessions record sessionCwd at creation, so both agree there.
      // A resumed backend session runs where it was recorded.
      cwd: backendStart?.session.cwd ?? agent?.session.header.cwd ?? sessionCwd,
@@ -2757,10 +2758,10 @@ index c0fe14c..4e4418d 100644
  }
  
 diff --git a/src/i18n.ts b/src/i18n.ts
-index 3a75177..6ec2931 100644
+index 1f4e783..2fe9b32 100644
 --- a/src/i18n.ts
 +++ b/src/i18n.ts
-@@ -1304,6 +1304,8 @@ const dict = {
+@@ -1411,6 +1411,8 @@ const dict = {
    'hint-model-effort': { zh: '**←/→** 调整', en: '**←/→** adjust' },
    'hint-model-select': { zh: '**Enter** 选择', en: '**Enter** select' },
    'hint-model-cancel': { zh: '**Esc** 取消', en: '**Esc** cancel' },
@@ -2876,10 +2877,10 @@ index 0000000..8596e3f
 +    .map(entry => entry.model)
 +}
 diff --git a/src/screens/Chat.tsx b/src/screens/Chat.tsx
-index a6ba070..cd3bbf9 100644
+index 55958a8..7ebeafe 100644
 --- a/src/screens/Chat.tsx
 +++ b/src/screens/Chat.tsx
-@@ -5888,6 +5888,7 @@ export function Chat({
+@@ -6203,6 +6203,7 @@ export function Chat({
                  groups={modelPicker.groups}
                  provider={modelPicker.provider}
                  models={modelPicker.models}
@@ -2888,15 +2889,15 @@ index a6ba070..cd3bbf9 100644
                  currentModel={`${channel.provider}/${channel.model}`}
                  loading={modelsLoading}
 diff --git a/src/screens/StatusLine.tsx b/src/screens/StatusLine.tsx
-index caf36d1..1332a43 100644
+index 7be2bd4..39661a6 100644
 --- a/src/screens/StatusLine.tsx
 +++ b/src/screens/StatusLine.tsx
-@@ -450,7 +450,7 @@ const selectionBadge = formatSelectionBadge(channel.selection)
-   const leftFields: FieldPart[] = [
+@@ -513,7 +513,7 @@ const selectionBadge = formatSelectionBadge(channel.selection)
+   const builtinLeft: FieldPart[] = [
      ...(startingPart !== undefined ? [startingPart] : []),
      ...(statusBar.model
--      ? [{ key: 'model', id: 'model' as const, ...(modelPicker === undefined ? {} : { onClick: modelPicker.onOpen }), node: <Text color="inactiveShimmer">{channel.modelDisplay ?? channel.model}</Text> }]
-+      ? [{ key: 'model', id: 'model' as const, ...(modelPicker === undefined ? {} : { onClick: modelPicker.onOpen }), node: <Text color="inactiveShimmer">{channel.provider === '' ? channel.modelDisplay ?? channel.model : `${channel.provider}/${channel.modelDisplay ?? channel.model}`}</Text> }]
+-      ? [{ key: 'model', id: 'model' as const, flexShrink: 0, ...(modelPicker === undefined ? {} : { onClick: modelPicker.onOpen }), node: <Text color="inactiveShimmer">{channel.modelDisplay ?? channel.model}</Text> }]
++      ? [{ key: 'model', id: 'model' as const, flexShrink: 0, ...(modelPicker === undefined ? {} : { onClick: modelPicker.onOpen }), node: <Text color="inactiveShimmer">{channel.provider === '' ? channel.modelDisplay ?? channel.model : `${channel.provider}/${channel.modelDisplay ?? channel.model}`}</Text> }]
        : []),
      ...(tpsPart !== undefined ? [tpsPart] : []),
      ...(jobsPart !== undefined ? [jobsPart] : []),
@@ -2998,10 +2999,10 @@ index ba4f830..84ab7c8 100644
      effortId: focused === undefined ? undefined : effortFor(focused, catalog),
      effortsLoading: focused !== undefined && catalog === undefined,
 diff --git a/src/sessions/format.ts b/src/sessions/format.ts
-index 09233ef..0ce81ad 100644
+index 8b77ad4..0511c99 100644
 --- a/src/sessions/format.ts
 +++ b/src/sessions/format.ts
-@@ -122,7 +122,10 @@ export function tailWidth(text: string, maxWidth: number): string {
+@@ -125,7 +125,10 @@ export function tailWidth(text: string, maxWidth: number): string {
   * @param now - Epoch ms of the present, injectable so the formatter is a pure
   *   function and its regression does not depend on a clock.
   */
@@ -3014,7 +3015,7 @@ index 09233ef..0ce81ad 100644
    if (seconds < 45) return t('session-when-now')
    const minutes = Math.round(seconds / 60)
 diff --git a/src/tips.ts b/src/tips.ts
-index 3141984..2c10dde 100644
+index b2441f0..109df96 100644
 --- a/src/tips.ts
 +++ b/src/tips.ts
 @@ -327,8 +327,8 @@ export const TIPS: readonly Tip[] = [

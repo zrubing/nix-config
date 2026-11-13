@@ -185,10 +185,10 @@ index 0000000..bbe5067
 +  }
 +}
 diff --git a/src/dsh-adapter/remote/session.ts b/src/dsh-adapter/remote/session.ts
-index 8e4a83a..d8cd191 100644
+index 9cf016e..73af263 100644
 --- a/src/dsh-adapter/remote/session.ts
 +++ b/src/dsh-adapter/remote/session.ts
-@@ -18,6 +18,7 @@ import { createDshTranslator } from '../backend/translate.js'
+@@ -19,6 +19,7 @@ import { createDshTranslator } from '../backend/translate.js'
  import type { RemoteResult, RemoteStream } from './connection.js'
  import type { RemoteApprovals, ApprovalOutcome, RemoteQuestionAnswer } from './approvals.js'
  import type { RemoteCatalog, ModelCatalog } from './catalog.js'
@@ -196,7 +196,7 @@ index 8e4a83a..d8cd191 100644
  import type { ModelSelectionProjection, RemoteProjections } from './projections.js'
  
  /** The `session/*` methods this adapter calls. */
-@@ -139,6 +140,8 @@ export interface RemoteSessionDeps {
+@@ -136,6 +137,8 @@ export interface RemoteSessionDeps {
    readonly projections: RemoteProjections
    /** The connection's model catalog reader. */
    readonly catalog: RemoteCatalog
@@ -205,7 +205,7 @@ index 8e4a83a..d8cd191 100644
    /** The connection's approval router. */
    readonly approvals: RemoteApprovals
  }
-@@ -408,6 +411,17 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+@@ -407,6 +410,17 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
      return blocks
    }
  
@@ -223,7 +223,7 @@ index 8e4a83a..d8cd191 100644
    const ref: AgentSessionRef = { backendId: 'dsh', sessionId }
    const session: AgentSession = {
      ref,
-@@ -421,16 +435,23 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+@@ -420,16 +434,23 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
      // host: the choice is Session-local, the roster is process-level.
      capabilities: {
        native: {},

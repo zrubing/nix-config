@@ -42,7 +42,7 @@
 
 let
   # 升级脚本（scripts/update-dsh-tui.sh）只改这一行。
-  tag = "v0.16.1";
+  tag = "v0.20.0";
 
   pnpmVersion = "11.21.0";
 
@@ -90,7 +90,7 @@ stdenv.mkDerivation (finalAttrs: {
     owner = "ccch1mneyyy";
     repo = "dsh-TUI";
     tag = tag;
-    hash = "sha256-qZaaOmdDEwZjgBEGA85DcTrlXuWqBOqs66k7w+tOmnM="; # SRC_HASH
+    hash = "sha256-LCl1iQwf2BYXfSwA1Fzd1g50dL/9wqK070tWaznWvnA="; # SRC_HASH
     fetchSubmodules = true;
   };
 
@@ -128,6 +128,13 @@ stdenv.mkDerivation (finalAttrs: {
   # 全为空：状态栏停在旧模型（或部署默认），ctx 条因为不知道窗口直接消失。补丁
   # 把 snapshot 的块并进投影折叠，并让 channel 在每次绑定会话时用该会话自己的
   # route/window 重建状态栏事实（旧会话的值不再跨 adoption 残留）。
+  #
+  # projection-frames.patch 跟上 Host 0.2.2 的投影帧格式：`session/control`
+  # 现在是「一个会话事件一帧、帧里带 `changes: [{ key, val }]`」，旧代码只读
+  # `frame.key` / `frame.value`，把增量写进 `undefined`——基线之后**所有**投影
+  # 都冻在打开会话那一刻，`/permission` 因此假报
+  # `the Host did not confirm permission preset "…"`（Host 侧已落盘）。
+  # 必须排在 session-route-context.patch 之后：两条改的是同一个 `update` 回调。
   patches = [
     ./remote-mode.patch
     ./remote-identity-guard.patch
@@ -138,17 +145,22 @@ stdenv.mkDerivation (finalAttrs: {
     ./remote-link-visibility.patch
     ./ctrl-o-layout.patch
     ./session-route-context.patch
+    ./projection-frames.patch
   ];
 
   # pnpm 11 从 **workspace 清单**读 trustPolicy / minimumReleaseAge，命令行
   # `--config.*` 对这两个键无效（实测）：没有 registry metadata 时校验必然失败。
   # 清单顶部关掉它；`--frozen-lockfile` 不校验这两项，锁文件仍是权威。
+  #
+  # 上游 v0.20.0 自己的清单里已经写了 `minimumReleaseAge: 1440`（配合一长串
+  # exclude），直接前置会撞成 duplicated mapping key（pnpm 直接拒绝）。所以先
+  # 把这两个顶层键**删掉**再前置，而不是只做追加。
   postPatch = ''
     for f in pnpm-workspace.yaml vendor/dsh-std/pnpm-workspace.yaml; do
-      if [ -f "$f" ]; then
-        { printf 'trustPolicy: off\nminimumReleaseAge: 0\n'; cat "$f"; } > "$f.new"
-        mv "$f.new" "$f"
-      fi
+      [ -f "$f" ] || continue
+      grep -vE '^(trustPolicy|minimumReleaseAge):' "$f" > "$f.base" || true
+      { printf 'trustPolicy: off\nminimumReleaseAge: 0\n'; cat "$f.base"; } > "$f"
+      rm -f "$f.base"
     done
   '';
 
@@ -159,7 +171,7 @@ stdenv.mkDerivation (finalAttrs: {
     nativeBuildInputs = [ nodejs-slim pnpm cacert ];
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-s7byR4602mXHFze6o+k7ftfIFdk3iWUX3dM2N5j8mmY="; # ROOT_HASH
+    outputHash = "sha256-eO7XcgXeHZ0itjPTPodWYhpwBbO7ERop1QDGY9xr7O0="; # ROOT_HASH
     buildCommand = ''
       export HOME=/build/home
       export npm_config_cache=/build/cache
@@ -168,11 +180,13 @@ stdenv.mkDerivation (finalAttrs: {
       cp -r ${finalAttrs.src}/. /build/ws
       chmod -R u+w /build/ws
       cd /build/ws
+      grep -vE '^(trustPolicy|minimumReleaseAge):' pnpm-workspace.yaml > ws.base || true
       {
         printf 'trustPolicy: off\nminimumReleaseAge: 0\n'
         printf 'supportedArchitectures:\n  os: [linux]\n  cpu: [x64]\n  libc: [glibc]\n'
-        cat pnpm-workspace.yaml
+        cat ws.base
       } > ws.yaml
+      rm -f ws.base
       mv ws.yaml pnpm-workspace.yaml
       pnpm install --frozen-lockfile --ignore-scripts --prod=false --store-dir /build/store
       rm -rf node_modules/.cache
@@ -199,7 +213,9 @@ stdenv.mkDerivation (finalAttrs: {
       cp -r ${finalAttrs.src}/vendor/dsh-std /build/ws
       chmod -R u+w /build/ws
       cd /build/ws
-      { printf 'trustPolicy: off\nminimumReleaseAge: 0\n'; cat pnpm-workspace.yaml; } > ws.yaml
+      grep -vE '^(trustPolicy|minimumReleaseAge):' pnpm-workspace.yaml > ws.base || true
+      { printf 'trustPolicy: off\nminimumReleaseAge: 0\n'; cat ws.base; } > ws.yaml
+      rm -f ws.base
       mv ws.yaml pnpm-workspace.yaml
       pnpm install --frozen-lockfile --ignore-scripts --prod=false --store-dir /build/store
       rm -rf node_modules/.cache

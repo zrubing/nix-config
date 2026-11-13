@@ -1,8 +1,8 @@
 diff --git a/src/channel/projection.ts b/src/channel/projection.ts
-index 2e350ec..4187eb8 100644
+index c1431b7..fbd2948 100644
 --- a/src/channel/projection.ts
 +++ b/src/channel/projection.ts
-@@ -1071,17 +1071,20 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
+@@ -1140,17 +1140,20 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
        return
      }
      if (reason.kind === 'aborted' || reason.kind === 'interrupted') {
@@ -30,10 +30,10 @@ index 2e350ec..4187eb8 100644
        deps.rowIds.value += 1
        emitTurnSummary()
 diff --git a/src/dsh-adapter/plugin.ts b/src/dsh-adapter/plugin.ts
-index 9d6ed47..d95526d 100644
+index 21a3893..faeb12f 100644
 --- a/src/dsh-adapter/plugin.ts
 +++ b/src/dsh-adapter/plugin.ts
-@@ -49,6 +49,7 @@ import { readEffortPref } from '../effortPrefs.js'
+@@ -59,6 +59,7 @@ import { readEffortPref } from '../effortPrefs.js'
  import { composePreset, filterMinimalPresetTools, resolvePersistedPreset, resolvePersistedRoute, runningPresetOf } from './presets.js'
  import { createFreshAgent, isUnstoredFreshSession } from './fresh-agent.js'
  import { openRemoteStartup } from './remote/startup.js'
@@ -41,7 +41,7 @@ index 9d6ed47..d95526d 100644
  import { ensurePackagedPresets } from './packaged-presets.js'
  import { registerBundledPresets } from './bundled-presets.js'
  import { ensureLegacySessionEventTypes, snapshotLiveSessionEvents } from './compat/index.js'
-@@ -732,6 +733,8 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+@@ -1611,6 +1612,8 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
       *  backend reports one with `system/init` instead. */
      readonly route?: { readonly provider: string; readonly model: string }
      readonly agentPreset?: string
@@ -50,7 +50,7 @@ index 9d6ed47..d95526d 100644
    }) | undefined
    /** The startup session still opening (`deferBackendOpen`); the channel adopts it. */
    let backendStartup: Promise<{ readonly session: AgentSession; readonly history: readonly AgentEvent[] }> | undefined
-@@ -1044,6 +1047,51 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+@@ -1938,6 +1941,51 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
      brand: config.brand,
    })
    backendStartupAdopted = backendStartup !== undefined
@@ -214,18 +214,18 @@ index 012a6f8..16832c1 100644
        await projections.close()
        if (ownsRoot) await ctx.stop?.()
 diff --git a/src/i18n.ts b/src/i18n.ts
-index de86f68..4ce6ad9 100644
+index 39e7aea..85243cc 100644
 --- a/src/i18n.ts
 +++ b/src/i18n.ts
-@@ -1192,6 +1192,7 @@ const dict = {
- 
+@@ -1288,6 +1288,7 @@ const dict = {
    // ── components/TurnInterruptedRow.tsx ────────────────────────────────
+   'session-stopped': { zh: '会话已停止', en: 'Session stopped' },
    'interrupted-by-user': { zh: '已打断 ', en: 'Interrupted ' },
 +  'interrupted-by-host': { zh: '宿主重启，这一轮没有跑完 · 需要的话再发一次', en: 'The host restarted before this turn finished · send it again if you still need it' },
    'interrupted-ask-next': { zh: '· 接下来想让 DeepSeek 做什么？', en: '· What should DeepSeek do instead?' },
    'interrupted-ask-backend': { zh: '· 接下来想让 {{name}} 做什么？', en: '· What should {{name}} do instead?' },
  
-@@ -1704,6 +1705,8 @@ const dict = {
+@@ -1920,6 +1921,8 @@ const dict = {
    'question-unanswerable-hint': { zh: '请到收到该提问的客户端（通常是 Web）回答；在本端按 Esc 可取消这一回合。', en: 'Answer it in the client that received it (usually the web UI); press Esc here to cancel this turn.' },
    'remote-stream-lost': { zh: '与宿主的事件流已断开且不再重试：本会话不会再刷新。重新打开（或 /resume）以恢复。', en: 'The event stream to the host is gone and will not be retried: this session will not refresh again. Reopen it (or /resume) to recover.' },
    'remote-stream-gap': { zh: '重连期间有 {{count}} 条记录超出宿主回放窗口，未能补回。', en: 'While reconnecting, {{count}} record(s) fell outside the host\'s replay window and could not be recovered.' },

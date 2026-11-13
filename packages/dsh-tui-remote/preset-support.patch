@@ -1,8 +1,8 @@
 diff --git a/scripts/verify-backend-channel.ts b/scripts/verify-backend-channel.ts
-index 4f05ee3..d353962 100644
+index bec5b3e..6a3eb1c 100644
 --- a/scripts/verify-backend-channel.ts
 +++ b/scripts/verify-backend-channel.ts
-@@ -288,6 +288,53 @@ try {
+@@ -373,6 +373,53 @@ try {
    }
  }
  
@@ -57,7 +57,7 @@ index 4f05ee3..d353962 100644
  //    session closed, backend config normalization ────────────────────────
  {
 diff --git a/src/adapter/ports/channel-display.ts b/src/adapter/ports/channel-display.ts
-index ceeea63..a356bc4 100644
+index c51683e..a000f73 100644
 --- a/src/adapter/ports/channel-display.ts
 +++ b/src/adapter/ports/channel-display.ts
 @@ -108,6 +108,9 @@ export interface StatusBarConfig {
@@ -71,10 +71,10 @@ index ceeea63..a356bc4 100644
    contextBar: boolean
    /** Idle working-activity summary. */
 diff --git a/src/adapter/ports/channel-view.ts b/src/adapter/ports/channel-view.ts
-index 714021b..57bfd98 100644
+index 214ef47..c37f2f9 100644
 --- a/src/adapter/ports/channel-view.ts
 +++ b/src/adapter/ports/channel-view.ts
-@@ -1186,6 +1186,13 @@ export interface ChannelCapabilities {
+@@ -1239,6 +1239,13 @@ export interface ChannelCapabilities {
     *  backend through its typed `goals` capability. False = `/goal` is
     *  refused as unavailable on this backend. */
    readonly goals: boolean
@@ -89,7 +89,7 @@ index 714021b..57bfd98 100644
  
  /**
 diff --git a/src/agent/capabilities.ts b/src/agent/capabilities.ts
-index e403db3..32c023c 100644
+index dd78b40..4273a5d 100644
 --- a/src/agent/capabilities.ts
 +++ b/src/agent/capabilities.ts
 @@ -49,6 +49,29 @@ export type ModelSwitchOutcome =
@@ -122,7 +122,7 @@ index e403db3..32c023c 100644
  /** A selectable reasoning-effort level. */
  export interface EffortOption {
    readonly id: string
-@@ -217,6 +240,18 @@ export interface SessionCapabilities {
+@@ -219,6 +242,18 @@ export interface SessionCapabilities {
      current(): string
      set(id: string): Promise<void>
    }
@@ -167,10 +167,10 @@ index a94b0f4..b60fb3d 100644
    })
  }
 diff --git a/src/channel/projection.ts b/src/channel/projection.ts
-index 78ada16..2e350ec 100644
+index 6ec341a..c1431b7 100644
 --- a/src/channel/projection.ts
 +++ b/src/channel/projection.ts
-@@ -110,7 +110,13 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
+@@ -113,7 +113,13 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
    let reasoningStart = 0
    /** Decode-throughput fold for the current turn. One step is one model call
     *  plus its tools; summing only first-token → message spans excludes tool
@@ -185,16 +185,7 @@ index 78ada16..2e350ec 100644
    let tpsTurn: number | undefined
    let tpsBeforeTurn: number | undefined
    let tpsTurnDecodeMs = 0
-@@ -531,7 +537,7 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
-       tps.firstTokenTime ??= time
-       tps.outputEstimate += tokenDeltaEstimate(delta)
-       const elapsedMs = Math.max(0, time - tps.firstTokenTime)
--      if (elapsedMs > 500) {
-+      if (elapsedMs > MIN_TPS_WINDOW_MS) {
-         const decodeMs = tpsTurnDecodeMs + elapsedMs
-         const outputTokens = tpsTurnDecodeTokens + Math.ceil(tps.outputEstimate)
-         state.tps = outputTokens / (decodeMs / 1000)
-@@ -708,7 +714,7 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
+@@ -715,7 +721,7 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
        if (outputTokens !== undefined) {
          tpsTurnDecodeTokens += outputTokens
          tpsTurnSampled = true
@@ -203,7 +194,7 @@ index 78ada16..2e350ec 100644
            state.tps = tpsTurnDecodeTokens / (tpsTurnDecodeMs / 1000)
          }
        }
-@@ -1366,6 +1372,11 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
+@@ -1440,6 +1446,11 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
          // (a translator bug must not turn a marker into a projector throw).
          const aliases: unknown = event.aliases
          const preset = current !== undefined && Array.isArray(aliases) && aliases.includes(current) ? current : event.preset
@@ -216,7 +207,7 @@ index 78ada16..2e350ec 100644
            id: deps.rowIds.value,
            kind: 'notice',
 diff --git a/src/commands.ts b/src/commands.ts
-index 8b94667..9a6a9a7 100644
+index 82dc3cb..eda9eb2 100644
 --- a/src/commands.ts
 +++ b/src/commands.ts
 @@ -194,6 +194,7 @@ export const BACKEND_GOAL_COMMAND: LocalCommand = {
@@ -236,7 +227,7 @@ index 8b94667..9a6a9a7 100644
    ['recap', 'sideQuery'], ['btw', 'sideQuery'], ['rename', 'rename'], ['color', 'color'],
    // /trace opens on every backend; one without trajectory data shows the
 diff --git a/src/dsh-adapter/channel/core/actions.ts b/src/dsh-adapter/channel/core/actions.ts
-index 7cc51ba..5876029 100644
+index dbfb2cb..08ff637 100644
 --- a/src/dsh-adapter/channel/core/actions.ts
 +++ b/src/dsh-adapter/channel/core/actions.ts
 @@ -17,6 +17,7 @@
@@ -245,18 +236,18 @@ index 7cc51ba..5876029 100644
  import { conversationRecapPrompt, parseRecapResponse, sideQuestionPrompt } from '../../../channel/side-prompts.js'
 +import { WORKING_GATE_NOTICES } from '../../../commands.js'
  import { t } from '../../../i18n.js'
+ import { nearestLowerEffort } from '../../../effortPrefs.js'
  import { createUnavailableActionDelegates, type ChannelActionDelegates, type createChannelActionReadiness } from '../action-readiness.js'
- import type { ChannelOwner } from '../owner.js'
-@@ -25,7 +26,7 @@ import type { ChannelState } from '../types.js'
+@@ -26,7 +27,7 @@ import type { ChannelState } from '../types.js'
  export function createCapabilityDelegates(deps: {
    owner: Pick<ChannelOwner, 'current'>
    session(): AgentSession
--  state: () => Pick<ChannelState, 'provider' | 'model' | 'backendCapabilities'>
+-  state: () => Pick<ChannelState, 'provider' | 'model' | 'backendCapabilities' | 'emit'>
 +  state: () => Pick<ChannelState, 'provider' | 'model' | 'agentPreset' | 'working' | 'backendCapabilities' | 'emit'>
    notify: ChannelState['notify']
    unavailable(name: string): void
    unavailableLines(name: string): string[]
-@@ -98,6 +99,43 @@ export function createCapabilityDelegates(deps: {
+@@ -115,6 +116,43 @@ export function createCapabilityDelegates(deps: {
        await effort.set(id)
        return true
      }),
@@ -315,10 +306,10 @@ index 87dd7e1..130365b 100644
      state.ready = true
      state.startupFailure = undefined
 diff --git a/src/dsh-adapter/index.ts b/src/dsh-adapter/index.ts
-index 56c647a..f03822a 100644
+index 5ac2a21..2c51696 100644
 --- a/src/dsh-adapter/index.ts
 +++ b/src/dsh-adapter/index.ts
-@@ -395,6 +395,7 @@ export const Config: Schema<Config, RuntimeConfig<Config>> = editableConfig<Conf
+@@ -412,6 +412,7 @@ export const Config: Schema<Config, RuntimeConfig<Config>> = editableConfig<Conf
      sessionId: Schema.boolean().default(DEFAULT_STATUS_BAR.sessionId),
      goal: Schema.boolean().default(DEFAULT_STATUS_BAR.goal),
      mode: Schema.boolean().default(DEFAULT_STATUS_BAR.mode),
@@ -327,10 +318,10 @@ index 56c647a..f03822a 100644
      activity: Schema.boolean().default(DEFAULT_STATUS_BAR.activity),
      trajectory: Schema.boolean().default(DEFAULT_STATUS_BAR.trajectory),
 diff --git a/src/dsh-adapter/plugin.ts b/src/dsh-adapter/plugin.ts
-index 5f0150f..9d6ed47 100644
+index f9d064e..21a3893 100644
 --- a/src/dsh-adapter/plugin.ts
 +++ b/src/dsh-adapter/plugin.ts
-@@ -832,7 +832,13 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+@@ -1726,7 +1726,13 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
        config.preset,
      )
    let agent: Agent | undefined = resolved.agent
@@ -345,7 +336,7 @@ index 5f0150f..9d6ed47 100644
    // Workspace ownership is a DSH session-store fact (skipped off DSH).
    // `ctx` here is the context that owns the session: this plugin's, or the
    // dsh-tui row's for the in-process DSH kernel (`attachDsh`).
-@@ -1240,6 +1246,7 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+@@ -2140,6 +2146,7 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
            sessionId: Schema.boolean().default(DEFAULT_STATUS_BAR.sessionId),
            goal: Schema.boolean().default(DEFAULT_STATUS_BAR.goal),
            mode: Schema.boolean().default(DEFAULT_STATUS_BAR.mode),
@@ -353,7 +344,7 @@ index 5f0150f..9d6ed47 100644
            contextBar: Schema.boolean().default(DEFAULT_STATUS_BAR.contextBar),
            activity: Schema.boolean().default(DEFAULT_STATUS_BAR.activity),
            trajectory: Schema.boolean().default(DEFAULT_STATUS_BAR.trajectory),
-@@ -1802,6 +1809,9 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
+@@ -2735,6 +2742,9 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>,
          {
            ...settingField('statusBar.mode'),
          },
@@ -385,10 +376,10 @@ index 6aeada2..5ea39a1 100644
    await waitFor(
      () => (ctx.connection?.generation.getSnapshot() === undefined ? undefined : true),
 diff --git a/src/dsh-adapter/remote/session.ts b/src/dsh-adapter/remote/session.ts
-index d8cd191..e626aee 100644
+index 73af263..f1741d4 100644
 --- a/src/dsh-adapter/remote/session.ts
 +++ b/src/dsh-adapter/remote/session.ts
-@@ -11,9 +11,10 @@ import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+@@ -12,9 +12,10 @@ import type { ImageBlock } from '@deepseek-ai/dsh-llm'
  import type { SessionEvent } from '@deepseek-ai/dsh-session'
  import type { AgentSession, AgentSessionStatus, CancelCause, CancelReceipt, AgentInput, SubmitPlacement } from '../../agent/session.js'
  import type { AgentEvent, AgentEventMeta } from '../../agent/events.js'
@@ -400,7 +391,7 @@ index d8cd191..e626aee 100644
  import { createDshTranslator } from '../backend/translate.js'
  import type { RemoteResult, RemoteStream } from './connection.js'
  import type { RemoteApprovals, ApprovalOutcome, RemoteQuestionAnswer } from './approvals.js'
-@@ -103,6 +104,19 @@ type FollowFrame =
+@@ -100,6 +101,19 @@ type FollowFrame =
    | { readonly type: 'event'; readonly event: unknown }
    | { readonly type: 'assistant-stream'; readonly frame: unknown }
  
@@ -420,7 +411,7 @@ index d8cd191..e626aee 100644
  export interface RemoteSessionHandle {
    readonly session: AgentSession & { readonly status: AgentSessionStatus }
    /** The route the session runs on (its recorded choice, else the Host's
-@@ -156,6 +170,10 @@ export interface RemoteSessionDeps {
+@@ -153,6 +167,10 @@ export interface RemoteSessionDeps {
  export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: string): Promise<RemoteSessionHandle> {
    const { projections, catalog } = deps
    const sessions = (deps.remote as unknown as { readonly session: SessionRemote }).session
@@ -431,7 +422,7 @@ index d8cd191..e626aee 100644
    // `assistantStream` is the Host's opt-in for the per-token frames: the
    // durable log alone carries only settlements, which is why a remote turn
    // used to appear in one piece.
-@@ -205,6 +223,13 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+@@ -204,6 +222,13 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
    cursor = snapshot.cursor
    history = translator.translateReplay(snapshot.records.map((record) => record.event as SessionEvent))
    status = 'idle'
@@ -445,7 +436,7 @@ index d8cd191..e626aee 100644
  
    // The durable selection and every other live projection come from the
    // connection's control fold: `session/follow`'s snapshot carries the log
-@@ -524,6 +549,46 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+@@ -523,6 +548,46 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
            return { kind: 'switched' }
          },
        },
@@ -492,7 +483,7 @@ index d8cd191..e626aee 100644
        // `/fork`: the Host copies the exact prefix; the anchor the channel passes
        // is the durable seq of the picked user message (the translator's
        // `user.message.anchor`), which is exactly what `atSeq` wants.
-@@ -662,10 +727,13 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+@@ -661,10 +726,13 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
    }
  
    const live = selection()
@@ -507,7 +498,7 @@ index d8cd191..e626aee 100644
      async close() {
        await session.dispose()
      },
-@@ -712,3 +780,62 @@ export async function listRemoteSessions(remote: unknown): Promise<readonly Remo
+@@ -711,3 +779,62 @@ export async function listRemoteSessions(remote: unknown): Promise<readonly Remo
    }
    return result.value.items
  }
@@ -638,7 +629,7 @@ index 1cddb66..9a96128 100644
  const unsubscribe = handle.session.subscribe((batch) => {
    for (const event of batch) seen.add(event.type)
 diff --git a/src/i18n.ts b/src/i18n.ts
-index 6ec2931..c4663e7 100644
+index 2fe9b32..a48efc0 100644
 --- a/src/i18n.ts
 +++ b/src/i18n.ts
 @@ -119,6 +119,8 @@ const dict = {
@@ -650,7 +641,7 @@ index 6ec2931..c4663e7 100644
    'preset-switched-pref-failed': { zh: 'Preset 已切换：{{id}}，但默认偏好写入失败（重启后不保留）', en: 'Preset switched: {{id}}, but writing the default preference failed (won\'t persist after restart)' },
    'preset-switched-saved': { zh: 'Preset 已切换：{{id}}（已保存为默认）', en: 'Preset switched: {{id}} (saved as default)' },
    // Built-in preset display text (issue: the /preset picker showed the raw
-@@ -500,6 +502,7 @@ const dict = {
+@@ -523,6 +525,7 @@ const dict = {
    'preset-roster-missing': { zh: '（未挂载名册）', en: '(roster not mounted)' },
    'preset-switch-hint': { zh: '切换        /preset（选择器）或 /preset <id>', en: 'Switch        /preset (picker) or /preset <id>' },
    'preset-persist-hint': { zh: '持久化      ~/.dsh-tui/agent-preset.json（重启后仍生效；cordis.yml preset 优先）', en: 'Persisted      ~/.dsh-tui/agent-preset.json (survives restart; cordis.yml preset wins)' },
@@ -658,15 +649,7 @@ index 6ec2931..c4663e7 100644
    'preset-lock-hint': { zh: '锁定规则    已开始的会话不可切换（官方 blank-only 规则）', en: 'Lock rule     started sessions cannot switch (official blank-only rule)' },
    'preset-roster-unmounted': { zh: '当前组合未挂载 agent-presets 名册（preset 不可用）', en: 'The agent-presets roster is not mounted (presets unavailable)' },
    'theme-current': { zh: '当前主题  {{name}}', en: 'Current theme  {{name}}' },
-@@ -510,6 +513,7 @@ const dict = {
-   'theme-switched-saved': { zh: '主题已切换：{{name}}（已保存）', en: 'Theme switched: {{name}} (saved)' },
-   'theme-unknown': { zh: '未知主题「{{name}}」· /theme 查看全部', en: 'Unknown theme "{{name}}" · /theme to view all' },
-   'status-model': { zh: '模型   {{model}}', en: 'Model   {{model}}' },
-+  'status-preset': { zh: '预设 {{name}}', en: 'preset {{name}}' },
-   'status-working': { zh: '工作中', en: 'working' },
-   'status-idle': { zh: '空闲', en: 'idle' },
-   'status-state': { zh: '状态   {{state}}', en: 'Status   {{state}}' },
-@@ -1695,6 +1699,9 @@ const dict = {
+@@ -1911,6 +1914,9 @@ const dict = {
    'question-provider-occupied': { zh: '⚠️ 问卷通道已被非宿主组件 {{id}} 占用，模型提问可能被代答（本界面未接入问卷）', en: '⚠️ The questionnaire channel is held by a non-host component ({{id}}); model questions may be answered by it (this UI did not take the seat)' },
    'question-provider-occupied-unverified': { zh: '⚠️ 问卷通道被一个自报为 {{id}} 的组件占用——身份未经宿主验证，模型提问可能被代答（本界面未接入问卷）', en: '⚠️ The questionnaire channel is held by a component self-reporting as {{id}} — identity not host-verified; model questions may be answered by it (this UI did not take the seat)' },
    'question-provider-occupied-unknown': { zh: '身份未知', en: 'identity unknown' },
@@ -677,10 +660,10 @@ index 6ec2931..c4663e7 100644
    'question-answer-or-check': { zh: '输入回答或勾选选项后再提交', en: 'Type an answer or check options before submitting' },
    'question-type-answer-first': { zh: '先输入回答内容再提交', en: 'Type your answer before submitting' },
 diff --git a/src/screens/Chat.tsx b/src/screens/Chat.tsx
-index cd3bbf9..b54ad62 100644
+index 7ebeafe..dd4e9c6 100644
 --- a/src/screens/Chat.tsx
 +++ b/src/screens/Chat.tsx
-@@ -2914,15 +2914,16 @@ export function Chat({
+@@ -3146,15 +3146,16 @@ export function Chat({
          // minimal/cordis plus any user-authored presets); `/preset <id>`
          // switches directly; `/preset status` shows the current choice. A
          // blank session swaps composition in place (official blank-only
@@ -701,10 +684,10 @@ index cd3bbf9..b54ad62 100644
            ])
            return true
 diff --git a/src/screens/StatusLine.tsx b/src/screens/StatusLine.tsx
-index 1332a43..3be80bf 100644
+index 39661a6..0b90e7b 100644
 --- a/src/screens/StatusLine.tsx
 +++ b/src/screens/StatusLine.tsx
-@@ -319,6 +319,15 @@ export function StatusLine({
+@@ -382,6 +382,15 @@ export function StatusLine({
        ),
      })
    }
@@ -721,11 +704,11 @@ index 1332a43..3be80bf 100644
    const formattedContext = statusBar.contextUsage
      ? formatContextUsage(contextUsed, contextWindow, statusBar.compact)
 diff --git a/src/settings/definitions.ts b/src/settings/definitions.ts
-index 7df6f42..f0bef64 100644
+index 664fdab..2153894 100644
 --- a/src/settings/definitions.ts
 +++ b/src/settings/definitions.ts
-@@ -412,6 +412,14 @@ export const SETTING_DEFINITIONS = {
-     kind: 'boolean',
+@@ -433,6 +433,14 @@ export const SETTING_DEFINITIONS = {
+     kind: 'text',
      group: 'status-bar',
    },
 +  'statusBar.preset': {
@@ -740,10 +723,10 @@ index 7df6f42..f0bef64 100644
      label: 'Show session id',
      descriptions: { zh: '显示会话 ID' },
 diff --git a/src/tuiDisplayPrefs.ts b/src/tuiDisplayPrefs.ts
-index 8832bd5..405e1aa 100644
+index f35379e..a2b3a51 100644
 --- a/src/tuiDisplayPrefs.ts
 +++ b/src/tuiDisplayPrefs.ts
-@@ -18,6 +18,9 @@ export const DEFAULT_STATUS_BAR: Readonly<StatusBarConfig> = Object.freeze({
+@@ -32,6 +32,9 @@ export const DEFAULT_STATUS_BAR: Readonly<StatusBarConfig> = Object.freeze({
    sessionId: false,
    goal: true,
    mode: false,

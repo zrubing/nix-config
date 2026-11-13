@@ -1,0 +1,53 @@
+diff --git a/src/dsh-adapter/remote/projections.ts b/src/dsh-adapter/remote/projections.ts
+index b86d926..e5227b2 100644
+--- a/src/dsh-adapter/remote/projections.ts
++++ b/src/dsh-adapter/remote/projections.ts
+@@ -4,9 +4,10 @@
+  * `session/follow` carries the durable log; it does not carry projections. The
+  * Host publishes them on one process-level stream (`session/control`): a
+  * complete baseline for every live Session, then one replacement frame per
+- * `(sessionId, key)`. Model selection, permissions, titles, todos and the
+- * question queue all live here, so the remote adapter folds this stream once
+- * and every capability reads from the fold.
++ * Session event, each naming every projection key that event changed. Model
++ * selection, permissions, titles, todos and the question queue all live here,
++ * so the remote adapter folds this stream once and every capability reads
++ * from the fold.
+  *
+  * The stream rides a carrier generation, so it is consumed through the
+  * reconnecting layer: a Host restart re-delivers the whole baseline, which
+@@ -31,12 +32,17 @@ interface ControlBaseline {
+   }
+ }
+ 
+-/** One replaced projection value after the baseline. */
++/** One replaced projection value inside a delta frame. */
++interface ControlChange {
++  readonly key: string
++  readonly val: unknown
++}
++
++/** Every projection the Host replaced for one Session event after the baseline. */
+ interface ControlDelta {
+   readonly type: 'projection'
+   readonly sessionId: string
+-  readonly key: string
+-  readonly value: unknown
++  readonly changes: readonly ControlChange[]
+   readonly seq: number
+ }
+ 
+@@ -114,8 +120,12 @@ export function openProjections(host: LiveStreamHost): RemoteProjections {
+       settleReady()
+     },
+     update: (frame) => {
++      // One frame per Host event, carrying every key that event changed:
++      // folding only the first (or a single `key` field) leaves the rest of
++      // the status line — permissions, model route, context pressure — on the
++      // previous cut, which reads as "the Host did not confirm".
+       const values = fold.get(frame.sessionId) ?? new Map<string, unknown>()
+-      values.set(frame.key, frame.value)
++      for (const change of frame.changes) values.set(change.key, change.val)
+       fold.set(frame.sessionId, values)
+       seqs.set(frame.sessionId, frame.seq)
+       notify(frame.sessionId)

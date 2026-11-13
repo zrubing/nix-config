@@ -1,8 +1,8 @@
 diff --git a/src/dsh-adapter/backend/translate.ts b/src/dsh-adapter/backend/translate.ts
-index c30167d..b1db915 100644
+index f685985..60740eb 100644
 --- a/src/dsh-adapter/backend/translate.ts
 +++ b/src/dsh-adapter/backend/translate.ts
-@@ -584,7 +584,17 @@ export function createDshTranslator(deps: DshTranslatorDeps) {
+@@ -614,7 +614,17 @@ export function createDshTranslator(deps: DshTranslatorDeps) {
      unwrittenSpawns.clear()
    }
  
@@ -457,10 +457,10 @@ index e6c7b7e..d06a0db 100644
    }
  }
 diff --git a/src/dsh-adapter/remote/session.ts b/src/dsh-adapter/remote/session.ts
-index e626aee..5436c9c 100644
+index f1741d4..d021095 100644
 --- a/src/dsh-adapter/remote/session.ts
 +++ b/src/dsh-adapter/remote/session.ts
-@@ -19,6 +19,7 @@ import { createDshTranslator } from '../backend/translate.js'
+@@ -20,6 +20,7 @@ import { createDshTranslator } from '../backend/translate.js'
  import type { RemoteResult, RemoteStream } from './connection.js'
  import type { RemoteApprovals, ApprovalOutcome, RemoteQuestionAnswer } from './approvals.js'
  import type { RemoteCatalog, ModelCatalog } from './catalog.js'
@@ -468,7 +468,7 @@ index e626aee..5436c9c 100644
  import { createRemotePermissionModes, type RemotePermissionCatalog } from './permissions.js'
  import type { ModelSelectionProjection, RemoteProjections } from './projections.js'
  
-@@ -30,7 +31,7 @@ export interface SessionRemote {
+@@ -31,7 +32,7 @@ export interface SessionRemote {
      /** Opt in to the transient per-token frames. Without it the Host sends
       *  only durable events, so a turn appears whole when it settles. */
      readonly assistantStream?: boolean
@@ -477,7 +477,7 @@ index e626aee..5436c9c 100644
    list(request: { readonly cursor?: string }): Promise<RemoteResult<{ readonly items: readonly RemoteSessionSummary[] }>>
    rename(request: { readonly sessionId: string; readonly title: string }): Promise<RemoteResult<unknown>>
    create(request: { readonly cwd?: string }): Promise<RemoteResult<{ readonly sessionId: string }>>
-@@ -92,18 +93,27 @@ export interface RemoteSessionSummary {
+@@ -89,18 +90,27 @@ export interface RemoteSessionSummary {
    }
  }
  
@@ -514,7 +514,7 @@ index e626aee..5436c9c 100644
  /** One row of the Host's `agentPresets/list` roster. */
  interface HostPresetRow extends PresetChoice {
    readonly isDefault: boolean
-@@ -150,6 +160,8 @@ const REMOTE_IMAGE_LIMITS: ImageLimitsView = Object.freeze({
+@@ -147,6 +157,8 @@ const REMOTE_IMAGE_LIMITS: ImageLimitsView = Object.freeze({
  export interface RemoteSessionDeps {
    /** The mounted client Remote service. */
    readonly remote: unknown
@@ -523,7 +523,7 @@ index e626aee..5436c9c 100644
    /** The connection's live-control projection fold. */
    readonly projections: RemoteProjections
    /** The connection's model catalog reader. */
-@@ -177,8 +189,7 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+@@ -174,8 +186,7 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
    // `assistantStream` is the Host's opt-in for the per-token frames: the
    // durable log alone carries only settlements, which is why a remote turn
    // used to appear in one piece.
@@ -533,7 +533,7 @@ index e626aee..5436c9c 100644
  
    // Replayed image blocks carry a durable reference, never inline bytes: the
    // reader resolves it through `session/attachment`, the Host's own
-@@ -207,22 +218,116 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+@@ -206,22 +217,116 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
    const awaiting = new Set<string>()
    let cwd = ''
    let closed = false
@@ -659,7 +659,7 @@ index e626aee..5436c9c 100644
    // A question asked before this client attached lives only in the durable
    // log: the Host forwards the answer waterfall live, with no replay, so this
    // client can neither see nor answer it. The reminder rows ride the view
-@@ -361,45 +466,7 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+@@ -360,45 +465,7 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
      })
    })
  
@@ -705,7 +705,7 @@ index e626aee..5436c9c 100644
  
    /**
     * The inline image blocks of one message, checked against the same limits
-@@ -721,18 +788,17 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
+@@ -720,18 +787,17 @@ export async function openRemoteSession(deps: RemoteSessionDeps, sessionId: stri
        unregisterQuestions()
        unregisterRoute()
        listeners.clear()
@@ -752,10 +752,10 @@ index 9a96128..5f6491b 100644
      catalog: connection.catalog,
      permissionCatalog: connection.permissionCatalog,
 diff --git a/src/i18n.ts b/src/i18n.ts
-index c4663e7..de86f68 100644
+index 4a81fab..39e7aea 100644
 --- a/src/i18n.ts
 +++ b/src/i18n.ts
-@@ -1702,6 +1702,8 @@ const dict = {
+@@ -1918,6 +1918,8 @@ const dict = {
    'question-unanswerable': { zh: '本会话在等待一个「连接本客户端之前」发出的提问，此客户端无法回答：{{question}}', en: 'This session is waiting on a question asked before this client attached; this client cannot answer it: {{question}}' },
    'question-unanswerable-options': { zh: '选项：{{options}}', en: 'Options: {{options}}' },
    'question-unanswerable-hint': { zh: '请到收到该提问的客户端（通常是 Web）回答；在本端按 Esc 可取消这一回合。', en: 'Answer it in the client that received it (usually the web UI); press Esc here to cancel this turn.' },

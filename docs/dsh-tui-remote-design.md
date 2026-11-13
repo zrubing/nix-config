@@ -1377,3 +1377,77 @@ Nix 产物上重跑 `verify.js --no-live`：8/8；在 tmux 真 pty 里用
    重连时 `session/control` 的新 baseline 会整体替换折叠。
 2. 从未跑过请求的会话仍然没有 `contextPressure`：`/context` 继续报错，不编造 0。
 3. 状态栏在绑定那一刻取会话自己的路由；其他客户端之后的切换仍由投影 feed 送达。
+
+## 43. 升级 v0.20.0 与投影帧格式（2026-11-14）
+
+### 43.1 症状
+
+TUI 远程会话里切换权限模式（`/permission`、Shift+Tab、启动时套用记住的 preset）
+报：
+
+```
+mode failed · remote: the Host did not confirm permission preset "danger-full-access"
+```
+
+本会话（网页端）正常；宿主的会话日志里 `permission/preset` + `sandbox/mode` +
+`approval/policy` 三条事件**已经落盘**，权限实际生效。
+
+### 43.2 根因：`session/control` 的帧形状变了
+
+宿主 0.2.2 的 live 投影帧是「一个会话事件一帧、帧里带这次事件改掉的**全部** key」：
+
+```json
+{ "type": "projection", "sessionId": "…", "seq": 5,
+  "changes": [ { "key": "permissions", "val": { "currentValue": "…" } } ] }
+```
+
+远程端（`remote/projections.ts`，由 `remote-mode.patch` 引入）仍按旧的
+`{ key, value }` 单值帧读：`values.set(frame.key, frame.value)` 把增量写进
+`undefined`，于是**基线之后所有投影增量都被丢弃**。基线是打开会话时那一份，
+所以 `permissions` 永远停在旧值；`permission-presets.patch` 的 `modes.set()` 要求
+投影在 2 秒内确认新值，读不到就抛上面那句。
+
+`dsh-api-gateway` 的 `RemoteSnapshotStream` 把帧原样交给 `update` 回调，客户端
+不做形状校验，所以这条错配是静默的：只有「改完立刻读投影」的功能会中招
+（权限确认、`/permission` 指示、状态栏与 ctx 条的实时刷新）。
+
+### 43.3 改法
+
+1. `projection-frames.patch`（新，排在补丁链最后）：
+
+   ```ts
+   interface ControlChange { readonly key: string; readonly val: unknown }
+   interface ControlDelta { readonly type: 'projection'; readonly sessionId: string
+     readonly changes: readonly ControlChange[]; readonly seq: number }
+   …
+   for (const change of frame.changes) values.set(change.key, change.val)
+   ```
+
+   必须排在 `session-route-context.patch` 之后：两条改的是同一个 `update` 回调。
+
+2. 升级 `dsh-tui` v0.16.1 → v0.20.0（上游已适配 `0.2.2-rc.2`）。十个补丁全部以
+   v0.20.0 为基底重生成；人工解冲突的点已并入新补丁，不再保留补丁外的改动：
+
+   | 补丁 | 冲突点 | 处理 |
+   |---|---|---|
+   | remote-mode | `contract.ts` 头部 import 与 `installedKernelVersion` 上下文漂移 | 在 `node:path` import 加 `join`、补 `connectedHostVersion()`；`StatusLine` 的 model 段保留 `flexShrink: 0` 并加 `provider/` 前缀 |
+   | preset-support | `channel/core/actions.ts` 的 `state()` Pick 已含 `emit` | 扩成 `provider | model | agentPreset | working | backendCapabilities | emit`；`projection.ts` 的 `MIN_TPS_WINDOW_MS` 上游已用 `MIN_TPS_DECODE_MS`，该 hunk 丢弃；`definitions.ts` 补 `statusBar.preset` |
+   | notification-ghostty-cap | 上游已内建 Ghostty 缓冲常量与 osc9 上限 | 只补 OSC 777 的 `Math.min(…, ghostty ? GHOSTTY_*_BYTES : ∞)` 与 `isGhostty` import；`taskNotifications` 的 hint 文本、两份 README、i18n 手工补句 |
+   | ctrl-o-layout | `signatureParts` 已删 `expanded` / `model` 两个入参 | 同步改调用点；`AssistantToolUseMessage` 补 `bodyWindow` import；i18n 补 `thinking-window-shown` |
+   | remote-link-visibility | i18n 字典位移 | 补 `interrupted-by-host` |
+
+3. pnpm 清单：v0.20.0 的 `pnpm-workspace.yaml` 自带 `minimumReleaseAge: 1440`，
+   前置 `minimumReleaseAge: 0` 会撞成 `duplicated mapping key`。`postPatch` 与两个
+   依赖 FOD 改为**先删这两个顶层键再前置**（`grep -vE '^(trustPolicy|minimumReleaseAge):'`）。
+
+### 43.4 验证
+
+1. `nix build .#dsh-tui-remote` 通过（`SRC/ROOT/VENDOR_HASH` 已按 v0.20.0 重填）。
+2. 契约自检（对着同一宿主）：21/22。唯一失败项 `live events: missing
+   assistant.message` 在 v0.16.1 的同一构建上同样失败，属 rc.2 宿主的既有差异，
+   不是本次改动引入。
+3. 权限切换：`read-only` / `workspace-write` / `danger-full-access` 三向互切，
+   `modes.set()` 4–8 ms 确认成功，投影 `currentValue` 跟随；改动前同一场景固定
+   2015 ms 超时。
+4. `home-manager switch --flake .#jojo` 已装（generation 35 → `dsh-tui-remote-0.20.0`）。
+   `/etc/profiles/per-user` 下的副本要等下一次 `nixos-rebuild switch` 才换。
