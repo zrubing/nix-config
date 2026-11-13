@@ -1129,15 +1129,33 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
         # 真正的探活方式是 daemon 启动时的 `--probe`。
         profileBundleCheckProfiles = (
           let
-            skip = [ "multica" ];
+            # superagent：插件的 Config 必须带 stateDir 才肯启动，而 stateDir 是
+            # **部署事实**（$HOME/.dsh/state/superagent），由 activation 写进 profile 层
+            # 的 cordis.patch.yml。自检在临时 DSH_HOME 里跑，没有那一行 → 插件按
+            # "config invalid" 被禁用 → hook 的 "disabling profile plugin" 判定必然失败。
+            # 它的真探活是常驻服务自己的 /orchestrator/api/state（部署后才有意义）。
+            skip = [
+              "multica"
+              "superagent"
+            ];
           in
           lib.mapAttrs (
             group: names:
             map (name: materializedNames.${lib.removePrefix "nix-" name} or name) names
           ) artifacts.bundleCheckProfiles
           // {
+            # skip 写的是**短名**，而 artifacts 里列的是上游模板名 `nix-<短名>`。
+            # 两种形态都放进来再比：只比一种时，没有 materializedNames 覆盖的短名
+            # （如 superagent）永远匹配不上，skip 会静默失效（2026-11-12 实测：
+            # dsh 的 installCheck 仍然去跑了 nix-superagent）。
             all = lib.filter (
-              name: !builtins.elem name (map (n: materializedNames.${n} or n) skip)
+              name:
+              !builtins.elem name (
+                lib.concatMap (n: [
+                  n
+                  (materializedNames.${n} or "nix-${n}")
+                ]) skip
+              )
             ) (map (name: materializedNames.${lib.removePrefix "nix-" name} or name) artifacts.bundleCheckProfiles.all);
           }
         );

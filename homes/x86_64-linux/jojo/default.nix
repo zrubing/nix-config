@@ -168,6 +168,12 @@ in
         # 缓存，要么重新拉、要么从源码构一次，约 40 分钟）。Emacs 侧改用
         # dsh-emacs：dsh web 的 HTTP 客户端，连已在跑的服务，零 nix 改动。
         plugins.acp.enable = false;
+        # dsh-superagent（面向单个 GitHub 仓库的主动式 agent，上游研究原型）：
+        # 独立 profile `nix-superagent` + systemd 单元 dsh-superagent + 面板
+        # http://127.0.0.1:3082。先只接「跑起来、面板能开」这一段：GitHub agent
+        # 账号（~/.config/gh-agent）与仓库/Sources/Policy 都在面板里配，配好之前
+        # 它停在 setup 等待状态，不轮询任何东西。
+        plugins.superagent.enable = true;
       };
       pi = {
         enable = true;

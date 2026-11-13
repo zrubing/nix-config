@@ -141,6 +141,8 @@ let
     headless = "nix-headless";
     tui = "nix-dsh-tui";
     acp = "nix-acp";
+  } // lib.optionalAttrs cfg.plugins.superagent.enable {
+    superagent = "nix-superagent";
   };
 
   # web profile 的权限行：宿主任一进程（网页端、dsh-tui-remote、CLI）都用它。
@@ -271,6 +273,30 @@ let
     meta.description = "Multica runtime bridge for DeepSeek Harness";
   };
 
+  # dsh-superagent：面向**单个** GitHub 仓库的主动式 coding agent（上游标注研究原型）。
+  #
+  # 它不是一个 CLI，而是「一个 profile + 一个常驻进程 + 一个 Web 面板」：
+  #   profile = nix-superagent     —— 与操作者自己的 profile 隔开
+  #   进程    = systemd 单元 dsh-superagent（见下方 config 段）
+  #   面板    = 127.0.0.1:3082，侧栏 Superagent 入口
+  # 分层与其余 profile 一致：代码与脚本归 nix（这个 bundle），团队设置
+  # （Sources / Policy / Execution / Prompts）归它自己的 sqlite（stateDir），面板里改。
+  #
+  # 唯一的机器配置是 stateDir，它只能由配置文件给（面板里改不了）。它写在
+  # **profile 层**（activation 渲染），不写在 bundle 层：面板的机器限额编辑走
+  # config-editor 的 path op（set promptMaxChars 之类），落在同一个 profile 行里，
+  # 整行替换不会把 stateDir 抹掉。
+  superagentBundle = dshLocal.mkBundle {
+    name = "dsh-superagent";
+    version = "0.1.0";
+    src = pkgs.${namespace}.dsh-superagent;
+    patch = "${pkgs.${namespace}.dsh-superagent}/cordis.patch.yml";
+    # 它带真实运行期依赖（proper-lockfile、zod），不能像零依赖插件那样把整棵
+    # node_modules 软链到 installation；只把 @deepseek-ai 作用域链回去。
+    shareInstallationScope = true;
+    meta.description = "Proactive coding agent for one GitHub repository (research prototype)";
+  };
+
   dshPackage = dshLocal.mkDsh {
     # 不设 `mode`：本仓库用自定义播种器（pkgs/dsh-local 的 mkProfileSeeder）替换了
     # 上游的 dsh-sync-profiles。上游的 managed 会在每次启动抹掉运行时设置，mutable
@@ -314,6 +340,23 @@ let
             id = "headless-runner";
             disabled = true;
           }
+        ];
+      };
+    } // lib.optionalAttrs cfg.plugins.superagent.enable {
+      # superagent：面板与 worker/router 两个 preset 都由它自己的 bundle 提供。
+      #
+      # 不列 hostBundles（MCP、本地 preset、autosync、blackhole 等）：那些是给
+      # 操作者自己的会话用的，塞进一个**长期无人值守**的进程里只会扩大权限面，
+      # 而且 autosync 会往这份 profile 里写被它 own 的文件。
+      # llm-pi-ai 必须列 —— 这份 profile 同样靠 activation 渲染的 provider 表才有模型；
+      # webPermissionBundle 也必须列 —— 上游文档要求它的 Session 跑在
+      # danger-full-access（worker 直接在工作区写文件、跑 git），与 web profile 同源。
+      superagent = {
+        requiresWeb = true;
+        bundles = [
+          llmRoutesBundle
+          webPermissionBundle
+          superagentBundle
         ];
       };
     };
@@ -1275,6 +1318,24 @@ in
       '';
     };
 
+    plugins.superagent.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Add the dsh-superagent profile (`nix-superagent`) plus a
+        `dsh-superagent` systemd user service: a proactive coding agent for one
+        GitHub repository, with its own web panel. It is a separate profile and
+        a separate process because the plugin rewrites the process-wide PATH and
+        git configuration, and it needs independent restarts.
+      '';
+    };
+
+    plugins.superagent.port = mkOption {
+      type = types.port;
+      default = 3082;
+      description = "Listen port for the dsh-superagent panel (loopback only).";
+    };
+
     # systemd user service 环境极简，必须显式注入；shell 里 source 的 default.env
     # 不会带进来。注意：不能用 Environment = [ "KEY=${config.sops.placeholder...}" ]
     # —— placeholder 是求值期的占位符字符串，写入单元后不会被解密。必须走
@@ -1461,7 +1522,12 @@ in
         ${lib.getExe dshPackage} --version >/dev/null 2>&1 || true
       '';
 
-      home.activation.dshProfileProviders = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      # 排在播种器之后：新加的 profile（superagent）第一次 switch 时目录还不存在，
+      # 抢在 dshSyncProfiles 前面跑会让它这一轮拿不到 provider 行（下一轮才有）。
+      home.activation.dshProfileProviders = inputs.home-manager.lib.hm.dag.entryAfter [
+        "writeBoundary"
+        "dshSyncProfiles"
+      ] ''
         template=${profilePatch}
         env_file=${lib.escapeShellArg (if cfg.envFile != null then cfg.envFile else "")}
         relay=""
@@ -1512,6 +1578,82 @@ in
         # 只在真的改过时重启，避免每次 switch 都打断会话。
         if [ -n "$changed" ] && systemctl --user is-active --quiet dsh-web.service 2>/dev/null; then
           systemctl --user try-restart dsh-web.service 2>/dev/null || true
+        fi
+      '';
+    })
+
+    # ── dsh-superagent：常驻进程 + 机器配置 ─────────────────────────────────
+    (lib.mkIf (cfg.enable && cfg.plugins.superagent.enable) {
+      # 与 dsh-web 同一形态（systemd 托管、EnvironmentFile 取 dsh.env），但它是
+      # **另一个** profile 与进程：上游要求独立重启、独立升级，而且它会把
+      # 进程级 PATH 与 git 配置改写成 agent 账号那一套。
+      #
+      # 不设 `--trusted-host`：面板只从本机 loopback 用，访问面与 dsh-web 的反代入口无关。
+      systemd.user.services.dsh-superagent = {
+        Unit = {
+          Description = "dsh-superagent (proactive agent for one GitHub repository)";
+          After = [ "network-online.target" ]
+            ++ lib.optional (cfg.envFile != null) "sops-nix.service";
+          Wants = [ "network-online.target" ]
+            ++ lib.optional (cfg.envFile != null) "sops-nix.service";
+        };
+        Install.WantedBy = [ "default.target" ];
+        Service = {
+          Type = "simple";
+          ExecStart = "${lib.getExe dshPackage} --profile ${profileNames.superagent} --no-open --host 127.0.0.1 --port ${toString cfg.plugins.superagent.port}";
+          EnvironmentFile = lib.mkIf (cfg.envFile != null) cfg.envFile;
+          Environment = [ "DSH_HOME=${config.home.homeDirectory}/.dsh" ];
+          # 没有配置好账号/仓库时它并不崩，只是停在 "等待 setup" 状态并给出面板 ——
+          # 这正是首次部署期望的形态。
+          Restart = "on-failure";
+          RestartSec = 5;
+        };
+      };
+    })
+
+    (lib.mkIf (cfg.enable && cfg.plugins.superagent.enable) {
+      # stateDir 只能由配置文件给（面板里没有这个字段），所以由 nix 渲染进 profile 层。
+      #
+      # 为什么落在 profile 层而不是 bundle 层：面板里的机器限额（promptMaxChars 等）
+      # 走 config-editor 的 path op，写的就是 profile 里这一行；patch 行的 config 是
+      # **整块替换**，若 stateDir 只存在于 bundle 层，profile 那行的整块内容会把它盖掉，
+      # 插件下次启动即 "stateDir 缺失"。反过来只改 `.config.stateDir` 一个键，
+      # 面板写进去的限额就能活着。
+      #
+      # 目录由播种器创建；首次 switch 的时序不保证在服务启动之前，所以真改过时
+      # 顺手 try-restart 一次（与 dshProfileProviders 对 dsh-web 的做法一致）。
+      home.activation.dshSuperagentConfig = inputs.home-manager.lib.hm.dag.entryAfter [
+        "writeBoundary"
+        "dshSyncProfiles"
+      ] ''
+        dir="$HOME/.dsh/profiles/${profileNames.superagent}"
+        patch="$dir/cordis.patch.yml"
+        [ -d "$dir" ] || exit 0
+        [ ! -L "$patch" ] || {
+          echo "WARN: $patch 是符号链接，跳过渲染" >&2
+          exit 0
+        }
+        [ -f "$patch" ] || printf '[]\n' > "$patch"
+
+        staged="$(${pkgs.coreutils}/bin/mktemp "$patch.XXXXXX")"
+        # 只碰 stateDir 一个键：行存在则合并进它的 config（保留面板写的限额），
+        # 行不存在则追加一行。strenv 而不是字符串插值：路径里可能有 shell 元字符。
+        # 不写 `if/then/else` —— 本仓库钉的 yq-go 4.53 的 lexer 直接拒收 `if`，
+        # 拆成 as 绑定 + `//` 兜底，语义等价且实测三种输入（无该行 / 空 config /
+        # 带限额）都对。行的位置会挪到末尾，patch 按 id 生效，不影响语义。
+        reach='([.[] | select(.id != "dsh-superagent")]) as $rest | ((.[] | select(.id == "dsh-superagent") | .config) // {}) as $cfg | $rest + [{"id": "dsh-superagent", "config": ($cfg + {"stateDir": strenv(SD)})}]'
+        if SD="$HOME/.dsh/state/superagent" ${lib.getExe pkgs.yq-go} "$reach" "$patch" >"$staged" 2>/dev/null && [ -s "$staged" ]; then
+          if ${pkgs.diffutils}/bin/cmp -s "$staged" "$patch"; then
+            ${pkgs.coreutils}/bin/rm -f "$staged"
+          else
+            ${pkgs.coreutils}/bin/chmod --reference="$patch" "$staged"
+            ${pkgs.coreutils}/bin/mv -f "$staged" "$patch"
+            echo "dsh: superagent 的 stateDir 已渲染"
+            systemctl --user try-restart dsh-superagent.service 2>/dev/null || true
+          fi
+        else
+          ${pkgs.coreutils}/bin/rm -f "$staged"
+          echo "WARN: $patch 的 dsh-superagent 行渲染失败" >&2
         fi
       '';
     })

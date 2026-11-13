@@ -56,6 +56,16 @@
   patch ? null,
   # 该 bundle 声明的运行时依赖，会去重展平进 dsh 的 PATH。
   runtimeDeps ? [ ],
+  # `src` 自带 node_modules 时（bundle 有真实运行期依赖），是否把 `@deepseek-ai`
+  # 作用域链回 installation。
+  #
+  # 上面的默认路径（软链整个 node_modules）只对**零运行期依赖**的插件成立。一旦
+  # bundle 需要 proper-lockfile 这类 installation 里没有的包，整棵树软链就不行了；
+  # 而反过来让它自带一份 `@deepseek-ai/*` 又会出现同一运行时包的两个实例（上游
+  # share-installation-packages.mjs 明确禁止）。所以这里按**作用域**切：
+  # 私有依赖留在包里，`@deepseek-ai/*` 一律指向 installation。
+  # Node 的解析顺序是 `<包>/node_modules` → 上层 node_modules，一条软链即可。
+  shareInstallationScope ? false,
   meta,
 }:
 
@@ -109,6 +119,15 @@ stdenvNoCC.mkDerivation {
     if [ ! -e "$dest/node_modules" ] && [ ! -L "$dest/node_modules" ]; then
       ln -s ${installationNodeModules} "$dest/node_modules"
     fi
+    ${lib.optionalString shareInstallationScope ''
+      [ -d "$dest/node_modules" ] || {
+        printf 'dsh-local: %s declares shareInstallationScope but ships no node_modules\n' \
+          ${lib.escapeShellArg name} >&2
+        exit 1
+      }
+      rm -rf "$dest/node_modules/@deepseek-ai"
+      ln -s ${installationNodeModules}/@deepseek-ai "$dest/node_modules/@deepseek-ai"
+    ''}
 
     # 包名必须与安装路径一致：Loader 按名字从安装锚点解析，不一致时下游只报
     # "cannot resolve profile bundle"，是最难查的一类退化。
