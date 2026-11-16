@@ -55,9 +55,25 @@ in
     containers.containersConf.settings = {
       containers = {
         # netns = "bridge";
+        # 与 Docker 默认一致。本机也是镜像构建机，构建容器需要用
+        # CAP_CHOWN/CAP_FOWNER/CAP_DAC_OVERRIDE 执行 chown、chmod，
+        # 运行 php-fpm 镜像需要用 CAP_SETUID/CAP_SETGID 降权。
+        # 只保留 NET_RAW/NET_BIND_SERVICE 会让这两类操作返回 EPERM。
         default_capabilities = [
-          "NET_RAW"
+          "AUDIT_WRITE"
+          "CHOWN"
+          "DAC_OVERRIDE"
+          "FOWNER"
+          "FSETID"
+          "KILL"
+          "MKNOD"
           "NET_BIND_SERVICE"
+          "NET_RAW"
+          "SETFCAP"
+          "SETGID"
+          "SETPCAP"
+          "SETUID"
+          "SYS_CHROOT"
         ];
 
       };
