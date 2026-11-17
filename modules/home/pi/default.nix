@@ -17,7 +17,7 @@ let
 
   # ── 凭据投递：pi 自己没有注入机制，必须包一层 wrapper ──────────────────
   #
-  # pi 只从**进程环境**读 OPENCODE_API_KEY / DEEPSEEK_RELAY_API_KEY 等
+  # pi 只从**进程环境**读 OPENCODE_API_KEY / RELAY_API_KEY 等
   # （catalog 里 "opencode-go": "OPENCODE_API_KEY"，实测 `pi auth check`），
   # 而 ~/.config/default.env 只有交互式 bash 的 .bashrc 会 source：
   #   bash -ic 'pi auth check --provider opencode-go' → ready

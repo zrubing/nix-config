@@ -1057,16 +1057,17 @@ let
         # deepseek（catalog id 兜底名）两项；已移除。dsh-web-search-deepseek
         # 也只认 deepseek-official，不受影响。
         # deepseek-relay 路由 = 企业 relay（与官方 DeepSeek 分开；key 走 clan
-        # vars deepseek-relay/api-key、baseURL 复用 openai-relay/base-url，
-        # 渲染进 dsh.env 的 DEEPSEEK_RELAY_* 独立 env，不影响原 OPENAI_API_KEY）。
+        # vars relay/api-key、baseURL 复用 openai-relay/base-url，渲染进 dsh.env
+        # 的 RELAY_API_KEY / DEEPSEEK_RELAY_BASE_URL，不影响原 OPENAI_API_KEY）。
         # 非 catalog 路由：pi-ai 没有它的任何内置条目，故 models 条目的能力
         # 元数据只能显式声明。
         # 路由事实（apiKeyEnv / compat / reasoning / models 的能力元数据）全部
         # 来自 modules/home/llm-routes/routes.nix 的单一来源，此处只做 YAML 传输；
         # pi 侧从同一份源渲染 models-overlay.json。改模型/改档位只动那一处。
         # 2026-09-14：两边 key 曾分叉（dsh key 对 v4-flash/v4-pro 全部 403，
-        # pi key 可访问），现已统一到 clan vars 的同一个 secret，模型集合也只
-        # 保留该 key 实际可访问的 deepseek-flash。
+        # pi key 可访问），当时统一到 deepseek-relay 的专用 secret。2026-11-17
+        # 该专用 key 被网关判为无效令牌（401），两把 key 改为同用 clan vars
+        # relay/api-key；本路由的模型集合仍只保留锁文件里的 deepseek-flash。
         # relay 角色白名单无 developer（实测 400）→ 路由级 supportsDeveloperRole。
         deepseek-relay:
           apiKeyEnv: ${deepseekRelayRoute.apiKeyEnv}
@@ -1087,9 +1088,10 @@ let
           # reasoningEfforts，缺失 = 该模型"无推理能力"→ 选择器不显示思考强度。
           models:
   ${routeModelsYaml deepseekRelayRoute}
-        # relay：同一个企业 relay 网关、另一把按模型授权的 key（clan vars
-        # relay/api-key）。端点复用同一占位符，activation 一次替换所有实例
-        # （见 home.activation.dshProfileProviders）。模型清单是 routes.nix 里的
+        # relay：同一个企业 relay 网关、同一把 key（clan vars relay/api-key，
+        # 与 deepseek-relay 路由共用），仅模型清单不同。端点复用同一占位符，
+        # activation 一次替换所有实例（见 home.activation.dshProfileProviders）。
+        # 模型清单是 routes.nix 里的
         # 字面声明（gemini-4-carbon / claude-opus-5-5 / claude-fable-5-2），
         # 不跟 models.lock.json 对账；要跟随网关清单再补 autosync 描述符。
         relay:

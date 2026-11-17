@@ -160,26 +160,11 @@
     '';
   };
 
-  # DeepSeek relay 的独立 API key，与 openai-relay/api-key 完全解耦。
-  # 消费方：home sops 渲染进 dsh.env 的 DEEPSEEK_RELAY_API_KEY，仅供
-  # deepseek-relay 路由使用。换值：clan vars set zen14 deepseek-relay/api-key
-  clan.core.vars.generators.deepseek-relay = {
-    prompts.api-key = {
-      description = "DeepSeek relay API key (sk-...)";
-      type = "hidden";
-    };
-    files.api-key.secret = true;
-
-    script = ''
-      tr -d '\n' < $prompts/api-key > $out/api-key
-    '';
-  };
-
-  # 多厂商 relay 的独立 API key：与 deepseek-relay 同一个 relay 网关，但令牌按
-  # 模型授权（deepseek-relay 的 key 在 /v1/models 只列出 deepseek-flash，这把
-  # 能列出 claude-* / gemini-* / gpt-* 二十多条）。
-  # 消费方：home sops 渲染进 dsh.env 与 default.env 的 RELAY_API_KEY，供 dsh / pi
-  # 的 relay 路由使用（gemini-4-carbon、claude-opus-5-5、claude-fable-5-2）。
+  # 企业 relay 网关唯一的 API key（原「多厂商」key）。2026-11-17 起 dsh 的
+  # deepseek-relay 与 relay 两条路由、pi 侧两个 provider、codex 的 model_provider
+  # 全部用它 —— 旧的 deepseek-relay/api-key 已被网关判为无效令牌（401），
+  # generator 一并删除，key 不再按路由分家。
+  # 消费方：home sops 渲染进 dsh.env 与 default.env 的 RELAY_API_KEY。
   # 换值：clan vars set zen14 relay/api-key
   clan.core.vars.generators.relay = {
     prompts.api-key = {

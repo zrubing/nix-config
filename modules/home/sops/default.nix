@@ -109,26 +109,19 @@ in
       sopsFile = "${mysecrets}/secrets/env.yaml";
     };
 
-    # DeepSeek relay 独立 key：密文由 clan vars 的 deepseek-relay generator 管理，
-    # 与保留的 openai-relay/api-key 解耦。渲染进 dsh.env 的
-    # DEEPSEEK_RELAY_API_KEY，仅供 dsh 的 deepseek-relay 路由使用。
-    sops.secrets."deepseek-relay/api_key" = {
-      sopsFile = ../../../vars/per-machine/zen14/deepseek-relay/api-key/secret;
-      format = "binary";
-    };
-
-    # relay base URL 仍复用 openai-relay generator：deepseek-relay 路由与内置
-    # catalog 路由 openai 的 baseURL 重定向共用同一端点。openai 路由认证仍走
-    # OPENAI_API_KEY，不使用两个 relay key 文件。
+    # relay base URL 仍复用 openai-relay generator：deepseek-relay / relay 两条
+    # 路由与内置 catalog 路由 openai 的 baseURL 重定向共用同一端点。openai 路由
+    # 认证仍走 OPENAI_API_KEY，不使用 relay key 文件。
     sops.secrets."deepseek-relay/base_url" = {
       sopsFile = ../../../vars/per-machine/zen14/openai-relay/base-url/secret;
       format = "binary";
     };
 
-    # 多厂商 relay 独立 key：同一 relay 网关，另一把按模型授权的令牌（2026-11-11
-    # 实测 deepseek-relay 的 key 在 /v1/models 只列 deepseek-flash，这把能列出
-    # claude-* / gemini-* / gpt-* 二十多条）。密文由 clan vars 的 relay generator
-    # 管理，渲染进 dsh.env 与 default.env 的 RELAY_API_KEY（dsh 与 pi 同一个 env 名）。
+    # relay 网关唯一的 key（clan vars 的 relay generator）：一个端点一把令牌，
+    # dsh 的 deepseek-relay / relay 两条路由与 pi 侧两个 provider 共用。
+    # 2026-11-17 之前还另有一把 deepseek-relay/api-key，网关侧已失效（401 无效
+    # 令牌），故删除该 secret 与其 generator，key 不再分家。
+    # 渲染进 dsh.env 与 default.env 的 RELAY_API_KEY（dsh 与 pi 同一个 env 名）。
     sops.secrets."relay/api_key" = {
       sopsFile = ../../../vars/per-machine/zen14/relay/api-key/secret;
       format = "binary";
@@ -395,18 +388,12 @@ in
         export NVIDIA_NIM_API_KEY="${config.sops.placeholder."nvidia-nim/api_key"}"
         export DEEPSEEK_API_KEY="${config.sops.placeholder."deepseek/api_key"}"
         export ZAI_CODING_CN_API_KEY="${config.sops.placeholder."anthropic/api_key"}"
-        # DeepSeek relay：与 dsh.env 的 DEEPSEEK_RELAY_API_KEY 同一个 clan var
-        # （deepseek-relay/api-key），只是渲染到两个 env 文件——dsh-web 读
-        # ~/.config/dsh.env，终端 agent（pi）读本文件。pi 的 models.json 里该
-        # provider 写 apiKey: "$DEEPSEEK_RELAY_API_KEY" 引用（见
-        # modules/home/llm-routes/routes.nix 的 apiKeyEnv），故此处必须 export，
-        # 否则 pi 的 relay 模型会因缺 env 而不可用。
-        # 2026-09-14 之前 pi 侧 key 硬编码在 age 密文里且与 dsh 不同源（dsh key
-        # 对 v4-flash/v4-pro 全部 403，pi key 可访问），现已统一到同一 secret。
-        export DEEPSEEK_RELAY_API_KEY="${config.sops.placeholder."deepseek-relay/api_key"}"
-        # 多厂商 relay：同一个网关的另一把令牌（clan vars relay/api-key），
-        # dsh.env 里同名变量供 dsh 的 relay 路由使用。base URL 与 deepseek-relay
-        # 同源，由 pi 的 models.json 合并脚本按 baseUrlFrom 从密文继承，不重复声明。
+        # relay 网关唯一 key（clan vars relay/api-key）：dsh 的 deepseek-relay 与
+        # relay 两条路由、pi 的两个同名 provider 全部引用这一个 env 名。旧
+        # deepseek-relay/api-key 已于 2026-11-17 停用（网关侧 401 无效令牌），
+        # 两把 key 分家的逻辑随之删除。pi 的 models.json 里 apiKey 写
+        # "$RELAY_API_KEY" 引用（见 modules/home/llm-routes/routes.nix 的
+        # apiKeyEnv），故此处必须 export，否则 pi 的 relay 模型缺 env 不可用。
         export RELAY_API_KEY="${config.sops.placeholder."relay/api_key"}"
         # GH_TOKEN 复用 github-mcp/api_token 同一份 PAT（clan/zen14.nix github-mcp-token），
         # 供 gh CLI / git 等读标准 GH_TOKEN 完成认证。单一来源，随 MCP token 一起轮换。
@@ -461,7 +448,6 @@ in
       content = ''
         DEEPSEEK_API_KEY=${config.sops.placeholder."deepseek/api_key"}
         OPENAI_API_KEY=${config.sops.placeholder."openai/api_key"}
-        DEEPSEEK_RELAY_API_KEY=${config.sops.placeholder."deepseek-relay/api_key"}
         RELAY_API_KEY=${config.sops.placeholder."relay/api_key"}
         DEEPSEEK_RELAY_BASE_URL=${config.sops.placeholder."deepseek-relay/base_url"}
         OPENROUTER_API_KEY=${config.sops.placeholder."openrouter/api_key"}

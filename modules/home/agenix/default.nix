@@ -110,7 +110,7 @@ let
       # 密文里那四个兼容键就会**透传**进结果——于是路由的 compat 有两个来源，
       # 改了 overlay 也删不掉密文里的旧键。这正是本次要消灭的"多来源"。
       # 同理 models 数组：虽然数组是整体替换，但 provider 层的标量（apiKey）必须
-      # 以 overlay 为准，才能把明文 key 换成 $DEEPSEEK_RELAY_API_KEY 引用。
+      # 以 overlay 为准，才能把明文 key 换成 $RELAY_API_KEY 引用。
       #
       # baseUrlFrom（2026-11-11 加）：overlay 可以声明「baseUrl 继承密文里另一个
       # provider」，用于同网关的新路由（relay 与 deepseek-relay 同端点）。端点的来源仍只有密文一处；该标记本身不落进 models.json。

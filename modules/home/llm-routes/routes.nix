@@ -4,8 +4,8 @@
 #   relay / deepseekRelay —— dsh 与 pi 都声明这两个 provider（dsh 走 cordis
 #                   patch，pi 走 models-overlay.json），字段必须一致，否则同一
 #                   网关两侧的 key / 模型集合 / 能力元数据会各自漂移。两条路由
-#                   共用同一个 baseURL（值见 deepseekRelay.baseURLEnv），只是
-#                   key 与模型集合不同。
+#                   共用同一个 baseURL（值见 deepseekRelay.baseURLEnv）与同一把
+#                   key（clan vars relay/api-key），只是模型集合不同。
 # 本文件只产出数据（含求值期校验），不做渲染：dsh 用它已有的 YAML emitter，
 # pi 用它自己的 schema 转换器。
 {
@@ -269,18 +269,19 @@ in
   # 非 catalog 路由：pi-ai 没有它的任何内置条目，故能力元数据只能显式声明。
   # relay 角色白名单无 developer（实测 400）→ 路由级 supportsDeveloperRole。
   #
-  # 模型集合以本路由所用 key 实际可访问者为限：2026-09-14 探针实测，该 key 对
-  # deepseek-v4-flash / v4-pro / *-byte / vision-exp 全部 403「该令牌无权访问
-  # 模型」，仅 deepseek-flash 200。换 key 或网关放开权限后改这里一处，两侧同时
-  # 跟随。
+  # 模型集合 = models.lock.json 的 deepseek-relay 段（手工 curated，只留
+  # deepseek-flash）。key 于 2026-11-17 与 relay 路由统一到 clan vars
+  # relay/api-key：原 deepseek-relay/api-key 被网关判为无效令牌（/v1/models
+  # 401「无效的令牌」），统一后的 key 对 deepseek-flash 实测 200。要扩集合改锁
+  # 文件并在下方补元数据，两侧同时跟随。
   deepseekRelay = {
     name = "deepseek-relay";
     displayName = "DeepSeek Relay";
     api = "openai-completions";
-    # 凭据引用而非明文：值来自 clan vars deepseek-relay/api-key，由 sops 渲染进
-    # dsh.env（dsh-web 读）与 default.env（终端 agent，pi 读）。pi 的 models.json
-    # 对 apiKey 做 "$VAR" 插值，故 pi 侧写引用即可，明文不再入 age 密文。
-    apiKeyEnv = "DEEPSEEK_RELAY_API_KEY";
+    # 凭据引用而非明文：值与 relay 路由同源（clan vars relay/api-key），由 sops
+    # 渲染进 dsh.env（dsh-web 读）与 default.env（终端 agent，pi 读）。pi 的
+    # models.json 对 apiKey 做 "$VAR" 插值，故 pi 侧写引用即可，明文不入 age 密文。
+    apiKeyEnv = "RELAY_API_KEY";
     # dsh 侧 baseURL 走运行时 env（值来自 clan vars openai-relay/base-url）。
     # pi 侧仍需 age 密文提供 baseUrl：pi 只对 apiKey / headers 做 env 插值，
     # baseUrl 原样直读（源码实测 dist/core/provider-composer.js 的 modelFromJson）。
@@ -307,7 +308,8 @@ in
     );
   };
 
-  # 多厂商 relay 路由：同一个网关、同一把 key，三家模型共用一条路由。
+  # relay 路由（网关的完整令牌集合）与 deepseekRelay 共用同一把 key，两家路由
+  # 的差别只剩模型清单：
   #
   # 非 catalog 路由：pi-ai 没有这些 id 的内置条目，能力元数据只能在这里声明。
   # 模型集合是**字面清单**而不是锁文件：本轮只要这三个 id（网关里还有
@@ -318,6 +320,7 @@ in
     name = "relay";
     displayName = "Relay";
     api = "openai-completions";
+    # 网关唯一 key（clan vars relay/api-key）：deepseekRelay 路由引用同一个 env。
     apiKeyEnv = "RELAY_API_KEY";
     # 与 deepseek-relay 同一个端点事实：值来自 clan vars openai-relay/base-url，
     # 渲染进 dsh.env 的 DEEPSEEK_RELAY_BASE_URL（env 名保留历史拼写，见 dsh 模块）。

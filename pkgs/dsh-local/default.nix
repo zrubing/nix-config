@@ -659,14 +659,15 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
               reportOnly: true
 
           # baseURL 走运行时 env：与 llm-pi-ai 的 deepseek-relay.baseURL 同一变量
-          # （clan vars openai-relay/base-url，单一来源）。
+          # （clan vars openai-relay/base-url，单一来源）。apiKeyEnv 用网关唯一
+          # key（clan vars relay/api-key），与 llm-pi-ai 的 relay 路由同一个 env。
           - id: deepseek-relay-autosync
             name: dsh-autosync/deepseek-relay
             config:
               route: deepseek-relay
               baseURL: !!js process.env.DEEPSEEK_RELAY_BASE_URL
               api: openai-completions
-              apiKeyEnv: DEEPSEEK_RELAY_API_KEY
+              apiKeyEnv: RELAY_API_KEY
               intervalMs: 43200000
               # 只报告，不写 profile 层：这条路由的清单归 routes.nix，运行期写入会被
               # 下一次 rebuild 抹掉，留着写者只会让设置页与声明不一致。漂移由

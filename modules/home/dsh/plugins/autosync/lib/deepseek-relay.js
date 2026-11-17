@@ -47,7 +47,9 @@ export const spec = {
 	// 这里**不放兜底**：兜底会把地址固化进 git，并让「这次请求打到哪」无法从
 	// 配置判断——2026-10-21 实测就是它让 CLI 在 env 缺失时静默打到了那个地址。
 	api: "openai-completions",
-	apiKeyEnv: "DEEPSEEK_RELAY_API_KEY",
+	// 与 relay 路由同一把 key（clan vars relay/api-key）：2026-11-17 起网关只认
+	// 这一把，两个路由共用同一 env 名。
+	apiKeyEnv: "RELAY_API_KEY",
 	includePrefixes: ["deepseek-"],
 };
 

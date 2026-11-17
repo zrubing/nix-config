@@ -64,7 +64,7 @@ in
         name = "deepseek"
         base_url = "${config.sops.placeholder."deepseek-relay/base_url"}"
         wire_api = "responses"
-        experimental_bearer_token = "${config.sops.placeholder."deepseek-relay/api_key"}"
+        experimental_bearer_token = "${config.sops.placeholder."relay/api_key"}"
 
         # MCP servers：来源 modules/home/mcp-servers/servers.nix（codex 视图），
         # 与 pi / dsh / Claude Code 共用一份定义。密钥占位符由本模板的 sops 渲染替换。
