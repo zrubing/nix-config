@@ -243,7 +243,10 @@ in
           pyright
           gopls
           lemminx
-          pkgs.unstable.jdt-language-server
+          # jdtls 在 overlays/jdt-language-server 里钉了版本。该 overlay 只作用于
+          # 默认 channel，写成 pkgs.unstable.* 会让 pin 失效（拿到 nixpkgs-unstable
+          # 自带的旧版），升级 jdtls 时改 overlay 后确认这里的 channel 没被改回去。
+          pkgs.jdt-language-server
           intelephense
           zls
           lua-language-server

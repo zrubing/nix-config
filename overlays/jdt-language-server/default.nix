@@ -1,35 +1,19 @@
+{ ... }:
+self: super:
+let
+  version = "1.63.0";
+  timestamp = "202610191322";
+in
 {
-  channels,
-  inputs,
-  lib,
-  ...
-}:
-self: super: {
-  jdt-language-server = super.jdt-language-server.overrideAttrs (old: rec {
-    version = "1.57.0";
-    timestamp = "202602261110";
-
+  # eclipse.jdt.ls 发布节奏快于 nixpkgs（26.05 是 1.58.0），这里只钉版本。
+  # 构建逻辑沿用 nixpkgs：postPatch 已把 jdtls.py 的 base path 和 java 可执行
+  # 文件写死，installPhase 负责 plugins/features/config_linux 布局；JDK 走
+  # jdk 参数换成 jdk25，不需要在 overlay 里再 wrapProgram 一遍。
+  jdt-language-server = (super.jdt-language-server.override { jdk = super.jdk25; }).overrideAttrs (_: {
+    inherit version;
     src = super.fetchurl {
       url = "https://download.eclipse.org/jdtls/milestones/${version}/jdt-language-server-${version}-${timestamp}.tar.gz";
-      sha256 = "sha256-ilk3IReIG/W9wCIPIlRHKEa4gTfAWPNEsAp9QUJ3RaE="; # 需要替换为实际hash
+      hash = "sha256-sfKr4LPMy0Ys9k+0pVh8fQnfYM+L53SLFSy9idAYvcQ=";
     };
-
-    postPatch = ''
-      # We store the plugins, config, and features folder in different locations
-      # than in the original package. In addition, hard-code the path to the jdk
-      # in the wrapper, instead of searching for it in PATH at runtime.
-      substituteInPlace bin/jdtls.py \
-        --replace-fail "jdtls_base_path = Path(__file__).parent.parent" "jdtls_base_path = Path(\"$out/share/java/jdtls/\")"
-    '';
-
-    # 使用 zulu24 JDK 环境包装
-    nativeBuildInputs = [ super.makeWrapper ];
-
-    postInstall = ''
-      wrapProgram $out/bin/jdtls \
-        --prefix PATH : ${lib.makeBinPath [ super.jdk25 ]} \
-        --set JAVA_HOME ${super.jdk25.home}
-    '';
-
   });
 }
