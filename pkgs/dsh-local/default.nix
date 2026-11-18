@@ -736,6 +736,12 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
         cp ${presetsDir + "/${dir}/router-core-v34.mjs"} $out/router-core.js
         cp ${presetsDir + "/${dir}/gitbash-executor.mjs"} $out/gitbash-executor.js
         chmod u+w $out/*
+        # TL;DR: 上游快照原样保留，构建期用 compat 脚本按锚点改写成 dsh 0.2.2 形态。
+        # 五处锚点（waterfall 的 tools 字段、两处 inbox 引导注入）在 0.2.2 已不存在；
+        # 脚本按锚点精确替换并断言唯一命中，上游再变结构时构建直接失败，不产出
+        # 半兼容 preset（运行期表现是 turn error 或永久停在 tool/call）。
+        ${upstreamPkgs.nodejs}/bin/node ${presetsDir}/compat/dsh-0.2.2-bootstrap.mjs \
+          $out/router-bootstrap.js $out/router-bootstrap.js
         # bootstrap 用相对路径 import 它的 core，重写成同包内路径。
         substituteInPlace $out/router-bootstrap.js \
           --replace-fail "'./router-core-v34.mjs'" "'./router-core.js'"
