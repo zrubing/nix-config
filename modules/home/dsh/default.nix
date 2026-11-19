@@ -240,6 +240,27 @@ let
     description = "dsh web profile: new sessions default to the my-standard agent preset";
   };
 
+  # multica 任务会话的默认 preset。
+  #
+  # multica profile 只挂 hostBundles + runtime bundle，没有 web-app 的
+  # `agent-preset-registry` 行。缺 registry 时 runtime 建出来的会话不带 preset，
+  # 拿的是裸内核工具集（与 web 会话不同源）。这一行把 registry 补进该 profile，
+  # 默认值取 my-standard —— 与 web 的 presetDefaultBundle 同一个值，改一处不够、
+  # 两处都要看（这里用 insert：profile 里原本没有这条行）。
+  multicaPresetRow = pkgs.writeText "dsh-multica-preset-row.yml" ''
+    - insert:
+        - id: agent-preset-registry
+          name: '@deepseek-ai/dsh-agent-preset-registry'
+          config:
+            default: my-standard
+  '';
+
+  multicaPresetBundle = mkRowBundle {
+    name = "dsh-multica-preset";
+    patch = multicaPresetRow;
+    description = "dsh multica profile: agent sessions default to the my-standard preset";
+  };
+
   # `requiresWeb` / `requiresTui` 不是装饰：上游据此决定往该 profile 的组合里**追加**
   # 官方 web-app / tui bundle，并且若两者都为假就追加 headless。
   # 不声明 requiresWeb 的后果是 web profile 变成 headless 组合（没有前端）；
@@ -306,9 +327,13 @@ let
     };
     headless.bundles = hostBundles;
     # multica runtime：与 headless 同一套 host bundle（provider 表、MCP、权限
-    # 全部同源），只多挂一个 @multica-ai/dsh-runtime。不声明 requiresWeb/Tui，
-    # 上游会按 headless 组合装配 —— 正是 daemon 的 stdio 模式需要的形态。
-    multica.bundles = hostBundles ++ [ multicaRuntimeBundle ];
+    # 全部同源），多挂 @multica-ai/dsh-runtime 与默认 preset 的 registry 行。
+    # 不声明 requiresWeb/Tui，上游会按 headless 组合装配 —— 正是 daemon 的 stdio
+    # 模式需要的形态。
+    multica.bundles = hostBundles ++ [
+      multicaRuntimeBundle
+      multicaPresetBundle
+    ];
   } // lib.optionalAttrs cfg.plugins.tui.enable {
     dsh-tui = {
       requiresTui = true;
