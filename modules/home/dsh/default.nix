@@ -297,77 +297,83 @@ let
     meta.description = "Proactive coding agent for one GitHub repository (research prototype)";
   };
 
+  # profile 集合与物化目录名提到 let 层：dshPackage 与 activation 的播种器
+  # 必须消费同一份，否则新增 profile 时总有一边漏掉。
+  dshProfiles = {
+    web = {
+      requiresWeb = true;
+      bundles = hostBundles ++ dshLocal.webBundles ++ [ webPermissionBundle webConnectionBundle presetDefaultBundle ];
+    };
+    headless.bundles = hostBundles;
+    # multica runtime：与 headless 同一套 host bundle（provider 表、MCP、权限
+    # 全部同源），只多挂一个 @multica-ai/dsh-runtime。不声明 requiresWeb/Tui，
+    # 上游会按 headless 组合装配 —— 正是 daemon 的 stdio 模式需要的形态。
+    multica.bundles = hostBundles ++ [ multicaRuntimeBundle ];
+  } // lib.optionalAttrs cfg.plugins.tui.enable {
+    dsh-tui = {
+      requiresTui = true;
+      bundles = hostBundles ++ [ tuiDisplayBundle ];
+    };
+  } // lib.optionalAttrs cfg.plugins.acp.enable {
+    # ACP 服务端 profile：编辑器（Emacs agent-shell / Zed 等）通过 stdio 驱动它。
+    #
+    # 为什么要 patch 掉 headless 的两行：上游 profiles.nix 给「既不需要 web 也
+    # 不需要 tui」的 profile **追加** dsh-headless（本意是让纯 CLI profile 不落到
+    # 交互式入口）。而本 profile 的 app 是 acp-app —— 两个 app 的命令 provider
+    # 会同时挂上，谁接这次调用不确定，所以显式关掉 headless 的 startup/runner，
+    # 这是「本 profile 由 acp-app 承载」的声明。
+    #
+    # 权限不在这里写死：base 的 sandbox-policy.mode / approval.policy /
+    # permission-presets 默认预设三处都读 DSH_PERMISSION_MODE，由 dsh-acp 的启动器
+    # 导出。远程客户端不在此列 —— 它的权限由常驻的 web profile 决定
+    # （见 webPermissionBundle）。
+    acp = {
+      bundles = hostBundles ++ dshLocal.acpBundles;
+      patch = [
+        {
+          id = "headless-startup";
+          disabled = true;
+        }
+        {
+          id = "headless-runner";
+          disabled = true;
+        }
+      ];
+    };
+  } // lib.optionalAttrs cfg.plugins.superagent.enable {
+    # superagent：面板与 worker/router 两个 preset 都由它自己的 bundle 提供。
+    #
+    # 不列 hostBundles（MCP、本地 preset、autosync、blackhole 等）：那些是给
+    # 操作者自己的会话用的，塞进一个**长期无人值守**的进程里只会扩大权限面，
+    # 而且 autosync 会往这份 profile 里写被它 own 的文件。
+    # llm-pi-ai 必须列 —— 这份 profile 同样靠 activation 渲染的 provider 表才有模型；
+    # webPermissionBundle 也必须列 —— 上游文档要求它的 Session 跑在
+    # danger-full-access（worker 直接在工作区写文件、跑 git），与 web profile 同源。
+    superagent = {
+      requiresWeb = true;
+      bundles = [
+        llmRoutesBundle
+        webPermissionBundle
+        superagentBundle
+      ];
+    };
+  };
+
+  # CLI 默认 profile 恒为 web：dsh 的 wrapper 在 argv 里没有 --profile 时会注入
+  # 这个值（上游 dsh-seed-wrapper）。服务单元也显式传同一个名字 —— 两者一致，
+  # 不会出现 "select a profile only once"（wrapper 见到 --profile 就不再注入）。
+  # multica 只认字面名为 `multica` 的 profile（daemon 里写死，没有覆盖变量），
+  # 所以这一个 profile 不走 `nix-` 前缀；其余四个保持前缀不变。
+  materializedNames = {
+    multica = "multica";
+  };
+
   dshPackage = dshLocal.mkDsh {
     # 不设 `mode`：本仓库用自定义播种器（pkgs/dsh-local 的 mkProfileSeeder）替换了
     # 上游的 dsh-sync-profiles。上游的 managed 会在每次启动抹掉运行时设置，mutable
     # 又让 bundle 清单从此不再更新 —— 两个都不对，所以那个二选一在这里不适用。
-    profiles = {
-      web = {
-        requiresWeb = true;
-        bundles = hostBundles ++ dshLocal.webBundles ++ [ webPermissionBundle webConnectionBundle presetDefaultBundle ];
-      };
-      headless.bundles = hostBundles;
-      # multica runtime：与 headless 同一套 host bundle（provider 表、MCP、权限
-      # 全部同源），只多挂一个 @multica-ai/dsh-runtime。不声明 requiresWeb/Tui，
-      # 上游会按 headless 组合装配 —— 正是 daemon 的 stdio 模式需要的形态。
-      multica.bundles = hostBundles ++ [ multicaRuntimeBundle ];
-    } // lib.optionalAttrs cfg.plugins.tui.enable {
-      dsh-tui = {
-        requiresTui = true;
-        bundles = hostBundles ++ [ tuiDisplayBundle ];
-      };
-    } // lib.optionalAttrs cfg.plugins.acp.enable {
-      # ACP 服务端 profile：编辑器（Emacs agent-shell / Zed 等）通过 stdio 驱动它。
-      #
-      # 为什么要 patch 掉 headless 的两行：上游 profiles.nix 给「既不需要 web 也
-      # 不需要 tui」的 profile **追加** dsh-headless（本意是让纯 CLI profile 不落到
-      # 交互式入口）。而本 profile 的 app 是 acp-app —— 两个 app 的命令 provider
-      # 会同时挂上，谁接这次调用不确定，所以显式关掉 headless 的 startup/runner，
-      # 这是「本 profile 由 acp-app 承载」的声明。
-      #
-      # 权限不在这里写死：base 的 sandbox-policy.mode / approval.policy /
-      # permission-presets 默认预设三处都读 DSH_PERMISSION_MODE，由 dsh-acp 的启动器
-      # 导出。远程客户端不在此列 —— 它的权限由常驻的 web profile 决定
-      # （见 webPermissionBundle）。
-      acp = {
-        bundles = hostBundles ++ dshLocal.acpBundles;
-        patch = [
-          {
-            id = "headless-startup";
-            disabled = true;
-          }
-          {
-            id = "headless-runner";
-            disabled = true;
-          }
-        ];
-      };
-    } // lib.optionalAttrs cfg.plugins.superagent.enable {
-      # superagent：面板与 worker/router 两个 preset 都由它自己的 bundle 提供。
-      #
-      # 不列 hostBundles（MCP、本地 preset、autosync、blackhole 等）：那些是给
-      # 操作者自己的会话用的，塞进一个**长期无人值守**的进程里只会扩大权限面，
-      # 而且 autosync 会往这份 profile 里写被它 own 的文件。
-      # llm-pi-ai 必须列 —— 这份 profile 同样靠 activation 渲染的 provider 表才有模型；
-      # webPermissionBundle 也必须列 —— 上游文档要求它的 Session 跑在
-      # danger-full-access（worker 直接在工作区写文件、跑 git），与 web profile 同源。
-      superagent = {
-        requiresWeb = true;
-        bundles = [
-          llmRoutesBundle
-          webPermissionBundle
-          superagentBundle
-        ];
-      };
-    };
-    # CLI 默认 profile 恒为 web：dsh 的 wrapper 在 argv 里没有 --profile 时会注入
-    # 这个值（上游 dsh-seed-wrapper）。服务单元也显式传同一个名字 —— 两者一致，
-    # 不会出现 "select a profile only once"（wrapper 见到 --profile 就不再注入）。
-    # multica 只认字面名为 `multica` 的 profile（daemon 里写死，没有覆盖变量），
-    # 所以这一个 profile 不走 `nix-` 前缀；其余四个保持前缀不变。
-    materializedNames = {
-      multica = "multica";
-    };
+    profiles = dshProfiles;
+    inherit materializedNames;
     # 上游给非 web/tui profile 自动追加 dsh-headless；multica 的 runtime bundle
     # 已经自带 headless-runner 行，两个同时在场时 CLI 选项解析走 headless 实现，
     # daemon 的 `--probe` 会直接被判成 unknown option。只剔除这一个。
@@ -1521,7 +1527,15 @@ in
       # ~/.dsh/profiles/multica 的。switch 后主动跑一次，让 profile 立刻就位，
       # 不必等下一次任何 dsh 调用（daemon 每 2 分钟也会重探一次，这是兜底）。
       home.activation.dshSyncProfiles = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        ${lib.getExe dshPackage} --version >/dev/null 2>&1 || true
+        # 播种器是「按选中的 profile」懒执行的：dsh 的 wrapper 只在命令指定了
+        # --profile 时同步那一个。`dsh --version` 不碰 profile 清单，于是从没被
+        # 启动过的 profile（multica）永远不落盘。
+        # multica daemon 在自己的进程里检查 ~/.dsh/profiles/multica，缺了就把整条
+        # dsh runtime 跳过（日志：DSH Multica runtime profile is not installed），
+        # 所以这里必须逐个别名触发一次。
+        ${lib.concatMapStringsSep "\n" (name: ''
+          ${lib.getExe dshPackage} --profile ${lib.escapeShellArg (materializedNames.${name} or "nix-${name}")} --version >/dev/null 2>&1 || true
+        '') (builtins.attrNames dshProfiles)}
       '';
 
       # 排在播种器之后：新加的 profile（superagent）第一次 switch 时目录还不存在，
