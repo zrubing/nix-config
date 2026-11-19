@@ -239,6 +239,15 @@ in
         modules.multica.daemon.enable = true;
         modules.multica.daemon.configFile = "/run/secrets/rendered/multica-config.json";
 
+        # skill 正文（内部 runbook）不进本仓库：源在私有 flake input agent-skills，
+        # flake.lock 钉 rev。oneshot 在 daemon 起来后把 skills/*/SKILL.md 推到 multica
+        # 并绑定到跑在本机 runtime 上的 agent。改 skill：改那个仓库 → nix flake update agent-skills → switch。
+        modules.multica.skills = {
+          enable = true;
+          source = "${inputs.agent-skills}/skills";
+          agents = [ "dsh-deepseek" ];
+        };
+
         # dsh（DeepSeek Harness）在 jojo 共享 home 已启用；访问走 nova13 的 Caddy 反代
         # （http://dsh.local → 127.0.0.1:3080）。注意：dsh 禁止 --host 0.0.0.0
         # （“intentionally not supported yet for safety”，会暴露 RCE），必须保持回环绑定。

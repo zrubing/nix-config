@@ -35,6 +35,23 @@
         "type": "github"
       }
     },
+    "agent-skills": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1795109267,
+        "narHash": "sha256-4475z9ejuniCsnKxHgsYeP+UsRl/Iwa76dJW8OFT6cI=",
+        "ref": "main",
+        "rev": "56e300cd01ba94c9789384fe1abacc9f856c8b29",
+        "revCount": 1,
+        "type": "git",
+        "url": "ssh://git@github.com/zrubing/agent-skills.git"
+      },
+      "original": {
+        "ref": "main",
+        "type": "git",
+        "url": "ssh://git@github.com/zrubing/agent-skills.git"
+      }
+    },
     "antigravity-nix": {
       "inputs": {
         "flake-utils": "flake-utils",
@@ -1283,6 +1300,7 @@
       "inputs": {
         "adhd-skill": "adhd-skill",
         "agenix": "agenix",
+        "agent-skills": "agent-skills",
         "antigravity-nix": "antigravity-nix",
         "anysearch-skill": "anysearch-skill",
         "catppuccin-bat": "catppuccin-bat",

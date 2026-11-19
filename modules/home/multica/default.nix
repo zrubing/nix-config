@@ -7,6 +7,94 @@
 }:
 let
   cfg = config.${namespace}.modules.multica;
+
+  # 把 skill 源树（私有 flake input）upsert 进 multica 并绑定 agent。
+  # 只读源目录，不碰 skill 正文里的任何凭据；幂等：按 name 查 id，有则 update。
+  skillsSync = pkgs.writeScriptBin "multica-skills-sync" ''
+    #!${pkgs.python3}/bin/python3
+    import json
+    import os
+    import pathlib
+    import subprocess
+    import sys
+
+    CLI = os.environ.get("MULTICA_CLI", "multica")
+
+
+    def run(*args):
+        proc = subprocess.run([CLI, *args], capture_output=True, text=True)
+        if proc.returncode != 0:
+            detail = proc.stderr.strip() or proc.stdout.strip()
+            sys.exit("failed: " + " ".join(args) + ": " + detail)
+        return proc.stdout
+
+
+    def read_frontmatter(path):
+        name = path.parent.name
+        desc = ""
+        text = path.read_text()
+        if text.startswith("---"):
+            _, _, rest = text.partition("---")
+            block, _, _ = rest.partition("---")
+            for line in block.splitlines():
+                key, sep, value = line.partition(":")
+                if not sep:
+                    continue
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key == "name" and value:
+                    name = value
+                elif key == "description":
+                    desc = value
+        return name, desc
+
+
+    def main():
+        if len(sys.argv) < 2:
+            sys.exit("usage: multica-skills-sync <source-dir> [agent ...]")
+        src = pathlib.Path(sys.argv[1])
+        agents = sys.argv[2:]
+        files = [
+            p / "SKILL.md"
+            for p in sorted(src.iterdir())
+            if p.is_dir() and (p / "SKILL.md").exists()
+        ]
+        if not files:
+            sys.exit("no SKILL.md under " + str(src))
+
+        existing = {
+            s["name"]: s["id"]
+            for s in json.loads(run("skill", "list", "--output", "json") or "[]")
+        }
+        agent_ids = {
+            a["name"]: a["id"]
+            for a in json.loads(run("agent", "list", "--output", "json") or "[]")
+        }
+
+        for md in files:
+            name, desc = read_frontmatter(md)
+            if name in existing:
+                sid = existing[name]
+                run("skill", "update", sid, "--content-file", str(md),
+                    "--description", desc, "--output", "json")
+                print("updated " + name + " " + sid)
+            else:
+                sid = json.loads(run("skill", "create", "--name", name,
+                                     "--description", desc, "--content-file", str(md),
+                                     "--output", "json"))["id"]
+                print("created " + name + " " + sid)
+            for agent in agents:
+                aid = agent_ids.get(agent)
+                if not aid:
+                    print("warn: agent not found: " + agent, file=sys.stderr)
+                    continue
+                run("agent", "skills", "add", aid, "--skill-ids", sid,
+                    "--output", "json")
+                print("assigned " + name + " -> " + agent)
+
+
+    main()
+  '';
 in
 {
   options.${namespace}.modules.multica = with lib; {
@@ -40,6 +128,26 @@ in
       type = types.bool;
       default = false;
       description = "Enable Multica Desktop GUI (${namespace}.multica-desktop)";
+    };
+
+    # skill 的正文是内部 runbook（issuer、集群名、路径），不进本仓库明文：
+    # 源文件放在私有 flake input 里，这里只引用钉住的 store 路径，激活后推给 multica。
+    skills = {
+      enable = mkEnableOption "Push the pinned agent-skills source into Multica";
+
+      source = mkOption {
+        type = types.path;
+        description = ''
+          Skill source tree: 一个子目录一个 skill，正文是该目录下的
+          <code>SKILL.md</code>（frontmatter 带 name / description）。
+        '';
+      };
+
+      agents = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = "Skill 要绑定到的 agent 名字（multica 里的 agent.name）。";
+      };
     };
   };
 
@@ -127,6 +235,38 @@ in
           RestartSec = 5;
           TimeoutStopSec = "60s";
         };
+      };
+    })
+
+    (lib.mkIf (cfg.enable && cfg.skills.enable) {
+      # 把钉住的 skill 源树 upsert 进 multica，并绑定到指定 agent。
+      # 由 unit 的 ExecStart 参数驱动：skill 内容变（store 路径变）→ unit 变 → switch 时重跑。
+      systemd.user.services.multica-skills-sync = {
+        Unit = {
+          Description = "Push pinned agent skills into Multica";
+          # 依赖 daemon：config.json 由 daemon 的 ExecStartPre 从 sops 渲染路径复制过来，
+          # 没有它 CLI 会报 not authenticated。
+          After = [ "multica-daemon.service" ];
+          Wants = [ "multica-daemon.service" ];
+        };
+        Service = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = "${skillsSync}/bin/multica-skills-sync ${cfg.skills.source} ${
+            lib.escapeShellArgs cfg.skills.agents
+          }";
+          Environment = [
+            "PATH=/run/current-system/sw/bin:/etc/profiles/per-user/%u/bin:%h/.local/bin"
+            "MULTICA_CLI=${lib.getExe pkgs.${namespace}.multica}"
+            # 同 daemon：dsh.env 带的代理会让 CLI 访问 *.local 变成 502。
+            "HTTP_PROXY="
+            "HTTPS_PROXY="
+            "http_proxy="
+            "https_proxy="
+            "NO_PROXY=multica.local,multica-api.local,localhost,127.0.0.1,::1"
+          ];
+        };
+        Install.WantedBy = [ "default.target" ];
       };
     })
 
