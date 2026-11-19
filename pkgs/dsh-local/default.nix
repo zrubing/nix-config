@@ -1133,11 +1133,10 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
       artifactSource = upstreamPkgs.dsh.dsh.override args;
       artifacts = artifactSource.passthru.mkProfileArtifacts { inherit profiles; };
     in
-    # 构建期 bundle 自检会起一次 nix-web profile，它默认固定监听 3080；
-    # 本机 GUI（dsh-web）常年占着 3080 → 自检必然 EADDRINUSE，随后 60s 超时
-    # 被 SIGKILL，整个 rebuild 挂在 installCheckPhase（实测 2026-10-23）。
-    # hook 是从环境变量读 web 检查参数的，上游 package.nix 没把它做成入参，
-    # 所以只能用 overrideAttrs 塞 env。--port 0 = 内核分配临时端口。
+    # 构建期 bundle 自检会起一次 web profile，而本机 GUI（dsh-web）常年占着 3080。
+    # 旧版靠 overrideAttrs 塞 `dshBundleCheckWebArgs = "--port 0 --no-open"` 绕开；
+    # 2026-11 的上游换了实现：installCheck 调 dsh-profile-smoke，web 分支自己追加
+    # `--no-open --port 0`，那个 env 钩子已经不存在，不需要也不该再塞。
     # 传 profileSeeder 后上游不再自己算 bundle 自检用的 profile 清单（它把那份清单
     # 当作「播种器的产物」交给调用方），改为要求显式给 profileBundleCheckProfiles，
     # 缺了直接 throw。必须取**同一份** artifacts 的值：自检要跑的 profile 名来自
@@ -1146,15 +1145,11 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
       args
       // {
         profileSeeder = mkProfileSeeder { inherit profiles artifacts materializedNames dropBundles; };
-        # 自检跑的是物化后的 profile 名：multica 不带 nix- 前缀，
-        # 直接拿上游的 nix- 名去跑会报 "profile does not exist"。
-        #
-        # multica 从 `all` 里剔除：hook 用 `dsh --profile <p> --help` 探活，而
-        # multica 的 CLI 归 @multica-ai/dsh-runtime 的 headless-runner（`dropBundles`
-        # 掉了 dsh-headless，否则 daemon 的 `--probe` 会被 headless 的选项解析吃掉）。
-        # 那个 runner 不实现 `--help`，回 `unsupported mode: --help` + exit 2，自检
-        # 必然失败（实测 2026-11-12）。它的装配与 web profile 同源（hostBundles 相同），
-        # 真正的探活方式是 daemon 启动时的 `--probe`。
+        # multica 不跑自检：它的 CLI 归 @multica-ai/dsh-runtime 的 headless-runner
+        # （`dropBundles` 掉了 dsh-headless，否则 daemon 的 `--probe` 会被 headless
+        # 的选项解析吃掉），而 runner 不实现 `--help`，回 `unsupported mode: --help`
+        # + exit 2，自检必然失败（实测 2026-11-12）。它的装配与 web profile 同源
+        # （hostBundles 相同），真正的探活是 daemon 启动时的 `--probe`。
         profileBundleCheckProfiles = (
           let
             # superagent：插件的 Config 必须带 stateDir 才肯启动，而 stateDir 是
@@ -1166,32 +1161,32 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
               "multica"
               "superagent"
             ];
-          in
-          lib.mapAttrs (
-            group: names:
-            map (name: materializedNames.${lib.removePrefix "nix-" name} or name) names
-          ) artifacts.bundleCheckProfiles
-          // {
+            # 自检跑的是物化后的 profile 名：multica 不带 nix- 前缀，
+            # 直接拿上游的 nix- 名去跑会报 "profile does not exist"。
+            materialize = name: materializedNames.${lib.removePrefix "nix-" name} or name;
             # skip 写的是**短名**，而 artifacts 里列的是上游模板名 `nix-<短名>`。
             # 两种形态都放进来再比：只比一种时，没有 materializedNames 覆盖的短名
             # （如 superagent）永远匹配不上，skip 会静默失效（2026-11-12 实测：
             # dsh 的 installCheck 仍然去跑了 nix-superagent）。
-            all = lib.filter (
-              name:
-              !builtins.elem name (
-                lib.concatMap (n: [
-                  n
-                  (materializedNames.${n} or "nix-${n}")
-                ]) skip
-              )
-            ) (map (name: materializedNames.${lib.removePrefix "nix-" name} or name) artifacts.bundleCheckProfiles.all);
+            skipNames = lib.concatMap (n: [
+              n
+              (materializedNames.${n} or "nix-${n}")
+            ]) skip;
+          in
+          {
+            # 上游 2026-11 起把自检清单从「按组给名字列表」（all / web / tty）
+            # 改成「按 profile 给 mode」：installCheck 逐个 profile 用对应 mode
+            # 起一次 dsh-profile-smoke（web / tui / tty / acp / plain）。
+            modes = lib.filterAttrs (name: _: !builtins.elem name skipNames) (
+              lib.mapAttrs' (name: mode: lib.nameValuePair (materialize name) mode)
+                artifacts.bundleCheckProfiles.modes
+            );
+            # 外部 bundle 要联网，沙箱里的自检一律跳过；原样透传，不在这里增删。
+            inherit (artifacts.bundleCheckProfiles) external;
           }
         );
       }
-    )).overrideAttrs
-      (_: {
-        dshBundleCheckWebArgs = "--port 0 --no-open";
-      });
+    ));
 
   # ── 宿主包 shim：让 dsh-tui 自己的入口能"托管"这次启动 ──────────────────────
   #
