@@ -50,6 +50,15 @@ stdenv.mkDerivation (finalAttrs: {
   # 2. `subagents` 缺席时上游只对服务本体做了可选链，方法调用没兜住（该文件注释
   #    写明「subagents 在 profile 没挂载时为 absent」）。按注释表达的契约改成
   #    「有服务才调用」，不改行为。
+  #
+  # src/index.ts 建会话时从不向 DSH 的 preset registry 要组合，所以 multica 任务
+  # 跑的是裸内核工具集，与 web 会话（registry 的 default preset）不同源。按
+  # `@deepseek-ai/dsh-api-session-controller` 的 composeAgent 同法补齐：
+  #
+  # 1. 创建会话时把 registry 的 default 解析成具体 id 写进 session header ——
+  #    组合是模型看得见的东西，日志必须能说明这一轮跑在哪个组合下；
+  # 2. setup 里按 header 记录的 id 挂载组合（恢复会话读到的是日志里那份）；
+  # 3. header 里没有 preset 的旧会话保持原组合，不被静默换掉。
   postPatch = ''
     substituteInPlace src/lifecycle.ts \
       --replace-fail 'waitForChildren(parent: Agent): Promise<boolean>' \
@@ -58,6 +67,60 @@ stdenv.mkDerivation (finalAttrs: {
                      'subagents ? (subagents.waitForTreeWork(agent as Agent) ?? false) : false' \
       --replace-fail 'await subagents?.drainDescendants([agent as Agent])' \
                      'if (subagents) await subagents.drainDescendants([agent as Agent])'
+
+    substituteInPlace src/index.ts \
+      --replace-fail "async function createOrResumeAgent(" \
+        "/** The preset registry, absent when the profile mounts no roster. */
+interface PresetRegistryLike {
+  resolve(id?: string): Promise<{ id: string }>
+  mount(agentCtx: Context, id?: string): Promise<unknown>
+  presetForSession(session: Agent['session']): string | null
+}
+
+function presetRegistry(ctx: Context): PresetRegistryLike | undefined {
+  return (ctx as unknown as { get(name: string): PresetRegistryLike | undefined }).get('agentPresets')
+}
+
+/** Mount the composition the session log names. A session created before the
+ *  runtime recorded presets keeps its original, uncomposed toolset. */
+async function mountLoggedPreset(ctx: Context, agentCtx: Context, session: Agent['session']): Promise<void> {
+  const presets = presetRegistry(ctx)
+  if (presets === undefined) return
+  const recorded = presets.presetForSession(session)
+  if (recorded === null) return
+  await presets.mount(agentCtx, recorded)
+}
+
+async function createOrResumeAgent(" \
+      --replace-fail "  const setup = async (agentCtx: Context): Promise<void> => {
+    installModelSelection(agentCtx, selected)
+    agentCtx.on('approval/request', (_request, next) => {
+      if (active.cancelRequested) return Promise.resolve<ApprovalOutcome>('cancelled')
+      return Promise.resolve<ApprovalOutcome>('allowed-once').catch(() => next())
+    })
+    for (const server of active.command.mcp_servers) {
+      await agentCtx.plugin(McpClient, mcpConfig(server, active.command.cwd))
+    }
+  }" \
+        "  const setup = async (agentCtx: Context, agent: Agent): Promise<void> => {
+    installModelSelection(agentCtx, selected)
+    agentCtx.on('approval/request', (_request, next) => {
+      if (active.cancelRequested) return Promise.resolve<ApprovalOutcome>('cancelled')
+      return Promise.resolve<ApprovalOutcome>('allowed-once').catch(() => next())
+    })
+    for (const server of active.command.mcp_servers) {
+      await agentCtx.plugin(McpClient, mcpConfig(server, active.command.cwd))
+    }
+    await mountLoggedPreset(ctx, agentCtx, agent.session)
+  }" \
+      --replace-fail "  const options = { provider: selection.provider, model: selection.model }
+  if (active.command.resume_session_id === undefined) {" \
+        "  const options = { provider: selection.provider, model: selection.model }
+  if (active.command.resume_session_id === undefined) {
+    const presets = presetRegistry(ctx)
+    const agentPreset = presets === undefined ? undefined : (await presets.resolve(undefined)).id" \
+      --replace-fail '      meta: { cwd: active.command.cwd },' \
+                     '      meta: agentPreset === undefined ? { cwd: active.command.cwd } : { cwd: active.command.cwd, agentPreset },'
   '';
 
   buildPhase = ''
