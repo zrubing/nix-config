@@ -26,11 +26,18 @@ in
   # 也不能和 nix-secrets 那把共用一个 host —— GitHub 只认第一个认证成功的 key，
   # 两把一起出示时 agent-skills 会报 Repository not found（2026-11-20 实测），
   # 因此下面用独立 Host 别名 github-agent-skills 只出示这一把。
-  # 0440 root:users：root 的 eval 要读，jojo 跑 nix flake update 时也要读。
+  # ⚠️ 权限必须 0400：ssh 会拒绝 group/other 有权限的私钥
+  # （UNPROTECTED PRIVATE KEY FILE，实测 0440 直接连不上）。
+  # 所以 root 和普通用户各一份：ssh 只认「owner 是 root 或自己」的 key 文件。
   age.secrets.agent-skills-deploy = {
     file = "${mysecrets}/ssh/agent-skills-deploy.age";
-    mode = "0440";
+    mode = "0400";
     owner = "root";
+  };
+  age.secrets.agent-skills-deploy-user = {
+    file = "${mysecrets}/ssh/agent-skills-deploy.age";
+    mode = "0400";
+    owner = config.snowfallorg.user.name;
     group = "users";
   };
 
@@ -49,12 +56,19 @@ in
         IdentityFile /run/agenix/nix-secrets-deploy
         IdentitiesOnly yes
 
-      # agent-skills 专用别名：只出示它自己的 deploy key，避开上一个 Match 的身份。
-      # 这份是全局生效的（jojo 也要能 fetch 这个 input），不放进只用 root 的 Match 里。
+      # agent-skills 专用别名：只出示它自己的 deploy key，避开 github.com 上的身份冲突。
+      # 别名对所有人可用，但 key 文件按本地用户分：root 读 root 那份，普通用户读自己那份
+      # （ssh 会拒绝 owner 不是自己也不是 root 的 key）。
       Host github-agent-skills
         HostName github.com
         User git
+
+      Match host github-agent-skills exec "test %u = root"
         IdentityFile /run/agenix/agent-skills-deploy
+        IdentitiesOnly yes
+
+      Match host github-agent-skills exec "test %u != root"
+        IdentityFile /run/agenix/agent-skills-deploy-user
         IdentitiesOnly yes
     '';
   };
