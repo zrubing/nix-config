@@ -125,6 +125,65 @@ async function listModels() {
 }
 
 /**
+ * multica 的 daemon 用单行 JSONL 读模型表，单帧有 ~64 KiB 上限。
+ * 实测（2026-11-19，multica 0.8.2）：
+ *   700 个合成模型 / 62.8 KB → 解析成功，UI 正常；
+ *   800 个 / 71.8 KB      → daemon 静默丢帧，请求停在 pending，
+ *                           或无缓存时报 "dsh returned an empty model catalog"。
+ * dsh host 的 provider 表里有上千个模型（openrouter 一家就几百个），原样输出
+ * 是 120 KB 量级，必然超限。所以这里按字节预算裁剪。
+ *
+ * 裁剪顺序（确定性）：
+ *   1. 默认模型优先，UI 打开时选中的就是它；
+ *   2. 其余按 provider 轮流各取一个 —— 保证每家都露脸，而不是按字母序把
+ *      排在后面的 provider 整段丢掉；
+ *   3. 累计字节超过预算即停。
+ * 被裁掉的模型仍可在 UI 里手动输入 ID（picker 支持搜索/手填）。
+ */
+const MAX_CATALOG_BYTES = Number(
+  process.env.MULTICA_DSH_BRIDGE_MAX_CATALOG_BYTES ?? 48 * 1024,
+);
+
+function frameBytes(models) {
+  return Buffer.byteLength(JSON.stringify({ v: PROTOCOL_VERSION, type: 'models', models })) + 1;
+}
+
+function capCatalog(models) {
+  if (frameBytes(models) <= MAX_CATALOG_BYTES) return models;
+
+  const out = [];
+  let used = 64; // 帧骨架的开销（v/type/空数组），按上限留足余量
+  const push = (model) => {
+    const size = Buffer.byteLength(JSON.stringify(model)) + 1;
+    if (used + size > MAX_CATALOG_BYTES) return false;
+    used += size;
+    out.push(model);
+    return true;
+  };
+
+  for (const model of models) if (model.default) push(model);
+
+  // provider → 待选模型队列（保持 listModels 的排序）
+  const queues = new Map();
+  for (const model of models) {
+    if (model.default) continue;
+    if (!queues.has(model.provider)) queues.set(model.provider, []);
+    queues.get(model.provider).push(model);
+  }
+
+  for (let round = 0; ; round++) {
+    let progressed = false;
+    for (const queue of queues.values()) {
+      if (round >= queue.length) continue;
+      push(queue[round]);
+      progressed = true;
+    }
+    if (!progressed) break;
+  }
+  return out;
+}
+
+/**
  * 一个任务 = 一个 host 会话。事件来自 `session/follow` 的持久日志流；
  * 映射后的帧与 `@multica-ai/dsh-runtime` 的 observeSessionEvent 一致。
  */
@@ -401,7 +460,7 @@ async function main() {
   }
   if (args.includes('--list-models')) {
     try {
-      write({ v: PROTOCOL_VERSION, type: 'models', models: await listModels() });
+      write({ v: PROTOCOL_VERSION, type: 'models', models: capCatalog(await listModels()) });
       return 0;
     } catch (error) {
       protocolError('STARTUP_FAILED', error instanceof Error ? error.message : String(error));

@@ -99,3 +99,13 @@ journalctl --user -u multica-daemon -n 200 --no-pager | grep -E "version detecte
 2. `model` / `reasoning_effort` 被忽略：沿用 host 会话的默认选择。
 3. resume 依赖 host 侧 sessionId 仍然存在；跨 host 重启后可能失效，此时
    `result.resume_rejected` 为 false 但状态是 failed。
+4. 模型表有单帧上限：multica daemon 用单行 JSONL 读 `--list-models`，实测
+   （0.8.2）62.8 KB 的帧能解析，71.8 KB 的帧会被静默丢弃——UI 报
+   `dsh returned an empty model catalog`，daemon 日志里没有报错。dsh host 的
+   provider 表有上千个模型（原样输出约 120 KB），所以桥在输出前做预算裁剪：
+   `MULTICA_DSH_BRIDGE_MAX_CATALOG_BYTES`（默认 48 KiB），默认模型优先，
+   其余按 provider 轮转各取一个。被裁掉的模型仍可在 UI 里手填 ID。
+   校验：
+   ```bash
+   <bridge>/bin/dsh --profile multica --list-models | wc -c   # 应 < 65536
+   ```
