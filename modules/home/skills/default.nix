@@ -15,20 +15,87 @@ let
   #   2.0 默认吐 6 个（多 update-change），所以必须显式写死，不能用默认值。
   # 注意：nix 构建的 pty winsize 为 0x0（columns=0），ora 渲染会除零死循环，
   # 必须把 stdout/stderr 重定向到文件（非 TTY）让 spinner 静默。
+  #
+  # ── 2.1 起必须离线化：init 会在构建期 clone 上游仓库 ─────────────────────
+  # openspec 2.1 的 `init` 不再只用自身模板，而是调用 `skills` 这个 npm 包执行
+  # `git clone --depth 1 --branch v<version> github.com/Fission-AI/OpenSpec.git`，
+  # 再把仓库的 `skills/<name>` 拷到目标目录（装完还会用包内模板逐字节校验）。
+  # 构建沙箱没有网络，这个 clone 必然失败。
+  #
+  # 修法：按同一版本把仓库预取进 store，做成带 tag 的本地 git 仓库，再用
+  # `url.<local>.insteadOf` 把 github URL 重写过去。上游的安装流程、文件布局、
+  # 校验全部保留，只把网络换成本地只读副本；版本仍由 flake input 驱动 ——
+  # 升级 llm-agents 后 tag/hash 对不上会直接构建失败，不会静默用旧 skill。
+  openspecPackage = inputs.llm-agents.packages.${pkgs.system}.openspec;
+  openspecVersion = openspecPackage.version;
+  openspecTag = "v${openspecVersion}";
+  # 2.1 起 `--scope` 存在、且默认变成 global；2.0 没有这个开关（默认就是 project）。
+  # 不写死 flag，避免回退旧 lock 时因未知选项直接失败。
+  openspecInitScope = lib.optionalString (lib.versionAtLeast openspecVersion "2.1") "--scope project";
+
+  openspecSource = pkgs.fetchFromGitHub {
+    owner = "Fission-AI";
+    repo = "OpenSpec";
+    tag = openspecTag;
+    hash = "sha256-s9i/NgKvzHP41VU7DtHLJiaTeEML6KqYo8I5z7Sq7fE=";
+  };
+
+  # `git clone` 需要 .git 目录，store 里的源码树没有，现做一个。
+  # 两个 tag 都打上：上游先发 @fission-ai/openspec@<version>，随后补 v<version>，
+  # cloneRepo 两个都会试。
+  openspecGitRepo = pkgs.runCommand "openspec-git-${openspecVersion}" {
+    nativeBuildInputs = [ pkgs.git ];
+  } ''
+    export HOME=$TMPDIR
+    git config --global user.email "nix@localhost"
+    git config --global user.name "nix"
+    mkdir -p "$out"
+    cp -r ${openspecSource}/. "$out"/
+    cd "$out"
+    git init -q
+    git add -A
+    git commit -qm ${lib.escapeShellArg "openspec ${openspecVersion}"}
+    git tag ${lib.escapeShellArg openspecTag}
+    git tag ${lib.escapeShellArg "@fission-ai/openspec@${openspecVersion}"}
+  '';
+
   openspecSkills = pkgs.runCommand "openspec-skills" {
-    nativeBuildInputs = [ inputs.llm-agents.packages.${pkgs.system}.openspec ];
+    # git 必须在 PATH：2.1 的 init 通过它做 clone。
+    nativeBuildInputs = [
+      openspecPackage
+      pkgs.git
+    ];
   } ''
     export HOME=$TMPDIR
     # telemetry 上报在无网络沙箱里会挂起 init，构建期必须关闭
     export OPENSPEC_TELEMETRY=0
+    export OPENSPEC_NO_UPDATE_CHECK=1
+
+    # 把 github 的 clone 重写到本地仓库。用 file:// 而不是裸路径：cloneRepo 带
+    # --depth 1，裸路径会退化成全量本地拷贝并报 warning。
+    export GIT_CONFIG_GLOBAL=$TMPDIR/gitconfig
+    cat > "$GIT_CONFIG_GLOBAL" <<'EOF'
+    [protocol "file"]
+        allow = always
+    [safe]
+        directory = *
+    [url "file://${openspecGitRepo}"]
+        insteadOf = https://github.com/Fission-AI/OpenSpec.git
+    [url "file://${openspecGitRepo}"]
+        insteadOf = https://github.com/Fission-AI/OpenSpec
+    [url "file://${openspecGitRepo}"]
+        insteadOf = git@github.com:Fission-AI/OpenSpec.git
+    EOF
     mkdir -p $HOME/.config/openspec
     cat > $HOME/.config/openspec/config.json <<'EOF'
     {"profile":"custom","delivery":"both","workflows":["propose","explore","apply","archive"]}
     EOF
     mkdir -p $TMPDIR/proj
     cd $TMPDIR/proj
-    # stdout/stderr 重定向到文件：否则 ora 在 pty（columns=0）下渲染死循环
-    timeout 60 openspec init --tools pi --no-animation . > $TMPDIR/init.log 2>&1 || {
+    # stdout/stderr 重定向到文件：否则 ora 在 pty（columns=0）下渲染死循环。
+    # 2.1 必须显式 --scope project：默认落到 ~/.agents/skills（global），
+    # 而这里要的是可复制的项目级目录（见 openspecInitScope 的版本判断）。
+    timeout 60 openspec init --tools pi ${openspecInitScope} --no-animation . > $TMPDIR/init.log 2>&1 || {
       echo "openspec init FAILED, log:" >&2
       tail -30 $TMPDIR/init.log >&2
       exit 1
