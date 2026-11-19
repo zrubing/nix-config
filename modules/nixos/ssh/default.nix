@@ -21,6 +21,15 @@ in
     owner = "root";
   };
 
+  # agent-skills（私有 skill 仓库）的 root 只读凭据。
+  # GitHub 的 deploy key 不能跨仓库复用（会报 Key is already in use），所以单独一把；
+  # 与 nix-secrets-deploy 并存，ssh 依次尝试两个身份，GitHub 认能访问目标仓库的那个。
+  age.secrets.agent-skills-deploy = {
+    file = "${mysecrets}/ssh/agent-skills-deploy.age";
+    mode = "0400";
+    owner = "root";
+  };
+
   programs.ssh = {
     startAgent = true;
     extraConfig = ''
@@ -34,6 +43,7 @@ in
       # 判本地用户只能用 exec + %u（%u 展开为本地用户名）。
       Match host github.com exec "test %u = root"
         IdentityFile /run/agenix/nix-secrets-deploy
+        IdentityFile /run/agenix/agent-skills-deploy
         IdentitiesOnly yes
     '';
   };
