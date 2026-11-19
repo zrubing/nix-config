@@ -14,6 +14,10 @@
 | `notification-ghostty-cap.patch` | 按 Ghostty 固定通知缓冲（title 63 B / body 255 B）截断 OSC 777/9，避免 255 B 盲截切开 UTF-8 |
 | `stream-resume.patch` | 叠加在上一份之上：`session/follow` 与 `session/control` 换成跨连接代可恢复的流，宿主重启后自动续传 |
 | `remote-link-visibility.patch` | 叠加在上一份之上：连接状态可见（断线常驻提示 / 恢复提示），并把宿主重启导致的 `interrupted` 与用户 Esc 的 `aborted` 分成两种文案 |
+| `ctrl-o-layout.patch` | 长会话 Ctrl+O 卡顿：展开模式移出每行的高度签名，视口外行保留上次实测高度作惰性估计，超长 reasoning 与工具卡按 400 行窗口渲染 |
+| `session-route-context.patch` | 恢复的会话带上它自己的模型与上下文窗口（`/resume` 冷会话不再停在旧模型、ctx 条不再消失） |
+| `projection-frames.patch` | 跟上 Host 0.2.2 的 `session/control` 帧格式（一事件一帧 + `changes: [{ key, val }]`），否则基线之后的投影全部冻住 |
+| `message-list-measure-loop.patch` | `showAll`（Ctrl+E）在超长会话上打满一核：缓存上限抬到「可见行数 + 64」，且只有真变更才重挂测量，见 `default.nix` 注释 |
 | `startup-model.patch` | **暂存，未接入构建**：`--model` 启动路由，见下 |
 
 ## 断线续传（`session/follow` / `session/control`）

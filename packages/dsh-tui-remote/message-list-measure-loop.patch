@@ -1,0 +1,55 @@
+diff --git a/src/components/MessageList.tsx b/src/components/MessageList.tsx
+index 106a50c..5e519c6 100644
+--- a/src/components/MessageList.tsx
++++ b/src/components/MessageList.tsx
+@@ -803,6 +803,16 @@ export function MessageList({
+   // Eviction is FIFO (oldest row first); a forgotten height falls back to
+   // DEFAULT_ROW_HEIGHT, which only perturbs deep scrollback estimates.
+   const HEIGHTS_CACHE_MAX = 5000
++  // LOCAL PATCH (nix-config): both caches below are FIFOs, but the working set
++  // is one entry per VISIBLE row, and `showAll` (Ctrl+E) lifts the 120-row
++  // render cap. A session past 5000 rows then keeps a rotating slice of rows
++  // out of the cache; a row in the mount window that misses is read as
++  // "changed", re-arms the post-commit measure pass, and renders again — a
++  // self-sustaining loop that pins one core while the terminal shows nothing
++  // new (measured: 5043 visible rows, cap 5000, ~22 renders/s at ~45ms each).
++  // Size the caps to the live work set plus headroom, so a miss can only mean
++  // "first sighting" and never "evicted while still visible".
++  const heightsCacheCap = Math.max(HEIGHTS_CACHE_MAX, visibleRows.length + 64)
+   const heightsRef = React.useRef(new Map<number, number>())
+   /** Rows whose height this render invalidated because their CONTENT
+    *  signature changed. Rebuilt every render: only a change in THIS commit
+@@ -938,7 +948,7 @@ export function MessageList({
+         }
+       }
+       if (same) continue
+-      if (sigs.size >= HEIGHTS_CACHE_MAX) {
++      if (sigs.size >= heightsCacheCap) {
+         const oldest = sigs.keys().next().value
+         if (oldest !== undefined) sigs.delete(oldest)
+       }
+@@ -958,7 +968,14 @@ export function MessageList({
+       if (localRefs.current.has(row.id)) {
+         // The mounted row re-measures this commit; dropping its height here
+         // would eject it from the window for one frame.
+-        growingStreamNeedsMeasure = true
++        //
++        // LOCAL PATCH (nix-config): only a REAL change re-arms the measure
++        // pass. `cachedParts === undefined` is a first sighting (or a FIFO
++        // eviction): the row has no remembered height, and the layout effect's
++        // own `changed` pass measures it this commit anyway. Re-arming on a
++        // miss is what turns an evicted mount-window row into a permanent
++        // `setMeasureTick` → render → miss loop.
++        if (cachedParts !== undefined) growingStreamNeedsMeasure = true
+       } else if (!growingStream) {
+         heightsRef.current.delete(row.id)
+         // A row's FIRST signature is not a change: it has no old height to
+@@ -1412,7 +1429,7 @@ export function MessageList({
+     for (const [id, el] of localRefs.current) {
+       const h = el.yogaNode?.getComputedHeight()
+       if (h !== undefined && h > 0 && heightsRef.current.get(id) !== h) {
+-        if (heightsRef.current.size >= HEIGHTS_CACHE_MAX) {
++        if (heightsRef.current.size >= heightsCacheCap) {
+           const oldest = heightsRef.current.keys().next().value
+           if (oldest !== undefined) heightsRef.current.delete(oldest)
+         }

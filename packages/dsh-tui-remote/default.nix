@@ -135,6 +135,21 @@ stdenv.mkDerivation (finalAttrs: {
   # 都冻在打开会话那一刻，`/permission` 因此假报
   # `the Host did not confirm permission preset "…"`（Host 侧已落盘）。
   # 必须排在 session-route-context.patch 之后：两条改的是同一个 `update` 回调。
+  #
+  # message-list-measure-loop.patch 修 `showAll`（Ctrl+E）在超长会话上把一核
+  # 打满：两处容量上限都是写死的 FIFO 5000，却各存**一条/可见行**的签名与高度，
+  # 而 `showAll` 取消了 120 行的渲染上限。会话超过 5000 行后缓存永远装不下工作
+  # 集，被挤掉的行每帧重新入队、挤掉下一批；命中窗口一旦扫到挂载区，
+  # `growingStreamNeedsMeasure` 就被置位，post-commit 的 `setMeasureTick` 立刻
+  # 再渲染一帧 —— 渲染 → 缺失 → 再渲染，自持循环。终端画面始终相同（diff 为空），
+  # 所以只有 CPU 在涨。实测 5043 可用行、缓存恒为 5000、约 22 帧/秒 × 45ms/帧。
+  # 补丁做两件事：上限抬到 `max(5000, 可见行数 + 64)`（缺失只剩「首次见到」这一
+  # 种含义）；已挂载行只在**真有旧签名且不同**时置位，缺失交给 layout effect 自己
+  # 的 `changed` 分支测一次。
+  #
+  # 与上游的关系：v0.20.2（当前最新）的 `src/components/MessageList.tsx` 与
+  # v0.20.0 的 blob 完全相同，这段逻辑一个字没改，所以补丁不是临时绕路而是唯一
+  # 的修法；上游修好后删掉本文件与下面这一行即可。
   patches = [
     ./remote-mode.patch
     ./remote-identity-guard.patch
@@ -146,6 +161,7 @@ stdenv.mkDerivation (finalAttrs: {
     ./ctrl-o-layout.patch
     ./session-route-context.patch
     ./projection-frames.patch
+    ./message-list-measure-loop.patch
   ];
 
   # pnpm 11 从 **workspace 清单**读 trustPolicy / minimumReleaseAge，命令行
