@@ -37,17 +37,25 @@ stdenv.mkDerivation (finalAttrs: {
     pnpm_10
   ];
 
-  # 上游 lifecycle.ts 的两个调用点只对 `subagents` 本体做了可选链，方法调用没
-  # 兜住。该文件的注释明确写着「subagents 在 profile 没挂载时为 absent」，而原生
-  # `dsh --profile multica --stdio` 正是没挂载的情形：此时
-  # `subagents?.waitForChildren(agent)` 会先得到 undefined 再被调用，抛
-  # "subagents?.waitForChildren is not a function"，导致 turn 正常结束、评论已经
-  # 发出去，任务却被判 failed（UI 显示 Agent execution error）。
-  # 按注释表达的契约改成「有服务才调用」，不改行为。
+  # src/lifecycle.ts 是本包唯一按名字调 DSH 服务方法的地方，两处都要对齐到
+  # DSH 0.2.2-rc.3 的实际 API：
+  #
+  # 1. 子 agent 汇合接口改名。rc.3 把 `waitForChildren(parent)` 换成
+  #    `waitForTreeWork(root)`，语义未变（join 进展中的子树工作，返回是否 join 过，
+  #    见 dsh-subagent/lib/index.js 的两处 JSDoc）。上游这份 runtime 写于 rc.2，
+  #    `engines.dsh` 声明 `>=0.2.1-rc.2 <0.3.0`，所以 rc.3 能装上、构建也能过，
+  #    只在运行期抛 "subagents.waitForChildren is not a function"：turn 已经正常
+  #    结束、评论已经发出去，multica 却把整个任务判 failed，UI 显示
+  #    Agent execution error。DSH 再改名时这里跟着改，漏改的表现仍是这条运行期报错。
+  # 2. `subagents` 缺席时上游只对服务本体做了可选链，方法调用没兜住（该文件注释
+  #    写明「subagents 在 profile 没挂载时为 absent」）。按注释表达的契约改成
+  #    「有服务才调用」，不改行为。
   postPatch = ''
     substituteInPlace src/lifecycle.ts \
+      --replace-fail 'waitForChildren(parent: Agent): Promise<boolean>' \
+                     'waitForTreeWork(parent: Agent): Promise<boolean>' \
       --replace-fail 'subagents?.waitForChildren(agent as Agent) ?? false' \
-                     'subagents ? subagents.waitForChildren(agent as Agent) : false' \
+                     'subagents ? (subagents.waitForTreeWork(agent as Agent) ?? false) : false' \
       --replace-fail 'await subagents?.drainDescendants([agent as Agent])' \
                      'if (subagents) await subagents.drainDescendants([agent as Agent])'
   '';
