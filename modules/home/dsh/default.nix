@@ -413,7 +413,17 @@ let
   #                   host 的 env 是启动时那份，agent 在任务里执行 multica CLI 会报
   #                   "requires MULTICA_TOKEN to be a task-scoped mat_ token"
   #                   （2026-11-19 实测，nova13 任务 01a1f3d4）。
+  #
+  # 权限：任务默认完全访问。multica 的 run 无人值守，没有人在旁边点审批；默认的
+  # workspace-write 把工作区之外全部设为只读，需要写 HOME 的动作一律失败
+  # （2026-11-20 实测：kube-onboard 的设备码登录已授权成功，写
+  # ~/.kube/cache/oidc-login 时报 read-only file system，token 拿不到）。
+  # DSH_PERMISSION_MODE 是上游唯一的部署级开关 —— base 的 sandbox-policy.mode、
+  # approval.policy、permission-presets 默认预设三处都读它，与 dsh-tui / dsh-acp
+  # 同源。放在 shim 而不是 daemon 的 Environment：权限是 runtime 的属性，手工起
+  # daemon（不走 systemd）时也不会掉。保留 `:-`，显式赋值仍可覆盖。
   multicaRuntimeShim = pkgs.writeShellScriptBin "dsh" ''
+    export DSH_PERMISSION_MODE="''${DSH_PERMISSION_MODE:-danger-full-access}"
     case " $* " in
       *" --list-models "*) exec ${multicaBridgeAsDsh}/bin/dsh "$@" ;;
       *) exec ${lib.getExe dshPackage} "$@" ;;
