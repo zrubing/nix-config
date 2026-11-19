@@ -11,7 +11,7 @@ let
   # 版本唯一来源：改版本时只改这一行 + 下面两个镜像的 imageDigest/sha256。
   # 三者必须指向同一份镜像，否则 pullImage 会因为 digest 与实际内容不符而构建失败
   # （失败比静默跑旧镜像好，这是刻意的）。
-  version = "0.8.2";
+  version = "0.11.1";
 
   # 镜像按 digest 固化并用 dockerTools 预取进 /nix/store：
   #   · 部署可复现 —— 同一份 nix 配置在任何时候 build 出同一批字节；
@@ -20,20 +20,20 @@ let
   # digest 来自 `docker buildx imagetools inspect`/registry HEAD，版本变化时同步改。
   backendImage = pkgs.dockerTools.pullImage {
     imageName = "ghcr.io/multica-ai/multica-backend";
-    imageDigest = "sha256:74e7bdddef780b925652f4518f18f54ab790bdfe1ec7803b4dac2019ee2525be";
+    imageDigest = "sha256:49db0b3d2b1a711fd92c440fd564c79d85a660f59b834bc6917382c86c1e32f7";
     finalImageName = "multica-backend";
     finalImageTag = version;
-    sha256 = "sha256-lf8Bl1hrixE8BVVsE9X8El0Nw2kYMlHYgAkRnNMckSs=";
+    sha256 = "sha256-jTGO4z+IHetQEr3+kSRlHxCFIRmEccT369hqwot/nhk=";
     os = "linux";
     arch = "amd64";
   };
 
   webImage = pkgs.dockerTools.pullImage {
     imageName = "ghcr.io/multica-ai/multica-web";
-    imageDigest = "sha256:03c888c2870c246bbaa73a8811c0e4403c36a10ceb9c58fb5b9b5acc7c0e6c52";
+    imageDigest = "sha256:037d3fada7cfc6150f7262d874346910cf12a7226549480539977da599593e92";
     finalImageName = "multica-web";
     finalImageTag = version;
-    sha256 = "sha256-DbybYFEJ5w4nVKlQg4UHNgN6ySxSDzge7qd/Qay5rdQ=";
+    sha256 = "sha256-BsVNWZRWJDka6RSmZOD5GB2rcbxgUX12tEPV+i0QaBA=";
     os = "linux";
     arch = "amd64";
   };
@@ -120,6 +120,9 @@ in
       content = ''
         JWT_SECRET=${config.sops.placeholder."multica/JWT_SECRET"}
         DATABASE_URL=postgres://multica:${config.sops.placeholder."multica/POSTGRES_PASSWORD"}@127.0.0.1:5432/multica?sslmode=disable
+        # Lark/Feishu Bot 凭据的落库加密键（base64 32 字节）。未设置时后端
+        # 直接禁用该集成，UI 不出现「Bind to Lark」入口。
+        MULTICA_LARK_SECRET_KEY=${config.sops.placeholder."multica/LARK_SECRET_KEY"}
       '';
     };
 

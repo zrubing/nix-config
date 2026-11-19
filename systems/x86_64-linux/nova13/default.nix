@@ -385,6 +385,8 @@ in
   sops.age.sshKeyPaths = [ "/home/jojo/.ssh/id_ed25519" ];
   sops.secrets."multica/JWT_SECRET".sopsFile = ./secrets/multica.yaml;
   sops.secrets."multica/POSTGRES_PASSWORD".sopsFile = ./secrets/multica.yaml;
+  # Lark/Feishu Bot 凭据的落库加密键；缺失时后端禁用该集成。
+  sops.secrets."multica/LARK_SECRET_KEY".sopsFile = ./secrets/multica.yaml;
   # multica daemon 的客户端凭据：user PAT（mul_...，无 expires_at）。
   # daemon 只认 ~/.multica/config.json，所以这里直接渲染整份配置，
   # 由 unit 的 ExecStartPre 复制过去（不是软链，daemon 会重写该文件）。

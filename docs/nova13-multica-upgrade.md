@@ -50,8 +50,13 @@ done
 ```bash
 nix run nixpkgs#nix-prefetch-docker -- \
   --image-name ghcr.io/multica-ai/multica-backend --image-tag v<目标版本> \
+  --final-image-name multica-backend --final-image-tag <目标版本> \
   --os linux --arch amd64 --json | jq -r .hash
 ```
+
+`--final-image-name` / `--final-image-tag` 必须与模块里 `pullImage` 的
+`finalImageName` / `finalImageTag` 一致：nix 侧 hash 算的是**改名重打 tag 后**的
+镜像 tarball，只按上游 ghcr 名字算会 hash mismatch（本次升级实测）。
 
 `imageDigest` 与 `hash` 两个值都要与上一步的 digest 对应同一份镜像。
 
