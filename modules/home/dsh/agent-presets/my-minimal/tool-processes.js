@@ -23,7 +23,7 @@ import z from "@deepseek-ai/schemastery";
 import { isAbsolute, resolve } from "node:path";
 import { TOOL_ABORTED, defineTool } from "@deepseek-ai/dsh-tools";
 import { HarnessError } from "@deepseek-ai/dsh-llm";
-import { canonicalPath, sandboxDenialMarker } from "@deepseek-ai/dsh-sandbox";
+import { canonicalPath } from "@deepseek-ai/dsh-sandbox";
 
 const name = "tool-processes";
 const inject = ["tools", "shell", "shellEnv"];
@@ -40,17 +40,18 @@ function processOutcome(proc) {
   return { status: "completed", detail: `exit code: ${proc.exitCode ?? 0}` };
 }
 
-/** Shape one incremental read into the `job_output` delta, with loss/sandbox notices. */
-function renderProcessRead(read, sandbox) {
-  const notices = [];
-  if (read.lossy) {
-    const paths = [read.stdoutSpillPath, read.stderrSpillPath].filter((path) => path !== void 0);
-    notices.push(`[some output was dropped from memory; full output: ${paths.length > 0 ? paths.join(", ") : "(unavailable)"}]`);
-  }
-  if (sandbox?.runnerFailed) notices.push(`[sandbox: the sandbox runner itself failed under ${sandbox.mode} mode — the command did not run; this is a sandbox problem, not a command failure]`);
-  else if (sandbox?.denied) notices.push(sandboxDenialMarker(sandbox.mode));
-  if (notices.length === 0) return read.delta;
-  return `${read.delta}${read.delta.length > 0 && !read.delta.endsWith("\n") ? "\n" : ""}${notices.join("\n")}`;
+/** The process's non-consuming stream readers as registry pull sources. */
+function processSources(proc) {
+  const source = (channel) => ({
+    channel,
+    read: (fromByte) => {
+      const live = proc();
+      return live === void 0
+        ? { text: "", nextOffset: fromByte, lossy: false }
+        : live.observed[channel].readFrom(fromByte);
+    }
+  });
+  return [source("stdout"), source("stderr")];
 }
 
 /** Resolve an explicit workdir against the session cwd (as dsh-tool-bash's resolveWorkdir). */
@@ -123,18 +124,45 @@ function apply(ctx, config = {}) {
         dshEnv: ctx.shellEnv.collect(exec),
         ...policy !== void 0 ? { sandboxPolicy: policy } : {}
       };
+      // dsh 0.2.2 的 shell seam 只有 `execute(spec): Promise<ShellExecution>`：没有同步的
+      // `start()`，也没有 job 直接可读的 `readOutput()` 钩子。旧写法三处都失效
+      // （2026-11-18 实测：`shell.start is not a function`），这里按 dsh-tool-bash 的
+      // 后台路径重写——异步 spawn + AbortController，输出走注册表的拉取源。
+      const spec = ctx.shell.resolve({ ...request, onExpiry: "none" });
+      let proc;
       return {
         kind: "background",
         jobId: jobs.start({
           kind: "process",
           label: `${args.name}: ${args.command}`,
-          ...exec.agent ? { owner: exec.agent } : {},
+          ...exec.agent ? { owner: exec.agent.id } : {},
+          output: processSources(() => proc),
           run: () => {
-            const proc = ctx.shell.start(ctx.shell.resolve(request));
+            const controller = new AbortController();
+            const done = (async () => {
+              try {
+                proc = await ctx.shell.execute({ ...spec, signal: controller.signal });
+                try {
+                  if (controller.signal.aborted) proc.kill();
+                } finally {
+                  await proc.done;
+                }
+                return processOutcome(proc);
+              } catch (error) {
+                const killed = controller.signal.aborted && proc === void 0;
+                return {
+                  status: killed ? "killed" : "failed",
+                  detail: error instanceof Error ? error.message : String(error)
+                };
+              }
+            })();
             return {
-              cancel: () => void proc.kill(),
-              done: proc.done.then(() => processOutcome(proc)),
-              readOutput: () => renderProcessRead(proc.readOutput(), proc.sandbox)
+              cancel: (reason) => {
+                if (controller.signal.aborted) return;
+                controller.abort(reason);
+                proc?.kill();
+              },
+              done
             };
           }
         })

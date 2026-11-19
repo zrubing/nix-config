@@ -182,6 +182,21 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
       }
     done
 
+    # my-standard 把上游 standard 的 tool-jobs 行整行换成 pi-process（下游适配器）：
+    # 三个 job_* 工具换成一个 `process`，per-process 告警开关与 logWatches 才拿得到。
+    # 同样是整体替换 —— 上游这一行一旦多出 config 之类的键，必须显式决定取舍，
+    # 否则会被下面的对象字面量静默吞掉。
+    jobsRows=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "tool-jobs")] | length' "$STD_UP")
+    [ "$jobsRows" -eq 1 ] || {
+      printf 'dsh-local presets: shipped %s has %s tool-jobs rows, expected exactly 1\n' "$STD_UP" "$jobsRows" >&2
+      exit 1
+    }
+    jobsKeys=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "tool-jobs") | keys] | flatten | unique | join(" ")' "$STD_UP")
+    [ "$jobsKeys" = "id name" ] || {
+      printf 'dsh-local presets: shipped %s tool-jobs row has keys [%s], expected only id/name; update the replacement below accordingly\n' "$STD_UP" "$jobsKeys" >&2
+      exit 1
+    }
+
     ${rewrite "minimalExtras" "minimal-extras.yml" "$MIN_EX"}
     ${rewrite "ptcExtras" "ptc-extras.yml" "$PTC_EX"}
     ${rewrite "standardExtras" "standard-extras.yml" "$STD_EX"}
@@ -219,7 +234,9 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
       ($ptcUp | (.. | select(tag == "!!map") | select(.id? == "compaction-basic")) |=
         {"id": "blackhole-compact", "name": ${builtins.toJSON blackholeCompaction}, "config": {"thresholdRatio": 0.4}}) as $ptcSwapped |
       ($stdUp | (.. | select(tag == "!!map") | select(.id? == "compaction-basic")) |=
-        {"id": "blackhole-compact", "name": ${builtins.toJSON blackholeCompaction}, "config": {"thresholdRatio": 0.4}}) as $stdSwapped |
+        {"id": "blackhole-compact", "name": ${builtins.toJSON blackholeCompaction}, "config": {"thresholdRatio": 0.4}}
+        | (.. | select(tag == "!!map") | select(.id? == "tool-jobs")) |=
+        {"id": "pi-process", "name": "dsh-tool-pi-process", "config": {}}) as $stdSwapped |
 
       [
         { "insert": [ { "id": "preset-my-minimal", "name": "@deepseek-ai/dsh-agent-preset",

@@ -717,6 +717,25 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
     description = "ast_grep: structural search and preview-rewrite over tree-sitter ASTs through the same shell seam as bash";
   };
 
+  # 按名字清空 prompt 段 / runtime context（agent scope）。用于把 host 平面注入、
+  # 但这份 preset 不需要的贡献盖掉：空文本在渲染时被丢弃，且不依赖任何字面量匹配。
+  # 具体清哪些名字由 preset 的 config 决定（见 my-standard 的 extras）。
+  toolPromptSuppress = mkTool {
+    name = "dsh-prompt-suppress";
+    file = pluginsDir + "/prompt-suppress/index.js";
+    description = "Blank named prompt sections and runtime contexts per preset (scoped same-name override), e.g. dropping the harness dev-context from a general coding preset";
+  };
+
+  # pi-processes 的适配器：把 pi 那个单工具多 action 的 `process` 面复刻到 ctx.jobs
+  # 上，并且自己 attachController —— 所以它可以直接替代 preset 里的 tool-jobs 行，
+  # 而不是只能与它并存。没有 insert 行（mkTool 的 patch 落在 `[]`）：包可被 preset
+  # 按名引用，挂不挂由 preset 决定，和官方 dsh-tool-bash 同构。
+  toolPiProcess = mkTool {
+    name = "dsh-tool-pi-process";
+    file = pluginsDir + "/pi-process/index.js";
+    description = "pi-processes adapter: the single process tool (start/list/output/logs/kill/clear/write) over ctx.jobs, with per-process alert flags and output watches";
+  };
+
   # 两份 router preset 的私有文件。它们用 `./router-bootstrap-v34.mjs?v=88` 这类
   # 相对说明符互相引用（查询串是上游的缓存破坏标记），而 preset 的
   # `config.plugins[].name` **不经过** app-boot 的 anchorInsertedPluginNames
@@ -809,8 +828,10 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
       "./dsh-blackhole/lib/index.js" = "@jojo/dsh-blackhole";
       "./dsh-blackhole/lib/compaction.js" = blackholeCompaction;
     };
+    # my-standard 不再挂 `./tool-processes.js`（换成 pi-process 的 process），
+    # 所以这一组没有那条映射 —— 留着只会让"这张表 = 这份 preset 实际用到的相对
+    # 说明符"这条对应关系失真。
     standardExtras = {
-      "./tool-processes.js" = "dsh-tool-processes";
       "./tool-ast-grep.js" = "dsh-tool-ast-grep";
       "./dsh-blackhole/lib/index.js" = "@jojo/dsh-blackhole";
       "./dsh-blackhole/lib/compaction.js" = blackholeCompaction;
@@ -1248,6 +1269,8 @@ in
     presets
     toolProcesses
     toolAstGrep
+    toolPiProcess
+    toolPromptSuppress
     presetRouterStandard
     presetMyRouterStandard
     blackhole

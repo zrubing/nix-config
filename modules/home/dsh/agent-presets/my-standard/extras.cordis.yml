@@ -4,21 +4,25 @@
 # The declared `config.plugins` list is:
 #
 #   shipped `standard.patch.yml` plugins (persona / pwsh+bash / fs + fs-search /
-#   jobs / schedule / skills / goals / plan mode / delegation / subagents /
-#   workflows / ask-user / todo / web / plugin manager)          ← read from the
+#   jobs→pi-process / schedule / skills / goals / plan mode / delegation /
+#   subagents / workflows / ask-user / todo / web / plugin manager)  ← read from the
 #   web-app bundle's presets/ at BUILD time (pkgs/dsh-local/presets.nix), so
 #   upstream updates flow through on rebuild
-#   + ONE inline swap: the compaction group's `compaction-basic` row becomes
-#   `@jojo/dsh-blackhole/compaction` (the deterministic pi-blackhole backend) —
-#   done there because a second `compaction` group or row here would collide
-#   with the shipped one (`duplicate loader entry id`), and because replacing
-#   the row wholesale means a config key added upstream fails the build instead
-#   of being silently dropped
+#   + TWO inline swaps (presets.nix), both wholesale row replacements so that a
+#   config key added upstream fails the build instead of being silently dropped:
+#     - the compaction group's `compaction-basic` row becomes
+#       `@jojo/dsh-blackhole/compaction` (the deterministic pi-blackhole backend);
+#       a second `compaction` group here would collide with the shipped one
+#       (`duplicate loader entry id`)
+#     - the shipped `tool-jobs` row becomes `dsh-tool-pi-process`: one `process`
+#       tool (start/list/output/logs/kill/clear) with per-process alert flags and
+#       logWatches, over the same `ctx.jobs` registry. It attaches its own job
+#       controller, so removing `tool-jobs` does not strand producers.
 #   + this file's rows (start_process background processes, ast_grep, and the
 #   pi-blackhole recall / observational memory / /blackhole* commands)
 #
 # The FULL preset is the shipped `standard` plus these delta rows. `standard`
-# already ships agent-instructions, tool-jobs, tool-web, tool-schedule,
+# already ships agent-instructions, tool-web, tool-schedule,
 # skill-filesystem + tool-skill, command-compact and tool-result-pruner, so the
 # delta is only the three rows below and no row here shares an id with the
 # upstream file.
@@ -37,14 +41,29 @@
 # (`.name` resolves through dsh's two anchors), so `./x.js` remains writable.
 
 # ── background processes ────────────────────────────────────────────────────
+#
+# NOT mounted here. Upstream `standard` ships `tool-jobs`, whose description
+# tells the model to collect work with `job_output` / `job_list`; this preset
+# replaces that row with `dsh-tool-pi-process`, so the only start surface is
+# `process(action="start")` and the only collection surface is `process`. Adding
+# `tool-processes` (`start_process`) back would leave a tool whose own
+# description points at three tools this preset no longer has. `my-minimal` /
+# `my-ptc` keep it, because they still mount `tool-jobs`.
 
-# The agent-facing half of aliou's pi-processes, ported to dsh's own seams (as
-# in my-minimal / my-ptc): `start_process` spawns a long-running command
-# without blocking the conversation, registering the handle with the host
-# `ctx.jobs` runtime so job_output / job_kill / completion notices all work.
-# The `tool-jobs` collection row is already provided by upstream `standard`.
-- id: tool-processes
-  name: './tool-processes.js'
+# ── 系统提示：去掉这份 preset 不需要的 host 贡献 ──────────────────────────
+# `dsh-harness-dev-context` 在 host 平面挂载，每份 preset 都会拿到四段只对"改 DSH
+# 本体"有用的文字（checkout 路径、GUI URL 及其指引），且都带品牌名。它们对 `cordis`
+# 那个"帮用户定制 DSH 自己"的 preset 是必要事实，对本 preset 只是噪音。
+# 该包没有 Config、host 行也不能按 preset 判断，所以这里按名字覆盖成空文本（渲染时
+# 被丢弃）。`harness:identity` 那句 "You are an AI agent powered by DeepSeek Harness."
+# 是 `dsh-system-prompt` 硬编码的，同理一起盖掉。
+- id: prompt-suppress
+  name: 'dsh-prompt-suppress'
+  config:
+    text:
+      'harness:identity': ''
+      'harness:source': ''
+      'app:web-surface': ''
 
 # ── ast-grep(结构化代码搜索/改写)────────────────────────────────────────────
 # 与 my-minimal / my-ptc 同款 `ast_grep` 工具行:tree-sitter AST pattern 搜索 +
