@@ -8,6 +8,20 @@
 let
   cfg = config.${namespace}.multica-server;
 
+  mobileCaddyfile = pkgs.writeText "multica-mobile-proxy.Caddyfile" ''
+    {
+      admin off
+      auto_https off
+      persist_config off
+    }
+
+    http://${cfg.mobileProxy.listenAddress}:${toString cfg.mobileProxy.port} {
+      reverse_proxy 127.0.0.1:${toString cfg.webPort} {
+        header_up Host ${cfg.mobileProxy.hostHeader}
+      }
+    }
+  '';
+
   # 版本唯一来源：改版本时只改这一行 + 下面两个镜像的 imageDigest/sha256。
   # 三者必须指向同一份镜像，否则 pullImage 会因为 digest 与实际内容不符而构建失败
   # （失败比静默跑旧镜像好，这是刻意的）。
@@ -57,6 +71,38 @@ in
       type = types.port;
       default = 30082;
       description = "Host port the Next.js frontend listens on（同上，沿用旧 NodePort）。";
+    };
+
+    # 手机端入口：手机通过 EasyTier 进网，不能解析 multica.local；直接用 IP 访问
+    # 又会被 Caddy 按 Host 路由到默认站点。这里单独跑一个 Caddy，只监听 ET 地址，
+    # 把 Host 改写成 multica.local 再转给 web（HTTP/WebSocket 都透传）。
+    mobileProxy = {
+      enable = mkEnableOption "Reverse proxy for the Multica mobile app (Host rewrite)";
+
+      listenAddress = mkOption {
+        type = types.str;
+        example = "10.144.200.3";
+        description = "Address (usually the EasyTier IP) the mobile proxy binds to.";
+      };
+
+      port = mkOption {
+        type = types.port;
+        default = 30083;
+        description = "Port the mobile proxy listens on.";
+      };
+
+      hostHeader = mkOption {
+        type = types.str;
+        default = "multica.local";
+        description = "Host header sent to the web upstream.";
+      };
+
+      extraAfter = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [ "easytier-ali.service" ];
+        description = "Extra units to order after (e.g. the EasyTier instance that owns listenAddress).";
+      };
     };
   };
 
@@ -175,6 +221,19 @@ in
     };
     systemd.services."podman-multica-web" = {
       after = [ "podman-multica-backend.service" ];
+    };
+
+    systemd.services.multica-mobile-proxy = lib.mkIf cfg.mobileProxy.enable {
+      description = "Host-rewriting reverse proxy for the Multica mobile app";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "podman-multica-web.service" ] ++ cfg.mobileProxy.extraAfter;
+      requires = [ "podman-multica-web.service" ];
+      serviceConfig = {
+        ExecStart = "${pkgs.caddy}/bin/caddy run --config ${mobileCaddyfile} --adapter caddyfile";
+        DynamicUser = true;
+        Restart = "on-failure";
+        RestartSec = "3s";
+      };
     };
 
     networking.firewall.allowedTCPPorts = [

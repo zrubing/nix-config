@@ -23,6 +23,7 @@ let
   # 两个消费者必须同值：kubelet 注册地址、pod 出网捕获的 DNAT 目标（sib.podEgress）。
   nodeIp = "10.144.150.4";
   multicaPackage = pkgs.${namespace}.multica;
+  larkCli = pkgs.${namespace}.lark-cli;
   tradingagentsPackage = pkgs.${namespace}.tradingagents;
   tradingagentsWrapped = pkgs.writeShellScriptBin "tradingagents" ''
     set -a
@@ -152,7 +153,15 @@ in
 
     # Multica 自托管：podman 容器（backend/web）+ 本机 postgres，固定在本机，
     # 不再依赖集群与 OIDC 凭证。见 modules/nixos/multica-server。
-    multica-server.enable = true;
+    multica-server = {
+      enable = true;
+      # 手机端入口：监听 EasyTier(ali) 地址，Host 改写为 multica.local 后转给 web。
+      mobileProxy = {
+        enable = true;
+        listenAddress = "10.144.200.3";
+        extraAfter = [ "easytier-ali.service" ];
+      };
+    };
 
     # 与 zen14 同一个 CachyOS 内核派生（同 rev + 同 override ⇒ 同 store 路径），
     # 换上来不需要重编内核，直接 nix copy 即可。BBR 作为默认拥塞控制。
@@ -433,6 +442,7 @@ in
     hermesWrapped
     piPackage
     multicaPackage
+    larkCli
     tradingagentsWrapped
     # `k0s` 只被 k0sworker.service 按 store 路径引用，不进系统 profile，
     # `sudo k0s ...` 会报 command not found。放进 profile 才能直接用。
