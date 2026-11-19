@@ -109,3 +109,11 @@ journalctl --user -u multica-daemon -n 200 --no-pager | grep -E "version detecte
    ```bash
    <bridge>/bin/dsh --profile multica --list-models | wc -c   # 应 < 65536
    ```
+
+5. multica 0.11 起任务凭据是 task-scoped 的 `mat_` token，桥把任务挂到常驻 host 的
+   会话里执行，host 进程 env 是启动时那份，拿不到每个任务的 `mat_`；agent 在任务里
+   执行 `multica` 命令会报 “agent execution context requires MULTICA_TOKEN to be a
+   task-scoped mat_ token”。现在的分流 shim（`modules/home/dsh` 的
+   `multicaRuntimeShim`）按子命令拆开：`--list-models` 仍走桥（host 模型表 + 48 KiB
+   裁剪），`--probe` / `--stdio` 走原生 dsh —— 每个任务一个进程，`mat_`、cwd 都是
+   任务级的。代价：任务不再出现在 dsh-web UI 里，首帧慢 5–6 秒。

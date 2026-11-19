@@ -101,6 +101,13 @@ in
           # daemon 的 --probe 拿不到结果。
           EnvironmentFile = lib.optional (config.${namespace}.modules.dsh.envFile != null)
             config.${namespace}.modules.dsh.envFile;
+          # dsh runtime 走 dsh 模块产出的分流 shim（basename 必须是 dsh）：
+          #   --list-models → 桥（常驻 host 的模型表，已裁到 48 KiB）
+          #   --stdio       → 原生 dsh，每任务一个进程
+          # 0.11 起任务里的 MULTICA_TOKEN 必须是 task-scoped `mat_`，bridge 把任务
+          # 挂到常驻 host 上拿不到任务 env，agent 在任务里执行 multica CLI 会失败
+          # （2026-11-19 实测，nova13 任务 01a1f3d4）。原生 runtime 能拿到 mat_ 与
+          # 任务 cwd；只有模型发现继续借 host，避开原生 113 KB 超单帧上限的问题。
           Environment = [
             "PATH=/run/current-system/sw/bin:/etc/profiles/per-user/%u/bin:%h/.local/bin"
             "MULTICA_SERVER_URL=http://multica-api.local"
@@ -113,11 +120,8 @@ in
             "https_proxy="
             "NO_PROXY=multica.local,multica-api.local,localhost,127.0.0.1,::1"
           ]
-          # 顶替 `dsh` 这个可执行文件：multica 的 dsh runtime 改成「把任务挂到
-          # 常驻 dsh-web host 上」，不再每任务起一个 dsh 进程。dsh 模块没启用时
-          # 保持 null（daemon 回落到 PATH 上的 dsh + profile multica）。
           ++ lib.optionals config.${namespace}.modules.dsh.enable [
-            "MULTICA_DSH_PATH=${config.${namespace}.modules.dsh.multicaBridge}/bin/dsh"
+            "MULTICA_DSH_PATH=${config.${namespace}.modules.dsh.multicaRuntimeShim}/bin/dsh"
           ];
           Restart = "on-failure";
           RestartSec = 5;

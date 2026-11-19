@@ -405,6 +405,21 @@ let
     ln -s ${multicaBridge}/bin/dsh-multica-bridge $out/bin/dsh
   '';
 
+  # multica 的 dsh runtime 入口，按子命令分流：
+  #   --list-models → 桥。拿常驻 host 的模型表（原生 profile 的输出 113 KB，
+  #                   超过 multica daemon 的 ~64 KiB 单帧上限；桥里已裁到 48 KiB）。
+  #   --probe / --stdio → 原生 dsh，每任务一个进程。只有这样才能拿到 task-scoped 的
+  #                   MULTICA_TOKEN(mat_) 与任务 cwd —— 桥把任务挂到常驻 host 上，
+  #                   host 的 env 是启动时那份，agent 在任务里执行 multica CLI 会报
+  #                   "requires MULTICA_TOKEN to be a task-scoped mat_ token"
+  #                   （2026-11-19 实测，nova13 任务 01a1f3d4）。
+  multicaRuntimeShim = pkgs.writeShellScriptBin "dsh" ''
+    case " $* " in
+      *" --list-models "*) exec ${multicaBridgeAsDsh}/bin/dsh "$@" ;;
+      *) exec ${lib.getExe dshPackage} "$@" ;;
+    esac
+  '';
+
   # 入口本体：取自**装配进 profile 的那份** TUI bundle，与 profile 里的 dsh-tui 行同源。
   tuiHostEntry = "${dshLocal.upstreamBundles.tui}/lib/node_modules/@deepseek-harness-tui/dsh-tui/lib/types/dsh-adapter/host-entry.js";
 
@@ -1363,11 +1378,25 @@ in
       internal = true;
       description = "Multica runtime bridge that attaches tasks to the running dsh web host.";
     };
+
+    multicaRuntimeShim = mkOption {
+      type = types.package;
+      readOnly = true;
+      internal = true;
+      description = "Drops-in `dsh` for multica: model list via the host bridge, tasks via the native per-task runtime.";
+    };
   };
 
   config = lib.mkMerge [
-    # readOnly 的内部产物：multica daemon 通过 MULTICA_DSH_PATH 使用它。
-    { ${namespace}.modules.dsh.multicaBridge = multicaBridgeAsDsh; }
+    # readOnly 的内部产物：multica daemon 通过 MULTICA_DSH_PATH 使用它们。
+    {
+      ${namespace} = {
+        modules.dsh = {
+          multicaBridge = multicaBridgeAsDsh;
+          multicaRuntimeShim = multicaRuntimeShim;
+        };
+      };
+    }
 
     (lib.mkIf cfg.enable {
       # 本地 TUI 启动器只在启用 dsh-tui profile 时投递 —— 它引用的 profile 必须存在，
