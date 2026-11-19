@@ -15,8 +15,10 @@ let
     import json
     import os
     import pathlib
+    import re
     import subprocess
     import sys
+    import tempfile
 
     CLI = os.environ.get("MULTICA_CLI", "multica")
 
@@ -27,6 +29,19 @@ let
             detail = proc.stderr.strip() or proc.stdout.strip()
             sys.exit("failed: " + " ".join(args) + ": " + detail)
         return proc.stdout
+
+
+    PLACEHOLDER = re.compile(r"\{\{([A-Z0-9_]+)\}\}")
+
+
+    def render(text, values, origin):
+        def sub(match):
+            key = match.group(1)
+            if key not in values:
+                sys.exit("missing " + key + " in " + origin)
+            return str(values[key])
+
+        return PLACEHOLDER.sub(sub, text)
 
 
     def read_frontmatter(path):
@@ -73,16 +88,26 @@ let
 
         for md in files:
             name, desc = read_frontmatter(md)
-            if name in existing:
-                sid = existing[name]
-                run("skill", "update", sid, "--content-file", str(md),
-                    "--description", desc, "--output", "json")
-                print("updated " + name + " " + sid)
-            else:
-                sid = json.loads(run("skill", "create", "--name", name,
-                                     "--description", desc, "--content-file", str(md),
-                                     "--output", "json"))["id"]
-                print("created " + name + " " + sid)
+            cfg_path = md.parent / "config.json"
+            values = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+            body = render(md.read_text(), values, str(cfg_path))
+            desc = render(desc, values, str(cfg_path))
+            with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as tmp:
+                tmp.write(body)
+                body_path = tmp.name
+            try:
+                if name in existing:
+                    sid = existing[name]
+                    run("skill", "update", sid, "--content-file", body_path,
+                        "--description", desc, "--output", "json")
+                    print("updated " + name + " " + sid)
+                else:
+                    sid = json.loads(run("skill", "create", "--name", name,
+                                         "--description", desc, "--content-file", body_path,
+                                         "--output", "json"))["id"]
+                    print("created " + name + " " + sid)
+            finally:
+                os.unlink(body_path)
             for agent in agents:
                 aid = agent_ids.get(agent)
                 if not aid:
