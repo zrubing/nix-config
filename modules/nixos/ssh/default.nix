@@ -66,7 +66,10 @@ in
         # 2026-10-22 实测：root 那次只加载了 /root/.ssh/id_* 默认身份，
         # /run/agenix/nix-secrets-deploy 根本没出现在 debug 输出里。
         # 判本地用户只能用 exec + %u（%u 展开为本地用户名）。
-        Match host github.com exec "test %u = root"
+        #
+        # ⚠️ Match 里必须用 originalhost：host 判据比的是 HostName 替换后的名字
+        # （github-agent-skills 会变成 github.com），写 host 永远不命中，实测 2026-11-20。
+        Match originalhost github.com exec "test %u = root"
           IdentityFile /run/agenix/nix-secrets-deploy
           IdentitiesOnly yes
 
@@ -76,11 +79,11 @@ in
           HostName github.com
           User git
 
-        Match host github-agent-skills exec "test %u = root"
+        Match originalhost github-agent-skills exec "test %u = root"
           IdentityFile /run/agenix/agent-skills-deploy
           IdentitiesOnly yes
 
-        Match host github-agent-skills exec "test %u != root"
+        Match originalhost github-agent-skills exec "test %u != root"
           IdentityFile /run/agenix/agent-skills-deploy-user
           IdentitiesOnly yes
       '';
