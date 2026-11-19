@@ -222,9 +222,13 @@ in
         # （见 modules/home/multica/default.nix）。配合下面的 linger，daemon 不再寄生在
         # 某个 SSH session 里，且升级切二进制时 graceful drain 能真正生效。
         modules.multica.enable = true;
-        # nova13 是构建节点，不挂 agent runtime：daemon 没有登录态会无限重启，
-        # 多出来的 4 个 runtime 也会和 zen14 抢同一批任务。CLI 仍照常安装。
-        modules.multica.daemon.enable = false;
+        # nova13 常驻在线，daemon 挂在这里补上 zen14 关机/挂起时空出来的执行位。
+        # 凭据不靠交互式 login：PAT 无过期，sops 把它渲染成完整的 config.json，
+        # unit 启动前复制到 ~/.multica/（见 daemon.configFile 的说明）。
+        # 不会与 zen14 抢任务——agent 是绑定到具体 runtime（agent.runtime_id）的，
+        # 这台机器只注册自己的 runtime，只有显式绑过来的 agent 才会在这里执行。
+        modules.multica.daemon.enable = true;
+        modules.multica.daemon.configFile = "/run/secrets/rendered/multica-config.json";
 
         # dsh（DeepSeek Harness）在 jojo 共享 home 已启用；访问走 nova13 的 Caddy 反代
         # （http://dsh.local → 127.0.0.1:3080）。注意：dsh 禁止 --host 0.0.0.0
@@ -381,6 +385,22 @@ in
   sops.age.sshKeyPaths = [ "/home/jojo/.ssh/id_ed25519" ];
   sops.secrets."multica/JWT_SECRET".sopsFile = ./secrets/multica.yaml;
   sops.secrets."multica/POSTGRES_PASSWORD".sopsFile = ./secrets/multica.yaml;
+  # multica daemon 的客户端凭据：user PAT（mul_...，无 expires_at）。
+  # daemon 只认 ~/.multica/config.json，所以这里直接渲染整份配置，
+  # 由 unit 的 ExecStartPre 复制过去（不是软链，daemon 会重写该文件）。
+  sops.secrets."multica/daemon-token".sopsFile = ./secrets/multica.yaml;
+  sops.templates."multica-config.json" = {
+    owner = "jojo";
+    group = "users";
+    mode = "0400";
+    content = builtins.toJSON {
+      server_url = "http://multica-api.local";
+      app_url = "http://multica.local";
+      token = config.sops.placeholder."multica/daemon-token";
+      # 默认工作区；daemon 启动后按 token 再同步一次，这里只是省掉一次交互选择。
+      workspace_id = "82c1d452-2c71-4c29-bce8-4585c000b104";
+    };
+  };
   sops.secrets."anthropic/base_url".sopsFile = "${mysecrets}/secrets/env.yaml";
   sops.secrets."anthropic/api_key".sopsFile = "${mysecrets}/secrets/env.yaml";
   sops.secrets."deepseek/api_key".sopsFile = "${mysecrets}/secrets/env.yaml";

@@ -128,6 +128,24 @@ nix build .#nixosConfigurations.nova13.config.system.build.toplevel --dry-run
 自托管没有邮件通道，登录用固定验证码 `888888`（`MULTICA_DEV_VERIFICATION_CODE`）。
 CLI 侧 `~/.multica/config.json` 必须由 CLI 自己可写；home 模块已不再用 `home.file` 托管该文件。
 
+## agent runtime daemon（nova13）
+
+nova13 常驻在线，所以这里也跑一个 daemon，补上 zen14 关机/挂起时空出来的执行位。
+任务不会漂移：agent 绑定 `agent.runtime_id`，只有新建（或 `agent copy`）并绑定到
+`(nova13)` runtime 的 agent 才会在这台机器上执行。
+
+- 凭据是 user PAT（`personal_access_token.expires_at` 为空 = 不过期）。
+  nix 侧：`sops.secrets."multica/daemon-token"` +
+  `sops.templates."multica-config.json"` 渲染整份配置，unit 的 `ExecStartPre`
+  复制到 `~/.multica/config.json`（0600）。复制而非软链：daemon 会重写该文件。
+- **不要用 `MULTICA_TOKEN` 环境变量**：CLI 的 `auth status` 认它，daemon 不认，
+  daemon 只读 `~/.multica/config.json`，否则报 `not authenticated` 并无限重启。
+- 轮换：网页 Settings 生成新 PAT → `sops set systems/x86_64-linux/nova13/secrets/multica.yaml
+  '["multica"]["daemon-token"]'` → switch。`ExecStartPre` 会覆盖旧 token，不需要交互登录。
+- dsh runtime 依赖 `~/.dsh/profiles/multica` 落盘。home 模块的 activation 逐个 profile
+  触发播种（`dsh --profile multica --version`）；缺它时 daemon 日志报
+  `DSH Multica runtime profile is not installed` 并跳过该 runtime（其它 runtime 照常注册）。
+
 ## 回滚
 
 把 `modules/nixos/multica-server/default.nix` 的 digest/hash/tag 与 `packages/multica/default.nix`
