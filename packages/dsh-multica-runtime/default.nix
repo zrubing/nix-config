@@ -37,6 +37,21 @@ stdenv.mkDerivation (finalAttrs: {
     pnpm_10
   ];
 
+  # 上游 lifecycle.ts 的两个调用点只对 `subagents` 本体做了可选链，方法调用没
+  # 兜住。该文件的注释明确写着「subagents 在 profile 没挂载时为 absent」，而原生
+  # `dsh --profile multica --stdio` 正是没挂载的情形：此时
+  # `subagents?.waitForChildren(agent)` 会先得到 undefined 再被调用，抛
+  # "subagents?.waitForChildren is not a function"，导致 turn 正常结束、评论已经
+  # 发出去，任务却被判 failed（UI 显示 Agent execution error）。
+  # 按注释表达的契约改成「有服务才调用」，不改行为。
+  postPatch = ''
+    substituteInPlace src/lifecycle.ts \
+      --replace-fail 'subagents?.waitForChildren(agent as Agent) ?? false' \
+                     'subagents ? subagents.waitForChildren(agent as Agent) : false' \
+      --replace-fail 'await subagents?.drainDescendants([agent as Agent])' \
+                     'if (subagents) await subagents.drainDescendants([agent as Agent])'
+  '';
+
   buildPhase = ''
     runHook preBuild
     pnpm run build
