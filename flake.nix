@@ -256,7 +256,7 @@
     # （issuer、集群名、路径），所以不进本仓库的明文，只以 flake input 钉 rev
     # 的方式引用，由 host 上的 oneshot 推送到 multica。更新：nix flake update agent-skills
     agent-skills = {
-      url = "git+ssh://git@github.com/zrubing/agent-skills.git?ref=main";
+      url = "git+ssh://git@github-agent-skills/zrubing/agent-skills.git?ref=main";
       flake = false;
     };
 

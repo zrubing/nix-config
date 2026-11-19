@@ -44,12 +44,12 @@
         "rev": "56e300cd01ba94c9789384fe1abacc9f856c8b29",
         "revCount": 1,
         "type": "git",
-        "url": "ssh://git@github.com/zrubing/agent-skills.git"
+        "url": "ssh://git@github-agent-skills/zrubing/agent-skills.git"
       },
       "original": {
         "ref": "main",
         "type": "git",
-        "url": "ssh://git@github.com/zrubing/agent-skills.git"
+        "url": "ssh://git@github-agent-skills/zrubing/agent-skills.git"
       }
     },
     "antigravity-nix": {

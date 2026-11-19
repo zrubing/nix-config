@@ -21,13 +21,17 @@ in
     owner = "root";
   };
 
-  # agent-skills（私有 skill 仓库）的 root 只读凭据。
-  # GitHub 的 deploy key 不能跨仓库复用（会报 Key is already in use），所以单独一把；
-  # 与 nix-secrets-deploy 并存，ssh 依次尝试两个身份，GitHub 认能访问目标仓库的那个。
+  # agent-skills（私有 skill 仓库）的只读凭据。
+  # GitHub 的 deploy key 不能跨仓库复用（Key is already in use），所以单独一把；
+  # 也不能和 nix-secrets 那把共用一个 host —— GitHub 只认第一个认证成功的 key，
+  # 两把一起出示时 agent-skills 会报 Repository not found（2026-11-20 实测），
+  # 因此下面用独立 Host 别名 github-agent-skills 只出示这一把。
+  # 0440 root:users：root 的 eval 要读，jojo 跑 nix flake update 时也要读。
   age.secrets.agent-skills-deploy = {
     file = "${mysecrets}/ssh/agent-skills-deploy.age";
-    mode = "0400";
+    mode = "0440";
     owner = "root";
+    group = "users";
   };
 
   programs.ssh = {
@@ -43,6 +47,13 @@ in
       # 判本地用户只能用 exec + %u（%u 展开为本地用户名）。
       Match host github.com exec "test %u = root"
         IdentityFile /run/agenix/nix-secrets-deploy
+        IdentitiesOnly yes
+
+      # agent-skills 专用别名：只出示它自己的 deploy key，避开上一个 Match 的身份。
+      # 这份是全局生效的（jojo 也要能 fetch 这个 input），不放进只用 root 的 Match 里。
+      Host github-agent-skills
+        HostName github.com
+        User git
         IdentityFile /run/agenix/agent-skills-deploy
         IdentitiesOnly yes
     '';
