@@ -38,11 +38,11 @@
     "agent-skills": {
       "flake": false,
       "locked": {
-        "lastModified": 1795193368,
-        "narHash": "sha256-c5HRgHIesI5TBeexSHDmYti5PqKNGv9gCqs/T2E2API=",
+        "lastModified": 1795193438,
+        "narHash": "sha256-/Pq8TIr92PrCzYbQXUyNwKUEClodAlYneNtX5YFqtfQ=",
         "ref": "main",
-        "rev": "8a238eb3dbbf9f31ea3192ff20b1990edd861e5b",
-        "revCount": 5,
+        "rev": "05eb02cca5a2d5eec6d1a74788c0ec0183320298",
+        "revCount": 6,
         "type": "git",
         "url": "ssh://git@github-agent-skills/zrubing/agent-skills.git"
       },
