@@ -353,5 +353,30 @@ def serve() -> int:
     return 0
 
 
+def main(argv: list[str] | None = None) -> int:
+    """CLI 入口：参数优先于环境变量（uvx / systemd 两种用法都覆盖）。"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="本地 MCP 凭证代理")
+    parser.add_argument("--listen", help="监听地址，默认取 MCP_PROXY_LISTEN 或 127.0.0.1:9100")
+    parser.add_argument(
+        "--route",
+        action="append",
+        default=[],
+        metavar="NAME[=ENVVAR]",
+        help="路由，可重复；上游地址取 ENVVAR，缺省为 <NAME>_MCP_URL",
+    )
+    parser.add_argument("--token-file", help="token 文件路径")
+    args = parser.parse_args(argv)
+    if args.listen:
+        os.environ["MCP_PROXY_LISTEN"] = args.listen
+    if args.route:
+        os.environ["MCP_PROXY_ROUTES"] = ",".join(args.route)
+    if args.token_file:
+        global TOKEN_FILE
+        TOKEN_FILE = args.token_file
+    return serve()
+
+
 if __name__ == "__main__":
-    raise SystemExit(serve())
+    raise SystemExit(main())
