@@ -67,6 +67,9 @@
   homeDirectory,
 }:
 let
+  # 代理基址：客户端条目里不写端口字面量（见 lib/mcp-proxy.nix）
+  mcpProxy = import ../../../lib/mcp-proxy.nix;
+
   # figma MCP（framelink）的图片落点。它只允许写入 imageDir 之内（越界报
   # "File path escapes target directory"），目标目录不存在时自己 mkdir -p。
   #
@@ -468,14 +471,14 @@ rec {
       description = "MCP 聚合端点（ci/db/agent-docs/loki，经本机代理，零密钥）";
       pi = {
         type = "http";
-        url = "http://127.0.0.1:9100/catalog/mcp";
+        url = "${mcpProxy.baseUrl}/catalog/mcp";
       };
       dsh = {
         transport = "streamable-http";
-        url = "http://127.0.0.1:9100/catalog/mcp";
+        url = "${mcpProxy.baseUrl}/catalog/mcp";
       };
       codex = {
-        url = "http://127.0.0.1:9100/catalog/mcp";
+        url = "${mcpProxy.baseUrl}/catalog/mcp";
       };
     };
 

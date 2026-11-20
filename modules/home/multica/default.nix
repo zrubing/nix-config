@@ -148,7 +148,7 @@ let
   '';
   # 工作区 MCP 库的声明式收敛（与 skillsSync 同一模式）：
   # 源是一份由 nix 渲染的 JSON（含 servers 与 agents 两份声明），它**不含任何密钥** ——
-  # 客户端条目指向本机的 mcp-auth-proxy（127.0.0.1:9100），token 只存在那个文件里。
+  # 客户端条目指向本机的 mcp-auth-proxy（见 lib/mcp-proxy.nix），token 只存在那个文件里。
   mcpSync = pkgs.writeScriptBin "multica-mcp-sync" ''
     #!${pkgs.python3}/bin/python3
     import json
@@ -245,7 +245,7 @@ in
     #
     # 为什么条目里不该出现 token：multica 的 MCP 库存在**服务端**，写进去就是
     # 一份明文凭据躺在它的数据库里，且重新登录后必然过期。统一指向本机
-    # mcp-auth-proxy（127.0.0.1:9100），token 只存在于 ~/.local/state/mcp/token。
+    # mcp-auth-proxy（lib/mcp-proxy.nix），token 只存在于 ~/.local/state/mcp/token。
     mcp = {
       enable = mkEnableOption "Reconcile the workspace MCP server library from this config";
 
@@ -255,7 +255,7 @@ in
         example = {
           catalog = {
             type = "http";
-            url = "http://127.0.0.1:9100/catalog/mcp";
+            url = "${(import ../../../lib/mcp-proxy.nix).baseUrl}/catalog/mcp";
           };
         };
         description = "MCP server name → entry object（mcpServers 下的那一份形状）。";

@@ -17,6 +17,9 @@ let
   # （见 hinihao.sib.podEgress）。只在这里写一次。
   nodeIp = "10.144.150.3";
 
+  # MCP 代理基址（端口单一事实，见 lib/mcp-proxy.nix）
+  mcpProxy = import ../../../lib/mcp-proxy.nix;
+
   # 临时开关：true = jojo 免密码 sudo（规则与 nova13 一致），false = 回到 GUI askpass。
   #
   # 保持 true 的前提：agent 必须从 agent-shell 启动。bwrap 默认设 no_new_privs，
@@ -33,7 +36,7 @@ in
           internal.modules.multica.enable = true;
       internal.observabilityPortForward.enable = true;
       # MCP 凭证代理（2026-11-20）：multica / dsh / pi / codex 只写
-      # http://127.0.0.1:9100/catalog/mcp；token 在 ~/.local/state/mcp/token，
+      # ${mcpProxy.baseUrl}/catalog/mcp；token 在 ~/.local/state/mcp/token，
       # 由 `mcp-token login`（一次浏览器授权）写入，代理每个请求现读。
       internal.modules.mcp-proxy = {
         enable = true;
@@ -44,7 +47,7 @@ in
         enable = true;
         servers.catalog = {
           type = "http";
-          url = "http://127.0.0.1:9100/catalog/mcp";
+          url = "${mcpProxy.baseUrl}/catalog/mcp";
         };
         agents = [
           "dsh-deepseek"
