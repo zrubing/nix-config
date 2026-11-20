@@ -41,6 +41,34 @@ in
       # 会被 concat 成双份（enable 等布尔幂等所以之前没暴露）。
       {
         home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
+        # MCP 凭证代理（内联，不走 modules/home 的选项：这条 home 配置的模块集
+        # 与 zen14 不同，internal.modules.mcp-proxy 在这里未声明）。
+        # 客户端（multica / dsh / pi / codex）只写 http://127.0.0.1:9100/catalog/mcp。
+        home.packages = [
+          pkgs.internal.mcp-token
+          pkgs.internal.mcp-auth-proxy
+        ];
+        systemd.user.services.mcp-auth-proxy = {
+          Unit = {
+            Description = "Local MCP credential proxy";
+            After = [ "sops-nix.service" ];
+            Wants = [ "sops-nix.service" ];
+          };
+          Install.WantedBy = [ "default.target" ];
+          Service = {
+            Type = "simple";
+            ExecStart = "${pkgs.internal.mcp-auth-proxy}/bin/mcp-auth-proxy";
+            EnvironmentFile = "/home/jojo/.config/dsh.env";
+            Environment = [
+              "MCP_PROXY_LISTEN=127.0.0.1:9100"
+              "MCP_TOKEN_FILE=/home/jojo/.local/state/mcp/token"
+              "MCP_PROXY_ROUTES=catalog=MCP_CATALOG_URL"
+              "NO_PROXY=localhost,127.0.0.1,::1"
+            ];
+            Restart = "always";
+            RestartSec = 3;
+          };
+        };
         home.activation.configureMultica = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         config_file="$HOME/.multica/config.json"
         mkdir -p "$(dirname "$config_file")"
