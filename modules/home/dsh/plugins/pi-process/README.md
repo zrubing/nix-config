@@ -51,6 +51,10 @@
 - 投递方式是给 owner 开一轮（`agent.send(..., 'next-turn', true)`），所以是"叫我"，不是"等我轮询"。
 - 不告警的情况：`teardown` 结算（owner 已销毁）、模型自己 `kill` 的。
 
+## 系统提示
+
+`apply` 注册一段 `tool:process`，占用 `TOOL_JOBS` 的 order 槽位（替代被删掉的 `tool:jobs`）：长命令（dev server / build / watcher / log tail）走 `process(start)`，`bash` 只做能在 timeout 内结束的前台命令；起完不要轮询或 sleep；收尾前用 `output` 收结果，不再需要的 `kill` 掉。只靠工具描述时，模型可能先用 bash 的大 `timeoutMs` 跑长命令，撞上限被 kill 才改口。
+
 ## 与 `tool-jobs` 的差异
 
 | | tool-jobs | 本插件 |

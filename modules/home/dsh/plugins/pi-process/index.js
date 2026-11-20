@@ -37,8 +37,8 @@ import { isAbsolute, resolve } from 'node:path'
 
 export const name = 'pi-process'
 
-/** `shell`/`shellEnv` 是启动进程的 seam；`jobs` 是注册表。 */
-export const inject = ['tools', 'jobs', 'shell', 'shellEnv']
+/** `shell`/`shellEnv` 是启动进程的 seam；`jobs` 是注册表；`systemPrompt` 挂后台策略段。 */
+export const inject = ['tools', 'jobs', 'shell', 'shellEnv', 'systemPrompt']
 
 export const Config = z.object({
   /** `output` 一次返回的最大字节数（尾部截断，超出部分指向 logs）。 */
@@ -265,6 +265,20 @@ export function apply(ctx, config = {}) {
   // 没有 controller 时 `jobs.start()` 会拒绝（上游契约：不能让 owner 收集不到的工作开跑）。
   // 挂上它，这个包就同时是 tool-jobs 的替代品。
   jobs.attachController(name)
+
+  // 后台工作的策略段。这一行替代 tool-jobs 的 `tool:jobs` 段（同一个 order 槽位）：
+  // 只靠工具描述，模型可能先用 bash 大 timeout 跑长命令，撞上上限被 kill 才改口。
+  // 明确"长命令走 process start、bash 只做短前台"，选择就不再靠猜。
+  ctx.systemPrompt.section({
+    name: 'tool:process',
+    order: ctx.systemPrompt.getSectionOrder('TOOL_JOBS'),
+    text:
+      'Long-running commands — dev servers, builds, test watchers, log tails — go through process(action="start"); ' +
+      'bash is for foreground commands that finish within its timeout, because a timeout there kills the command. ' +
+      'A started process returns its id at once: do not poll or sleep on it, keep working on independent steps, ' +
+      'and do not duplicate a running process. Completion and logWatch notices arrive in-session; before giving a ' +
+      'final answer, collect every still-relevant process with action="output" and kill the ones that stopped mattering.',
+  })
 
   const ownerOf = (exec) => exec.agent?.session.id
 
