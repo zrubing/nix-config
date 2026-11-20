@@ -393,6 +393,14 @@ let
     multica = "multica";
   };
 
+  # 每个 profile 的物化目录名。播种器与 provider 渲染必须消费同一份清单：
+  # 之前渲染循环走 profileNames、播种走 dshProfiles，multica 只在后者里，
+  # 于是它的 llm-pi-ai 行永远没有带端点的路由（2026-11-20 实测：multica 任务
+  # 选 deepseek-relay/deepseek-flash 时在 adapter 解析阶段报 NO_ADAPTER）。
+  profileTargets = map (name: materializedNames.${name} or "nix-${name}") (
+    builtins.attrNames dshProfiles
+  );
+
   dshPackage = dshLocal.mkDsh {
     # 不设 `mode`：本仓库用自定义播种器（pkgs/dsh-local 的 mkProfileSeeder）替换了
     # 上游的 dsh-sync-profiles。上游的 managed 会在每次启动抹掉运行时设置，mutable
@@ -1597,9 +1605,9 @@ in
         # multica daemon 在自己的进程里检查 ~/.dsh/profiles/multica，缺了就把整条
         # dsh runtime 跳过（日志：DSH Multica runtime profile is not installed），
         # 所以这里必须逐个别名触发一次。
-        ${lib.concatMapStringsSep "\n" (name: ''
-          ${lib.getExe dshPackage} --profile ${lib.escapeShellArg (materializedNames.${name} or "nix-${name}")} --version >/dev/null 2>&1 || true
-        '') (builtins.attrNames dshProfiles)}
+        ${lib.concatMapStringsSep "\n" (target: ''
+          ${lib.getExe dshPackage} --profile ${lib.escapeShellArg target} --version >/dev/null 2>&1 || true
+        '') profileTargets}
       '';
 
       # 排在播种器之后：新加的 profile（superagent）第一次 switch 时目录还不存在，
@@ -1626,7 +1634,10 @@ in
         render='load(strenv(TPL))[0] as $t | ($t | (.config.providers[] | select(.baseURL == "${relayBaseUrlPlaceholder}") | .baseURL) |= strenv(RELAY)) as $row | [.[] | select(.id != "llm-pi-ai")] + [$row]'
 
         changed=
-        for target in ${lib.concatMapStringsSep " " (name: lib.escapeShellArg name) (builtins.attrValues profileNames)}; do
+        # 遍历 dshProfiles（经 profileTargets）而不是 profileNames：后者不含
+        # multica，漏掉它就没有带端点的路由。新增 profile 只在 dshProfiles 里
+        # 登记一次，播种与渲染同时跟上。
+        for target in ${lib.concatMapStringsSep " " (target: lib.escapeShellArg target) profileTargets}; do
           dir="$HOME/.dsh/profiles/$target"
           patch="$dir/cordis.patch.yml"
           # 目录由 dsh 的播种器创建；还没播种过就没有可渲染的东西。
