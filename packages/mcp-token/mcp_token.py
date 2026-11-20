@@ -80,9 +80,12 @@ def cmd_login() -> int:
     meta = discovery()
     device_endpoint = meta["device_authorization_endpoint"]
     token_endpoint = meta["token_endpoint"]
+    # 不带 audience：Authelia 的 device-authorization 端点对未知参数直接 400
+    # （空 body，实测）。OIDC 里没有 audience 这个请求参数，受众由 ID token 的
+    # aud 声明体现，不需要客户端指定。
     start = http_json(
         device_endpoint,
-        {"client_id": CLIENT_ID, "scope": SCOPE, "audience": meta.get("issuer", ISSUER)},
+        {"client_id": CLIENT_ID, "scope": SCOPE},
     )
     verify = start.get("verification_uri_complete") or start.get("verification_uri")
     code = start.get("user_code", "")
