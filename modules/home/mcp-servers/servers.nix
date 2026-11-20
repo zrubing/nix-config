@@ -456,6 +456,29 @@ rec {
       };
     };
 
+    # ------------------------------------------- dsh + pi + codex 侧（聚合端点）
+    # MCP 聚合端点（2026-11-20）：ci/db/agent-docs/loki 合成一个，工具名
+    # `<服务>__<工具>`。指向**本机** mcp-auth-proxy：配置里既没有 token 也没有
+    # 上游地址，代理每个请求从 token 文件注入，重新授权后无需改任何配置。
+    #
+    # 为什么也写在这里：multica 下发的 mcp_servers 会被 multica 桥忽略，
+    # dsh 的 MCP 只从 profile bundle 来（即本文件）—— 这是 dsh agent 真正
+    # 拿到聚合工具的路径。
+    catalog = {
+      description = "MCP 聚合端点（ci/db/agent-docs/loki，经本机代理，零密钥）";
+      pi = {
+        type = "http";
+        url = "http://127.0.0.1:9100/catalog/mcp";
+      };
+      dsh = {
+        transport = "streamable-http";
+        url = "http://127.0.0.1:9100/catalog/mcp";
+      };
+      codex = {
+        url = "http://127.0.0.1:9100/catalog/mcp";
+      };
+    };
+
     # --------------------------------------------------------- pi + codex 侧
     # chrome-devtools 需要 DISPLAY + 系统 Chrome，dsh-web 是 systemd user 服务
     # （实测 Environment 只有 PATH/BROWSER，无 DISPLAY）→ dsh 侧不启用。
