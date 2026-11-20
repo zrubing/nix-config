@@ -167,6 +167,23 @@ let
         return proc.stdout
 
 
+    def sid_of(raw, name):
+        """`workspace mcp add/update` 的 --output json 可能回对象也可能回列表。
+
+        实测 add 回的是**列表**（全部 server），按 `["id"]` 取会 TypeError: list
+        indices must be integers；报错发生在 add 之后，于是条目建好了、agent
+        却一条都没分到。两种形状都在这里收敛成一个 id。
+        """
+        data = json.loads(raw or "null")
+        if isinstance(data, dict) and "id" in data:
+            return data["id"]
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and item.get("name") == name and "id" in item:
+                    return item["id"]
+        raise SystemExit("cannot find id of " + name + " in CLI output")
+
+
     def main():
         spec = json.loads(open(sys.argv[1], encoding="utf-8").read())
         servers = spec.get("servers") or {}
@@ -184,7 +201,7 @@ let
                 run("workspace", "mcp", "update", sid, "--server-config-stdin", "--output", "json", stdin=payload)
                 print("updated " + name + " " + sid)
             else:
-                sid = json.loads(run("workspace", "mcp", "add", name, "--server-config-stdin", "--output", "json", stdin=payload))["id"]
+                sid = sid_of(run("workspace", "mcp", "add", name, "--server-config-stdin", "--output", "json", stdin=payload), name)
                 print("created " + name + " " + sid)
             ids[name] = sid
 
