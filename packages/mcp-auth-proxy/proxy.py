@@ -38,6 +38,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import urllib.request
 
 TOKEN_FILE = os.environ.get(
     "MCP_TOKEN_FILE", os.path.expanduser("~/.local/state/mcp/token")
@@ -45,6 +46,8 @@ TOKEN_FILE = os.environ.get(
 LISTEN_DEFAULT = "127.0.0.1:9100"
 # 上游连接超时：SSE 长连接会一直读，所以只限制「建连 + 首字节」这一段。
 CONNECT_TIMEOUT = 30.0
+# 提前多少秒视为「该刷新了」：避免请求在路上过期的边界情况。
+TOKEN_SKEW = 60.0
 # 转发时剔掉的逐跳头：它们的语义只对单跳有效，原样透传会让下游误判。
 HOP_BY_HOP = frozenset(
     {
@@ -98,7 +101,7 @@ def load_routes() -> dict[str, tuple[str, str, str]]:
     return routes
 
 
-def read_token() -> str:
+def _read_raw() -> str:
     try:
         with open(TOKEN_FILE, encoding="utf-8") as handle:
             return handle.read().strip()
@@ -107,6 +110,72 @@ def read_token() -> str:
     except OSError as exc:
         log({"event": "token_read_failed", "detail": type(exc).__name__})
         return ""
+
+
+def _write_token(payload: dict) -> None:
+    tmp = f"{TOKEN_FILE}.tmp.{os.getpid()}"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+    os.replace(tmp, TOKEN_FILE)
+
+
+def _refresh(payload: dict) -> str:
+    """用 refresh_token 换新的 access_token，成功则回写文件。
+
+    为什么刷新在代理侧而不是客户端：客户端的 MCP 配置是静态的，没有位置跑刷新；
+    放这里之后「1 小时过期」这件事对 agent 与用户都不可见。
+    """
+    endpoint = str(payload.get("token_endpoint") or "")
+    refresh = str(payload.get("refresh_token") or "")
+    client_id = str(payload.get("client_id") or "mcp")
+    if not (endpoint and refresh):
+        return ""
+    body = urllib.parse.urlencode(
+        {"grant_type": "refresh_token", "refresh_token": refresh, "client_id": client_id}
+    ).encode()
+    request = urllib.request.Request(endpoint, data=body, method="POST")
+    request.add_header("Content-Type", "application/x-www-form-urlencoded")
+    request.add_header("Accept", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            token = json.loads(response.read().decode())
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        log({"event": "refresh_failed", "detail": type(exc).__name__})
+        return ""
+    updated = {
+        **payload,
+        "access_token": token.get("access_token", ""),
+        "refresh_token": token.get("refresh_token", refresh),
+        "expires_at": int(time.time()) + int(token.get("expires_in", 3600)),
+    }
+    try:
+        _write_token(updated)
+    except OSError as exc:
+        log({"event": "refresh_write_failed", "detail": type(exc).__name__})
+    log({"event": "refreshed", "expires_in": token.get("expires_in")})
+    return str(updated["access_token"])
+
+
+def read_token() -> str:
+    """返回可用的 access token。
+
+    文件两种形态：JSON（Authelia 设备码流程，含 refresh）或裸串（OpenBao
+    periodic token）。前者在剩余不足 60 秒时先刷新再返回。
+    """
+    raw = _read_raw()
+    if not raw:
+        return ""
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return raw
+    if not isinstance(payload, dict):
+        return str(payload)
+    access = str(payload.get("access_token") or "")
+    if float(payload.get("expires_at") or 0) - time.time() > TOKEN_SKEW:
+        return access
+    return _refresh(payload) or access
 
 
 class Handler:
