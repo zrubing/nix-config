@@ -110,6 +110,17 @@ let
                     print("created " + name + " " + sid)
             finally:
                 os.unlink(body_path)
+            # skill 附带的文件（scripts/ 等）必须显式 upsert：multica 的
+            # skill 正文与文件是两份存储，只推 SKILL.md 的话 agent 拿不到脚本。
+            # 路径用相对 skill 目录的形式（scripts/mcp_token.py），与正文引用一致。
+            for extra in sorted(md.parent.rglob("*")):
+                if not extra.is_file() or extra.name in ("SKILL.md", "config.json"):
+                    continue
+                rel = extra.relative_to(md.parent).as_posix()
+                run("skill", "files", "upsert", sid, "--path", rel,
+                    "--content-file", str(extra), "--output", "json")
+                print("uploaded " + name + "/" + rel)
+
             for agent in agents:
                 aid = agent_ids.get(agent)
                 if not aid:
