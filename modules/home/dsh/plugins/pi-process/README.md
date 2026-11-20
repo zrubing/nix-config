@@ -48,7 +48,7 @@
 - `alertOnSuccess` 默认 **true**（pi 默认 false）：`my-standard` 已关掉 bash 的后台通道，`process start` 是唯一入口，成功静默会让"起完等通知"的用法直接失效。要静默就显式传 `false`。
 - `alertOnFailure` 默认 **true**、`alertOnKill` 默认 **false**，与 pi 一致。
 - `logWatches`：`pattern`（正则，逐行匹配）+ `stream`（stdout/stderr/both）+ `repeat`（默认一次性）。
-- 投递方式是给 owner 开一轮（`agent.send(..., 'next-turn', true)`），所以是"叫我"，不是"等我轮询"。
+- 投递按 owner 状态选边界（与 `tool-jobs` 的 `completionDelivery` 一致）：`idle` → `followup`（`next-turn` + 唤醒，开一轮）；`running` → `inject`（`next-step`，不额外唤醒）。后者是必须的——`wait_agent` 只检查 `inbox.nextStep`，只投 `next-turn` 的完成通知叫不醒它，等待会跑满超时（实测 3 分钟）。
 - 不告警的情况：`teardown` 结算（owner 已销毁）、模型自己 `kill` 的。
 
 ## 系统提示

@@ -151,14 +151,17 @@ export function apply(ctx, config = {}) {
     const agent = ctx.get('agents')?.get(owner)
     if (agent === undefined) return
     try {
-      agent.send(
-        createUserMessage({
-          source: { kind: 'pi-process', form: 'notice', summary: boundContextSummary(summary) },
-          content: [{ type: 'text', text }],
-        }),
-        'next-turn',
-        true,
-      )
+      const message = createUserMessage({
+        source: { kind: 'pi-process', form: 'notice', summary: boundContextSummary(summary) },
+        content: [{ type: 'text', text }],
+      })
+      // 投递边界按 owner 状态选，与 tool-jobs 的 completionDelivery 一致：
+      //   idle    → followup（next-turn + 唤醒）：没有在跑的轮次，得开一轮才能被看到；
+      //   running → inject（next-step，不额外唤醒）：agent 正在跑，下一步边界的 pre-step
+      //             就会带上它。关键是 wait_agent 只检查 inbox.nextStep —— 只投 next-turn
+      //             的话，完成通知落进 next-turn，等待会一直跑到 timeout（实测 3 分钟）。
+      if (agent.status === 'idle') agent.followup(message)
+      else agent.inject(message)
     } catch (error) {
       // 告警是尽力而为：投递失败不能反过来弄坏作业本身。
       console.error('[pi-process] alert delivery failed:', error)

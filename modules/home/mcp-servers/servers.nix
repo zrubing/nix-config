@@ -381,6 +381,11 @@ rec {
     # （clan/zen14.nix 的 db-mcp-token）。
     db = {
       description = "DB MCP（LLDAP 组 → 只读库查询，OpenBao token 鉴权）";
+      # 暂时关闭直连（2026-11-21）：db 已由聚合端点 catalog 提供，两条路会让同一个
+      # 能力出现两套工具（mcp__db__* 与 mcp__catalog__db__*），且鉴权路径不同
+      # （一个走 X-DB-MCP-Token，一个走代理注入的 Authorization）。
+      # 重开就把这一行去掉（聚合端点仍在，不会重复能力缺失）。
+      enabled = false;
       pi = {
         type = "http";
         # pi 不插值 url（必须是合法 http(s) 字面量）⇒ 走 sops 占位符；var 供
