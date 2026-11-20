@@ -11,7 +11,7 @@ in
 {
   options.${namespace}.kernel.cachyos = with lib; {
     enable = mkEnableOption ''
-      CachyOS 7.3.3 server 内核（BBR 作为默认拥塞控制）。
+      CachyOS 7.3.5 server 内核（BBR 作为默认拥塞控制）。
 
       这段 override 与 nix-config-vps 的服务端配置逐字相同：同一个
       nix-cachyos-kernel rev + 同一套 override 才得到同一个内核派生
@@ -32,23 +32,23 @@ in
     # 编进内核并作为默认拥塞控制。桌面侧不再加 net.* sysctl，队列规则用内核默认值。
     boot.kernelPackages = pkgs.linuxKernel.packagesFor (
       pkgs.cachyosKernels.linux-cachyos-server.override {
-        version = "7.3.3";
+        version = "7.3.5";
 
         src = pkgs.fetchurl {
-          url = "https://github.com/CachyOS/linux/releases/download/cachyos-7.3.3-1/cachyos-7.3.3-1.tar.gz";
-          hash = "sha256-VKUHF2vCscTIoU8IetoI+S1HPGryjs/D6a2x1cYgIKw=";
+          url = "https://github.com/CachyOS/linux/releases/download/cachyos-7.3.5-2/cachyos-7.3.5-2.tar.gz";
+          hash = "sha256-uyKtmeEEL66IO6txNm+DOTZ7dMBFAE/pKtSSMzkJLgc=";
         };
 
         cachyosConfigFile = pkgs.fetchurl {
-          url = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/55c2df2a43ac1908dc7e5722f6b22508b0e8e55e/linux-cachyos-server/config";
-          hash = "sha256-gftW/jJmEqDcRwX8XsMJ0EvP/7SH2wy1hDkY/pKVGSc=";
+          url = "https://raw.githubusercontent.com/CachyOS/linux-cachyos/6c4d2ba46a5ed60c88c7d49c77b0fd1c500c2df5/linux-cachyos-server/config";
+          hash = "sha256-ZFljMB3bv37+lN3rjqRKJl+reUYufr4688YKlP17Peg=";
         };
 
         cachyosPatchesSrc = pkgs.fetchgit {
           url = "https://github.com/CachyOS/kernel-patches.git";
-          rev = "706b5652a82404eb2a75c79da3b726eec07a5642";
+          rev = "664442dd1a913ef8838453828d26ae13b2e7334d";
           rootDir = "7.3/";
-          hash = "sha256-zVriutJQGugyguVAwl3l0m2e6ylGBDKsqyLWdwC7b5E=";
+          hash = "sha256-yH6bT7EYPTP9ecaYk+JG771JSYkQgRtSlY0QWq5/VJ4=";
         };
 
         bbr3 = true;
