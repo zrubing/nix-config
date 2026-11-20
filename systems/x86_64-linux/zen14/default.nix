@@ -32,6 +32,25 @@ in
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
           internal.modules.multica.enable = true;
       internal.observabilityPortForward.enable = true;
+      # MCP 凭证代理（2026-11-20）：multica / dsh / pi / codex 只写
+      # http://127.0.0.1:9100/catalog/mcp；token 在 ~/.local/state/mcp/token，
+      # 由 `mcp-token login`（一次浏览器授权）写入，代理每个请求现读。
+      internal.modules.mcp-proxy = {
+        enable = true;
+        routes.catalog = "MCP_CATALOG_URL";
+      };
+      # 工作区 MCP 库显式收敛：一条 catalog，零密钥、可复现。
+      internal.modules.multica.mcp = {
+        enable = true;
+        servers.catalog = {
+          type = "http";
+          url = "http://127.0.0.1:9100/catalog/mcp";
+        };
+        agents = [
+          "dsh-deepseek"
+          "dsh-deepseek-1"
+        ];
+      };
       # dsh web 随 jojo 共享 home 已启用（127.0.0.1:3080）；本机经 Caddy 反代访问
       # http://dsh-zen14.local。dsh 禁止 --host 0.0.0.0（会暴露 RCE），保持回环绑定。
       internal.modules.dsh.web.trustedHosts = [ "dsh-zen14.local" ];

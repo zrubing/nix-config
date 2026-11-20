@@ -275,6 +275,14 @@ in
     # ⚠️ token 不是长期凭据：`bao login -method=oidc role=db-mcp -token-only` 的输出，
     # 3 天 periodic（服务端在剩余不足 48h 时自动续）。只有被 revoke 或连续 3 天
     # 没用过期才需要重跑 login 覆盖本 secret。
+    # MCP 聚合端点（2026-11-20）：本机 mcp-auth-proxy 的唯一上游。
+    # 客户端（multica / dsh / pi / codex）只写 127.0.0.1:9100/catalog/mcp，
+    # 真实端点在这里，token 在 ~/.local/state/mcp/token —— 两样都不进任何配置。
+    sops.secrets."mcp-catalog/url" = {
+      sopsFile = ../../../vars/per-machine/zen14/mcp-catalog-url/url/secret;
+      format = "binary";
+    };
+
     sops.secrets."db-mcp/url" = {
       sopsFile = ../../../vars/per-machine/zen14/db-mcp-url/url/secret;
       format = "binary";
@@ -435,6 +443,7 @@ in
         # DB MCP：pi 的 mcp.json 里 X-DB-MCP-Token 用 ''${DB_MCP_TOKEN} 插值，
         # 所以终端 shell 必须有这个变量；codex 走 config.toml 的 sops 占位符，
         # 不依赖 env（两处同源同一份 secret）。
+        export MCP_CATALOG_URL="${config.sops.placeholder."mcp-catalog/url"}"
         export DB_MCP_URL="${config.sops.placeholder."db-mcp/url"}"
         export DB_MCP_TOKEN="${config.sops.placeholder."db-mcp/token"}"
       '';
@@ -472,6 +481,7 @@ in
         BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}
         AGENT_DOCS_MCP_URL=${config.sops.placeholder."agent-docs/url"}
         AGENT_DOCS_TOKEN=${config.sops.placeholder."agent-docs/token"}
+        MCP_CATALOG_URL=${config.sops.placeholder."mcp-catalog/url"}
         DB_MCP_URL=${config.sops.placeholder."db-mcp/url"}
         DB_MCP_TOKEN=${config.sops.placeholder."db-mcp/token"}
         # woodpecker-cli 凭据：bashrc 只 export 进交互 shell（WOODPECKER_TOKEN

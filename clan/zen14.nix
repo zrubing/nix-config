@@ -292,6 +292,20 @@
     '';
   };
 
+  # MCP 聚合端点（2026-11-20）。消费方：home sops 渲染进 dsh.env / default.env 的
+  # MCP_CATALOG_URL，本机 mcp-auth-proxy 用它当唯一上游（token 由代理注入）。
+  # 换值：clan vars set zen14 mcp-catalog-url/url
+  clan.core.vars.generators.mcp-catalog-url = {
+    prompts.url = {
+      description = "MCP 聚合端点（HTTPS URL，形如 https://<host>/mcp）";
+    };
+    files.url.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/url > $out/url
+    '';
+  };
+
   # DB MCP 的 OpenBao token（2026-10-31）。不是 API key，而是
   # `bao login -method=oidc role=db-mcp -token-only` 的输出：3 天 periodic，
   # 只要 3 天内用过一次就由服务端自动续期，正常不需要换。

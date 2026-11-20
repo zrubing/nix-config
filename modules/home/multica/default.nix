@@ -120,6 +120,65 @@ let
 
     main()
   '';
+  # 工作区 MCP 库的声明式收敛（与 skillsSync 同一模式）：
+  # 源是一份由 nix 渲染的 JSON（含 servers 与 agents 两份声明），它**不含任何密钥** ——
+  # 客户端条目指向本机的 mcp-auth-proxy（127.0.0.1:9100），token 只存在那个文件里。
+  mcpSync = pkgs.writeScriptBin "multica-mcp-sync" ''
+    #!${pkgs.python3}/bin/python3
+    import json
+    import os
+    import subprocess
+    import sys
+
+    CLI = os.environ.get("MULTICA_CLI", "multica")
+
+
+    def run(*args, stdin=None):
+        proc = subprocess.run([CLI, *args], capture_output=True, text=True, input=stdin)
+        if proc.returncode != 0:
+            detail = proc.stderr.strip() or proc.stdout.strip()
+            sys.exit("failed: " + " ".join(args) + ": " + detail)
+        return proc.stdout
+
+
+    def main():
+        spec = json.loads(open(sys.argv[1], encoding="utf-8").read())
+        servers = spec.get("servers") or {}
+        agents = spec.get("agents") or []
+        if not servers:
+            print("no servers declared")
+            return
+
+        existing = {item["name"]: item for item in json.loads(run("workspace", "mcp", "list", "--output", "json") or "[]")}
+        ids = {}
+        for name, entry in servers.items():
+            payload = json.dumps(entry, ensure_ascii=False)
+            if name in existing:
+                sid = existing[name]["id"]
+                run("workspace", "mcp", "update", sid, "--server-config-stdin", "--output", "json", stdin=payload)
+                print("updated " + name + " " + sid)
+            else:
+                sid = json.loads(run("workspace", "mcp", "add", name, "--server-config-stdin", "--output", "json", stdin=payload))["id"]
+                print("created " + name + " " + sid)
+            ids[name] = sid
+
+        if not agents:
+            return
+        known = {item["name"]: item["id"] for item in json.loads(run("agent", "list", "--output", "json") or "[]")}
+        for agent in agents:
+            aid = known.get(agent)
+            if not aid:
+                print("warn: agent not found: " + agent, file=sys.stderr)
+                continue
+            for name, sid in ids.items():
+                # 已分配时 add 是 no-op（CLI 自己保证幂等）。
+                run("agent", "mcp", "add", aid, sid, "--output", "json")
+                print("assigned " + name + " -> " + agent)
+
+
+    main()
+  '';
+
 in
 {
   options.${namespace}.modules.multica = with lib; {
@@ -153,6 +212,34 @@ in
       type = types.bool;
       default = false;
       description = "Enable Multica Desktop GUI (${namespace}.multica-desktop)";
+    };
+
+    # 工作区 MCP 库：声明式、可复现、零密钥。条目由下面的 servers 渲染成 JSON，
+    # 启动时 upsert 进 multica 并分配给指定 agent；内容变（store 路径变）→ 重跑。
+    #
+    # 为什么条目里不该出现 token：multica 的 MCP 库存在**服务端**，写进去就是
+    # 一份明文凭据躺在它的数据库里，且重新登录后必然过期。统一指向本机
+    # mcp-auth-proxy（127.0.0.1:9100），token 只存在于 ~/.local/state/mcp/token。
+    mcp = {
+      enable = mkEnableOption "Reconcile the workspace MCP server library from this config";
+
+      servers = mkOption {
+        type = types.attrsOf types.attrs;
+        default = { };
+        example = {
+          catalog = {
+            type = "http";
+            url = "http://127.0.0.1:9100/catalog/mcp";
+          };
+        };
+        description = "MCP server name → entry object（mcpServers 下的那一份形状）。";
+      };
+
+      agents = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = "这些 MCP server 要分配给哪些 agent（multica 里的 agent.name）。";
+      };
     };
 
     # skill 的正文是内部 runbook（issuer、集群名、路径），不进本仓库明文：
@@ -279,6 +366,41 @@ in
           RemainAfterExit = true;
           ExecStart = "${skillsSync}/bin/multica-skills-sync ${cfg.skills.source} ${
             lib.escapeShellArgs cfg.skills.agents
+          }";
+          Environment = [
+            "PATH=/run/current-system/sw/bin:/etc/profiles/per-user/%u/bin:%h/.local/bin"
+            "MULTICA_CLI=${lib.getExe pkgs.${namespace}.multica}"
+            # 同 daemon：dsh.env 带的代理会让 CLI 访问 *.local 变成 502。
+            "HTTP_PROXY="
+            "HTTPS_PROXY="
+            "http_proxy="
+            "https_proxy="
+            "NO_PROXY=multica.local,multica-api.local,localhost,127.0.0.1,::1"
+          ];
+        };
+        Install.WantedBy = [ "default.target" ];
+      };
+    })
+
+    (lib.mkIf (cfg.enable && cfg.mcp.enable) {
+      # 与 skills-sync 同模式：ExecStart 带上渲染好的 JSON（store 路径），
+      # 内容变 → unit 变 → switch 时重跑。幂等：按 name 匹配，有则 update。
+      systemd.user.services.multica-mcp-sync = {
+        Unit = {
+          Description = "Reconcile Multica workspace MCP servers";
+          After = [ "multica-daemon.service" ];
+          Wants = [ "multica-daemon.service" ];
+        };
+        Service = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = "${mcpSync}/bin/multica-mcp-sync ${
+            pkgs.writeText "multica-mcp-servers.json" (
+              builtins.toJSON {
+                servers = cfg.mcp.servers;
+                agents = cfg.mcp.agents;
+              }
+            )
           }";
           Environment = [
             "PATH=/run/current-system/sw/bin:/etc/profiles/per-user/%u/bin:%h/.local/bin"
