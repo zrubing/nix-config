@@ -262,6 +262,8 @@ in
           enable = true;
           source = "${inputs.agent-skills}/skills";
           agents = [ "dsh-deepseek" ];
+          # 源里删掉的 skill 也从 multica 删（声明式收敛）。手工维护的写进 keep。
+          prune = true;
         };
 
         # dsh（DeepSeek Harness）在 jojo 共享 home 已启用；访问走 nova13 的 Caddy 反代

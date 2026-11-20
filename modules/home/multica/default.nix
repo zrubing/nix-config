@@ -77,7 +77,8 @@ let
         if not files:
             sys.exit("no SKILL.md under " + str(src))
 
-        existing = {
+        seen = set()
+    existing = {
             s["name"]: s["id"]
             for s in json.loads(run("skill", "list", "--output", "json") or "[]")
         }
@@ -88,6 +89,7 @@ let
 
         for md in files:
             name, desc = read_frontmatter(md)
+            seen.add(name)
             cfg_path = md.parent / "config.json"
             values = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
             body = render(md.read_text(), values, str(cfg_path))
@@ -116,6 +118,19 @@ let
                 run("agent", "skills", "add", aid, "--skill-ids", sid,
                     "--output", "json")
                 print("assigned " + name + " -> " + agent)
+
+
+    # 声明式收敛的最后一环：源目录里消失的 skill 要从 multica 删掉，
+    # 否则它会继续留在工作区、继续绑在 agent 上，和新 skill 互相矛盾
+    # （mcp-access 被 mcp-catalog 取代时就是这个下场）。
+    # 只删「不在源里、也不在 KEEP 名单里」的，且必须显式开 PRUNE=1 ——
+    # 手工在 UI 里建的 skill 不该被一次 switch 顺手清掉。
+    if os.environ.get("MULTICA_SKILLS_PRUNE") == "1":
+        keep = {item for item in os.environ.get("MULTICA_SKILLS_KEEP", "").split(",") if item}
+        stale = sorted(name for name in existing if name not in seen and name not in keep)
+        for name in stale:
+            run("skill", "delete", existing[name], "--output", "json")
+            print("deleted " + name + " " + existing[name])
 
 
     main()
@@ -260,6 +275,22 @@ in
         default = [ ];
         description = "Skill 要绑定到的 agent 名字（multica 里的 agent.name）。";
       };
+
+      prune = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          源目录里已不存在的 skill 是否从 multica 删除（默认关）。
+          删 skill 不可逆，且手工在 UI 里建的 skill 也会被算作「不在源里」——
+          需要保留的写进 <code>keep</code>。
+        '';
+      };
+
+      keep = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = "prune 时豁免的 skill 名字（例如手工维护的那些）。";
+      };
     };
   };
 
@@ -370,6 +401,8 @@ in
           Environment = [
             "PATH=/run/current-system/sw/bin:/etc/profiles/per-user/%u/bin:%h/.local/bin"
             "MULTICA_CLI=${lib.getExe pkgs.${namespace}.multica}"
+            "MULTICA_SKILLS_PRUNE=${if cfg.skills.prune then "1" else "0"}"
+            "MULTICA_SKILLS_KEEP=${lib.concatStringsSep "," cfg.skills.keep}"
             # 同 daemon：dsh.env 带的代理会让 CLI 访问 *.local 变成 502。
             "HTTP_PROXY="
             "HTTPS_PROXY="
