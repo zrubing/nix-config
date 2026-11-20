@@ -239,22 +239,6 @@ in
         modules.multica.daemon.enable = true;
         modules.multica.daemon.configFile = "/run/secrets/rendered/multica-config.json";
 
-        # MCP 凭证代理：MCP 连接由**本机 runtime** 发起（手机只是 multica 的客户端），
-        # 所以 127.0.0.1:9100 在这里解析，手机侧不需要装任何东西。
-        # 与 zen14 同一份配置：token 在 ~/.local/state/mcp/token，由 mcp-token login 写入。
-        modules.mcp-proxy = {
-          enable = true;
-          routes.catalog = "MCP_CATALOG_URL";
-        };
-        modules.multica.mcp = {
-          enable = true;
-          servers.catalog = {
-            type = "http";
-            url = "http://127.0.0.1:9100/catalog/mcp";
-          };
-          agents = [ "dsh-deepseek" ];
-        };
-
         # skill 正文（内部 runbook）不进本仓库：源在私有 flake input agent-skills，
         # flake.lock 钉 rev。oneshot 在 daemon 起来后把 skills/*/SKILL.md 推到 multica
         # 并绑定到跑在本机 runtime 上的 agent。改 skill：改那个仓库 → nix flake update agent-skills → switch。
@@ -262,8 +246,6 @@ in
           enable = true;
           source = "${inputs.agent-skills}/skills";
           agents = [ "dsh-deepseek" ];
-          # 源里删掉的 skill 也从 multica 删（声明式收敛）。手工维护的写进 keep。
-          prune = true;
         };
 
         # dsh（DeepSeek Harness）在 jojo 共享 home 已启用；访问走 nova13 的 Caddy 反代

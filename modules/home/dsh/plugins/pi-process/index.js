@@ -296,7 +296,7 @@ export function apply(ctx, config = {}) {
         'Manage background processes without blocking the conversation.\n' +
         'Actions:\n' +
         '- start: run a command in the background (requires `name` and `command`). Optional `cwd` (prefer it over `cd dir && …`), ' +
-        '`stdin` (written once at spawn, then closed), `alertOnSuccess` (default false), `alertOnFailure` (default true), ' +
+        '`stdin` (written once at spawn, then closed), `alertOnSuccess` (default true), `alertOnFailure` (default true), ' +
         '`alertOnKill` (default false), and `logWatches` (pattern/stream/repeat) to be woken when output matches.\n' +
         '- list: show the processes you started, with ids and statuses.\n' +
         '- output: read retained stdout/stderr for an id (tail-bounded).\n' +
@@ -316,7 +316,7 @@ export function apply(ctx, config = {}) {
         command: { type: 'string', description: 'Command to run (required for start).' },
         cwd: { type: 'string', description: 'Working directory (start); defaults to the session workspace.' },
         stdin: { type: 'string', description: 'Bytes to write to the process stdin once, then close (start).' },
-        alertOnSuccess: { type: 'boolean', description: 'Wake the agent when the process exits successfully (default false).' },
+        alertOnSuccess: { type: 'boolean', description: 'Wake the agent when the process exits successfully (default true).' },
         alertOnFailure: { type: 'boolean', description: 'Wake the agent when the process fails to start or crashes (default true).' },
         alertOnKill: { type: 'boolean', description: 'Wake the agent when the process is killed by something other than this tool (default false).' },
         logWatches: {
@@ -439,7 +439,10 @@ export function apply(ctx, config = {}) {
                 jobId,
                 owner,
                 alerts: {
-                  success: args.alertOnSuccess === true,
+                  // 与 pi 的默认不同：pi 成功不叫人，但 dsh 里 `process start` 是本
+                  // preset 唯一的后台入口（bash 的 run_in_background 已由 preset 关掉），
+                  // 成功静默就等于"起完没人叫、结果靠猜"。要静默就显式传 false。
+                  success: args.alertOnSuccess !== false,
                   failure: args.alertOnFailure !== false,
                   kill: args.alertOnKill === true,
                 },

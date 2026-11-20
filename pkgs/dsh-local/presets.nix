@@ -197,6 +197,23 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
       exit 1
     }
 
+    # my-standard 关掉 bash 的后台通道（enableRunInBackground: false）：
+    # `run_in_background` 起的是 kind=bash 作业，而本 preset 只有 `process`；
+    # `process list` 按 kind 过滤，看不见 bash 作业，只能凭返回的 id 硬收，
+    # 且 bash 的参数描述还指向已被换掉的 job_output / job_kill。后台入口只留
+    # `process start` 一处。这一行是「保留上游行 + 补 config」，所以先断言上游
+    # 只有 id/name/disabled：多出 config 时必须显式决定合并还是丢弃。
+    bashRows=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "tool-bash")] | length' "$STD_UP")
+    [ "$bashRows" -eq 1 ] || {
+      printf 'dsh-local presets: shipped %s has %s tool-bash rows, expected exactly 1\n' "$STD_UP" "$bashRows" >&2
+      exit 1
+    }
+    bashKeys=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "tool-bash") | keys] | flatten | unique | join(" ")' "$STD_UP")
+    [ "$bashKeys" = "id name disabled" ] || {
+      printf 'dsh-local presets: shipped %s tool-bash row has keys [%s], expected only id/name/disabled; update the merge below accordingly\n' "$STD_UP" "$bashKeys" >&2
+      exit 1
+    }
+
     ${rewrite "minimalExtras" "minimal-extras.yml" "$MIN_EX"}
     ${rewrite "ptcExtras" "ptc-extras.yml" "$PTC_EX"}
     ${rewrite "standardExtras" "standard-extras.yml" "$STD_EX"}
@@ -236,7 +253,12 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
       ($stdUp | (.. | select(tag == "!!map") | select(.id? == "compaction-basic")) |=
         {"id": "blackhole-compact", "name": ${builtins.toJSON blackholeCompaction}, "config": {"thresholdRatio": 0.4}}
         | (.. | select(tag == "!!map") | select(.id? == "tool-jobs")) |=
-        {"id": "pi-process", "name": "dsh-tool-pi-process", "config": {}}) as $stdSwapped |
+        {"id": "pi-process", "name": "dsh-tool-pi-process", "config": {}}
+        # 不是整体替换：保留上游的 name/disabled（windows 上仍要禁掉 bash），只补 config。
+        # 用 `*` 合并而不是 `.config.enableRunInBackground = ...`，后者在 yq 里会因为
+        # 新建键被静默丢弃（同 compaction-basic 上方的注释）。
+        | (.. | select(tag == "!!map") | select(.id? == "tool-bash")) |=
+        (. as $row | {"config": {"enableRunInBackground": false}} * $row)) as $stdSwapped |
 
       [
         { "insert": [ { "id": "preset-my-minimal", "name": "@deepseek-ai/dsh-agent-preset",
@@ -261,4 +283,13 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
     # 数组拼接 —— 每一步都可能重新引入 `name: null`（yq 的 `|=` 路径赋值是主要来源）。
     # 这里炸掉比运行期「4 份 preset 全部 Failed to load」好定位得多。
     ${checkNoStrayName "$out"}
+
+    # my-standard 的 bash 后台通道必须真的是关的：合并被上游键变化影响时，丢 config
+    # 不会报错，只会静默退回「bash 又能 run_in_background」。其他 preset 不受影响，
+    # 所以只断言这一份。
+    stdBashBg=$(yq -r '.[] | .insert[] | select(.id == "preset-my-standard") | .config.plugins[] | select(.id == "tool-bash") | .config.enableRunInBackground' "$out")
+    [ "$stdBashBg" = "false" ] || {
+      printf 'dsh-local presets: my-standard tool-bash enableRunInBackground is [%s], expected false\n' "$stdBashBg" >&2
+      exit 1
+    }
   ''

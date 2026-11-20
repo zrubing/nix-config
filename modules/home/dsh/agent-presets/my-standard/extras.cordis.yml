@@ -8,8 +8,9 @@
 #   subagents / workflows / ask-user / todo / web / plugin manager)  ← read from the
 #   web-app bundle's presets/ at BUILD time (pkgs/dsh-local/presets.nix), so
 #   upstream updates flow through on rebuild
-#   + TWO inline swaps (presets.nix), both wholesale row replacements so that a
-#   config key added upstream fails the build instead of being silently dropped:
+#   + THREE inline edits (presets.nix); the first two are wholesale row
+#   replacements so that a config key added upstream fails the build instead of
+#   being silently dropped:
 #     - the compaction group's `compaction-basic` row becomes
 #       `@jojo/dsh-blackhole/compaction` (the deterministic pi-blackhole backend);
 #       a second `compaction` group here would collide with the shipped one
@@ -18,6 +19,11 @@
 #       tool (start/list/output/logs/kill/clear) with per-process alert flags and
 #       logWatches, over the same `ctx.jobs` registry. It attaches its own job
 #       controller, so removing `tool-jobs` does not strand producers.
+#     - the shipped `tool-bash` row keeps its keys and gains
+#       `config: { enableRunInBackground: false }`: with `tool-jobs` gone, a
+#       `run_in_background` call would start a kind=bash job that `process list`
+#       never shows and only an id can collect, while bash's own parameter text
+#       still points at the removed `job_output` / `job_kill`.
 #   + this file's rows (start_process background processes, ast_grep, and the
 #   pi-blackhole recall / observational memory / /blackhole* commands)
 #
@@ -45,10 +51,12 @@
 # NOT mounted here. Upstream `standard` ships `tool-jobs`, whose description
 # tells the model to collect work with `job_output` / `job_list`; this preset
 # replaces that row with `dsh-tool-pi-process`, so the only start surface is
-# `process(action="start")` and the only collection surface is `process`. Adding
-# `tool-processes` (`start_process`) back would leave a tool whose own
-# description points at three tools this preset no longer has. `my-minimal` /
-# `my-ptc` keep it, because they still mount `tool-jobs`.
+# `process(action="start")` and the only collection surface is `process`. The
+# shipped `tool-bash` row is switched to `enableRunInBackground: false` for the
+# same reason: its background path starts a kind=bash job that `process list`
+# filters out. Adding `tool-processes` (`start_process`) back would leave a tool
+# whose own description points at three tools this preset no longer has.
+# `my-minimal` / `my-ptc` keep `tool-jobs` and therefore keep bash background.
 
 # ── 系统提示：去掉这份 preset 不需要的 host 贡献 ──────────────────────────
 # `dsh-harness-dev-context` 在 host 平面挂载，每份 preset 都会拿到四段只对"改 DSH

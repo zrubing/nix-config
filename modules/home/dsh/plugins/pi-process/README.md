@@ -8,16 +8,20 @@
 
 **已接线的 preset：`my-standard`。** 它在 `pkgs/dsh-local/presets.nix` 里把上游 `standard.patch.yml` 的 `tool-jobs` 行整行换成 `pi-process`（整体替换 + 键集断言，上游加键就构建失败），并移除了自己的 `start_process` 行 —— 否则那个工具的描述会指向本 preset 已不存在的 `job_output` / `job_list` / `job_kill`。
 
-其它 preset 想照做，写两行即可：
+同一个 preset 还在**已有的** `tool-bash` 行上补 `config: { enableRunInBackground: false }`：后台进程只留 `process start` 一个入口。理由是 `run_in_background` 起出的是 kind=`bash` 作业，`process list` 按 kind 过滤看不到它，只能凭返回的 id 硬收；同时 bash 的参数描述仍指向已被换掉的 `job_output` / `job_kill`。注意要改已有的那一行，不能新增同 id 的行（loader 报 `duplicate loader entry id`）。
+
+其它 preset 想照做，三处改动：
 
 ```yaml
-# 替代 tool-jobs：job_list / job_output / job_kill 三个工具换成一个 process
-- id: tool-jobs
-  name: '@deepseek-ai/dsh-tool-jobs'
-  disabled: true
-
+# 1. 已有的 tool-jobs 行删掉（或 disabled: true）
+# 2. 换成 pi-process 行
 - id: pi-process
   name: 'dsh-tool-pi-process'
+
+# 3. 在已有的 tool-bash 行上补 config（不要新增同 id 的行）
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  config: { enableRunInBackground: false }
 ```
 
 注意两点：
@@ -39,9 +43,10 @@
 
 ## 告警语义
 
-与 pi 一致：
+与 pi 有一处刻意的不同：
 
-- `alertOnSuccess` 默认 **false**、`alertOnFailure` 默认 **true**、`alertOnKill` 默认 **false**。
+- `alertOnSuccess` 默认 **true**（pi 默认 false）：`my-standard` 已关掉 bash 的后台通道，`process start` 是唯一入口，成功静默会让"起完等通知"的用法直接失效。要静默就显式传 `false`。
+- `alertOnFailure` 默认 **true**、`alertOnKill` 默认 **false**，与 pi 一致。
 - `logWatches`：`pattern`（正则，逐行匹配）+ `stream`（stdout/stderr/both）+ `repeat`（默认一次性）。
 - 投递方式是给 owner 开一轮（`agent.send(..., 'next-turn', true)`），所以是"叫我"，不是"等我轮询"。
 - 不告警的情况：`teardown` 结算（owner 已销毁）、模型自己 `kill` 的。
