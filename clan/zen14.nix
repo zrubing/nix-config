@@ -263,21 +263,6 @@
     '';
   };
 
-  # 平台文档 MCP 端点。消费方：home sops 渲染进 dsh.env（dsh-web 的通用
-  # MCP 配置）与 default.env（终端 agent：pi / claude / codex，经 ~/.bashrc
-  # source）的 AGENT_DOCS_MCP_URL；codex 侧另以 sops 占位符写进 config.toml。
-  # 换值：clan vars set zen14 agent-docs-url/url
-  clan.core.vars.generators.agent-docs-url = {
-    prompts.url = {
-      description = "平台文档 MCP 端点（HTTPS URL，形如 https://<host>/mcp）";
-    };
-    files.url.secret = true;
-
-    script = ''
-      tr -d '\n' < $prompts/url > $out/url
-    '';
-  };
-
   # DB MCP 端点（2026-10-31）。消费方：home sops 渲染进 dsh.env / default.env 的
   # DB_MCP_URL；pi 与 codex 侧以 sops 占位符直接写进配置文件（pi 的 url 不做
   # ${VAR} 插值）。换值：clan vars set zen14 db-mcp-url/url
@@ -326,25 +311,7 @@
       tr -d '\n' < $prompts/token > $out/token
     '';
   };
-
-  # 平台文档 MCP 的 OpenBao token（2026-11-10 起）。不是 API key，而是
-  # `bao login -method=oidc role=agent-docs -token-only` 的输出：3 天 periodic，
-  # 只要 3 天内用过一次就由服务端自动续期，正常不需要换。
-  #
-  # 为什么从「用户名/密码」换成 token：服务端 2026-11-10 删掉了凭据兑换 sidecar，
-  # 改为 lookup-self 自省 —— 它已经不接受 X-Agent-Docs-User/Password。
-  #
-  # ⚠️ 什么时候要换：被 `bao token revoke -accessor` 撤销、或连续 3 天没用过期。
-  #   换法就是重跑那条 login，把 stdout 整行粘过来：
-  #     bao login -method=oidc role=agent-docs -token-only | clan vars set zen14 agent-docs-token/token
-  #   注意 `clan vars set` 是「原样写入」，管道里的换行会进值里 —— 用 $() 或
-  #   printf '%s' 去掉结尾换行。交互式 set 不受影响（回车不算值的一部分）。
-  clan.core.vars.generators.agent-docs-token = {
-    prompts.token = {
-      description = "平台文档 MCP 的 OpenBao token（bao login -method=oidc role=agent-docs -token-only 的输出）";
-      type = "hidden";
-    };
-    files.token.secret = true;
+   files.token.secret = true;
 
     script = ''
       tr -d '\n' < $prompts/token > $out/token
