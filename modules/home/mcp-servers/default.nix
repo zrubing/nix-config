@@ -6,7 +6,7 @@
 #   · multica 的 MCP 库在**服务端**，抄进去等于明文进它的数据库。
 #
 # 做法：本机跑一个只监听 127.0.0.1 的转发进程，**每个请求**从 token 文件读一次，
-# 注入 `Authorization: Bearer`。客户端只写 `<代理基址>/<name>/mcp`（见 lib/mcp-proxy.nix）
+# 注入 `Authorization: Bearer`。客户端只写 `<代理基址>/<name>`（见 lib/mcp-proxy.nix）
 # —— 不含任何密钥，也不含上游地址（地址在 sops 渲染的 env 里）。
 #
 # 轮换：`mcp-token login` 重写文件，下一个请求即生效，不需要重启任何客户端。

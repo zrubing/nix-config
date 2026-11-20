@@ -12,7 +12,7 @@
 
 做法：本进程读 token 文件（每个请求读一次，改动立即生效），按路径前缀路由到
 上游，并把 `Authorization: Bearer <token>` 注入进去。客户端只需要一个不含任何
-密钥的地址：`http://127.0.0.1:9100/<name>/mcp`。
+密钥的地址：`http://127.0.0.1:9110/<name>`（路径映射见 split_path）。
 
 信任边界（必须知道）：监听 127.0.0.1，不做客户端认证 —— 任何本机同用户进程都
 能借道使用这张 token。这与 token 文件本身 0600 的信任级一致（拿到文件 = 拿到
@@ -186,15 +186,23 @@ class Handler:
 
     @staticmethod
     def split_path(path: str, routes: dict[str, tuple[str, str, str]]):
-        """`/<route>/mcp[/...]` → (route, upstream_path)；不匹配返回 (None, None)。"""
+        """`/<route>[/<rest>]` → (route, upstream_path)；不匹配返回 (None, None)。
+
+        规则只有一条：route 名之后的部分**原样拼在**上游 URL 的路径后面。
+        `/<route>` 就是上游 URL 本身（env 里的 `<ROUTE>_MCP_URL`），子路径
+        `/<route>/x` 映射到 `<上游路径>/x`。
+
+        曾经的实现把客户端 URL 写成 `/<route>/mcp` 再拼上游路径，于是
+        `https://…/mcp` + `/mcp` = `/mcp/mcp` → 404。约定里不出现 `mcp`
+        这个名字，就没有这个坑：客户端写什么路径，取决于上游自己的路径。
+        """
         parsed = urllib.parse.urlsplit(path)
         segments = parsed.path.lstrip("/").split("/", 1)
         route = segments[0] if segments else ""
         if route not in routes:
             return None, None
-        rest = "/" + (segments[1] if len(segments) > 1 and segments[1] else "mcp")
-        base = routes[route][2]
-        upstream_path = f"{base}{rest}"
+        tail = segments[1] if len(segments) > 1 else ""
+        upstream_path = f"{routes[route][2]}" + (f"/{tail}" if tail else "")
         if parsed.query:
             upstream_path += f"?{parsed.query}"
         return route, upstream_path

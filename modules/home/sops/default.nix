@@ -276,7 +276,7 @@ in
     # 3 天 periodic（服务端在剩余不足 48h 时自动续）。只有被 revoke 或连续 3 天
     # 没用过期才需要重跑 login 覆盖本 secret。
     # MCP 聚合端点（2026-11-20）：本机 mcp-auth-proxy 的唯一上游。
-    # 客户端（multica / dsh / pi / codex）只写 <代理基址>/catalog/mcp（lib/mcp-proxy.nix），
+    # 客户端（multica / dsh / pi / codex）只写 <代理基址>/catalog（lib/mcp-proxy.nix），
     # 真实端点在这里，token 在 ~/.local/state/mcp/token —— 两样都不进任何配置。
     sops.secrets."mcp-catalog/url" = {
       sopsFile = ../../../vars/per-machine/zen14/mcp-catalog-url/url/secret;

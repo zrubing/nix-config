@@ -255,7 +255,7 @@ in
         example = {
           catalog = {
             type = "http";
-            url = "${(import ../../../lib/mcp-proxy.nix).baseUrl}/catalog/mcp";
+            url = "${(import ../../../lib/mcp-proxy.nix).baseUrl}/catalog";
           };
         };
         description = "MCP server name → entry object（mcpServers 下的那一份形状）。";

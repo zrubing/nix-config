@@ -46,7 +46,7 @@ in
         home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
         # MCP 凭证代理（内联，不走 modules/home 的选项：这条 home 配置的模块集
         # 与 zen14 不同，internal.modules.mcp-proxy 在这里未声明）。
-        # 客户端（multica / dsh / pi / codex）只写 ${mcpProxy.baseUrl}/catalog/mcp。
+        # 客户端（multica / dsh / pi / codex）只写 ${mcpProxy.baseUrl}/catalog。
         home.packages = [
           pkgs.internal.mcp-token
           pkgs.internal.mcp-auth-proxy

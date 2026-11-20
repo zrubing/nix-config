@@ -471,14 +471,14 @@ rec {
       description = "MCP 聚合端点（ci/db/agent-docs/loki，经本机代理，零密钥）";
       pi = {
         type = "http";
-        url = "${mcpProxy.baseUrl}/catalog/mcp";
+        url = "${mcpProxy.baseUrl}/catalog";
       };
       dsh = {
         transport = "streamable-http";
-        url = "${mcpProxy.baseUrl}/catalog/mcp";
+        url = "${mcpProxy.baseUrl}/catalog";
       };
       codex = {
-        url = "${mcpProxy.baseUrl}/catalog/mcp";
+        url = "${mcpProxy.baseUrl}/catalog";
       };
     };
 

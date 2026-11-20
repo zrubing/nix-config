@@ -36,7 +36,7 @@ in
           internal.modules.multica.enable = true;
       internal.observabilityPortForward.enable = true;
       # MCP 凭证代理（2026-11-20）：multica / dsh / pi / codex 只写
-      # ${mcpProxy.baseUrl}/catalog/mcp；token 在 ~/.local/state/mcp/token，
+      # ${mcpProxy.baseUrl}/catalog；token 在 ~/.local/state/mcp/token，
       # 由 `mcp-token login`（一次浏览器授权）写入，代理每个请求现读。
       internal.modules.mcp-proxy = {
         enable = true;
@@ -47,7 +47,7 @@ in
         enable = true;
         servers.catalog = {
           type = "http";
-          url = "${mcpProxy.baseUrl}/catalog/mcp";
+          url = "${mcpProxy.baseUrl}/catalog";
         };
         agents = [
           "dsh-deepseek"

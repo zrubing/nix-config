@@ -17,6 +17,6 @@ in
   inherit host port;
   # 绑地址（systemd 环境变量 / 选项默认值）
   listen = "${host}:${toString port}";
-  # 客户端条目的基址：<baseUrl>/<route>/mcp
+  # 客户端条目的基址：<baseUrl>/<route>（route 之后的路径原样拼在上游 URL 后面）
   baseUrl = "http://${host}:${toString port}";
 }
