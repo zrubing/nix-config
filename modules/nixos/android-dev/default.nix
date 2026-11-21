@@ -93,5 +93,18 @@ in
         printf '\n24333f8a63b6825ea9c5514f83c2829b004d1fee' > /var/lib/android-sdk/licenses/android-sdk-license
       fi
     '';
+
+    # 三条踩过的坑，改这个模块前先看：
+    #
+    # 1. SDK 路径会随每次 nixos 更新换 store 路径。工程的 android/local.properties
+    #    里不要写死 sdk.dir，删掉那行让 AGP 回退到本模块给的 ANDROID_HOME。
+    # 2. NDK 的 aarch64-linux-androidNN-clang 是个 shell 脚本，内部按 $0 推导
+    #    bin_dir 再执行 $bin_dir/clang。给它做软链接（哪怕只为让 bindgen 探测
+    #    到头文件）会让它指回自己，形成无限递归：一瞬间几千个 clang 进程，内存
+    #    打满后被 OOM 杀，日志里看不出是谁吃的。要 shim 就 exec 真正的
+    #    toolchains/llvm/prebuilt/linux-x86_64/bin/clang，并显式给 --target。
+    # 3. bindgen 默认走宿主 clang（glibc 头），交叉编译 Android 时会报
+    #    gnu/stubs-32.h 缺失。需要设 LIBCLANG_PATH、BINDGEN_EXTRA_CLANG_ARGS、
+    #    CC_<triple>、CARGO_TARGET_<TRIPLE>_LINKER 指向 NDK。
   };
 }
