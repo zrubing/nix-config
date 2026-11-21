@@ -155,6 +155,10 @@ in
         # 密钥走 sops.templates 生成 env 文件（激活时解密），dsh-web 服务用 EnvironmentFile 读入。
         # 不能用 Environment=placeholder：那是求值期占位符，写入单元后不会被解密。
         envFile = config.sops.templates."dsh.env".path;
+        # 面板从别的机器用 .local 名访问时，Host/Origin fence 需要这个 authority
+        # 才放行（默认只信 loopback 的 Host；实测 Host: dsh-zen14.local → 401）。
+        # 值写在这里而不是手工改 systemd 单元：单元由 activation 重新生成，手改会被覆盖。
+        web.trustedHosts = [ "dsh-zen14.local" ];
         # 本地 TUI（ccch1mneyyy/dsh-TUI）**关闭**：npm 发布的 tarball 里没有任何
         # 运行期依赖（emoji-regex / react / chalk … 全在 dependencies 但不在包里），
         # 而在 nix 侧补齐依赖要跑一次固定输出的 `npm install`（沙箱里无 lockfile，
