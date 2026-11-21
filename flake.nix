@@ -375,11 +375,30 @@
           imports = [ ./clan/zen14.nix ];
         };
       };
+
+      # 本地 dsh 插件层的单独求值入口：只给下面的 packages/checks 用，不参与
+      # activation（home 侧仍由 modules/home/dsh 自己 import 一份，带 MCP 条目）。
+      # mcpEntries 传空串 —— 单包测试与 MCP 无关，pkgs/ 也不该反向依赖 modules/。
+      dshLocalForTests = import ./pkgs/dsh-local {
+        lib = inputs.nixpkgs.lib;
+        inherit inputs;
+        system = "x86_64-linux";
+        mcpEntries = "";
+      };
     in
     snowfall
     // {
       clan = clanConfig.config;
       clanInternals = clanConfig.config.clanInternals;
+
+      # 本地 dsh 插件的单包测试入口：`nix build .#checks.x86_64-linux.dsh-pi-process`。
+      # 只引用 pi-process 一个 bundle（惰性求值，其余包不构建）。
+      packages.x86_64-linux = (snowfall.packages.x86_64-linux or { }) // {
+        dsh-tool-pi-process = dshLocalForTests.toolPiProcess;
+      };
+      checks.x86_64-linux = (snowfall.checks.x86_64-linux or { }) // {
+        dsh-pi-process = dshLocalForTests.piProcessTest;
+      };
 
       # 官方形态通用入口：nix run .#clan -- secrets|vars|...
       # （与另一私有仓库锁同一 clan-core rev，CLI 二进制一致）

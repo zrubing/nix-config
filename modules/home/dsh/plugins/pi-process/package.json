@@ -1,0 +1,11 @@
+{
+  "name": "dsh-tool-pi-process",
+  "version": "0.1.0",
+  "description": "pi-processes adapter: the single `process` tool (start/list/output/logs/kill/clear/write) over DSH's ctx.jobs, with per-process alert flags and output watches.",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "test": "node test.mjs"
+  }
+}

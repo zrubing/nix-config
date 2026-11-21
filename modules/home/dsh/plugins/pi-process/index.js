@@ -40,11 +40,25 @@ export const name = 'pi-process'
 /** `shell`/`shellEnv` 是启动进程的 seam；`jobs` 是注册表；`systemPrompt` 挂后台策略段。 */
 export const inject = ['tools', 'jobs', 'shell', 'shellEnv', 'systemPrompt']
 
+/** 默认值单点：schema 默认与 `apply` 的兜底读同一对常量，不各写一遍。 */
+const DEFAULT_MAX_OUTPUT_BYTES = 16_384
+const DEFAULT_ALERT_OUTPUT_BYTES = 2_048
+
 export const Config = z.object({
   /** `output` 一次返回的最大字节数（尾部截断，超出部分指向 logs）。 */
-  maxOutputBytes: z.natural().default(16_384),
+  maxOutputBytes: z.natural().default(DEFAULT_MAX_OUTPUT_BYTES),
   /** 完成告警里内联的上次输出上限。 */
-  alertOutputBytes: z.natural().default(2_048),
+  alertOutputBytes: z.natural().default(DEFAULT_ALERT_OUTPUT_BYTES),
+  /**
+   * 是否替**别的生产者**注册的作业投完成通知（默认 true）。
+   *
+   * 后台 workflow（`run_in_background`）这类作业把返回值放在 `job.result` 里，而
+   * DSH 里唯一会把它送出去的是 tool-jobs 的 completionDelivery。本插件替换掉
+   * tool-jobs 之后，这一职责跟着落到这里；不补就是"跑完了没人知道、结果也没送
+   * 到模型"。反过来，与 tool-jobs **同时**挂载的 composition 要设成 false，否则
+   * 两边各投一次。
+   */
+  deliverForeignJobs: z.boolean().default(true),
 })
 
 const ACTIONS = ['start', 'list', 'output', 'logs', 'kill', 'clear', 'write']
@@ -111,8 +125,9 @@ function statusLine(view) {
 }
 
 export function apply(ctx, config = {}) {
-  const maxOutputBytes = config.maxOutputBytes ?? 16_384
-  const alertOutputBytes = config.alertOutputBytes ?? 2_048
+  const maxOutputBytes = config.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
+  const alertOutputBytes = config.alertOutputBytes ?? DEFAULT_ALERT_OUTPUT_BYTES
+  const deliverForeignJobs = config.deliverForeignJobs !== false
 
   const shell = ctx.get('shell')
   if (shell === undefined) throw new Error('pi-process: the host composition must mount a shell executor (`shell`)')
@@ -137,6 +152,8 @@ export function apply(ctx, config = {}) {
   const cursors = new Map()
   /** jobId → { stdout, stderr } 的未完成行缓冲。 */
   const partials = new Map()
+  /** 由本工具的 kill 停掉、但不是本工具起的作业：它们的结算不该叫人（与 records 的 killedByModel 同义）。 */
+  const killedForeign = new Set()
 
   /**
    * 完成/命中告警：给 owner 开一轮，让它自己决定要不要看。
@@ -208,12 +225,52 @@ export function apply(ctx, config = {}) {
     partials.set(jobId, buffers)
   }
 
+  /**
+   * 结算一个**本适配器没起过**的作业（后台运行的 workflow 等）：把"结束了"和它的
+   * 返回值送到 owner。
+   *
+   * 为什么必须由这里做：DSH 里唯一订阅 `jobs.events` 的 `settled` 并投递完成通知的
+   * 是 tool-jobs 的 completionDelivery；而 `job.result`（后台 workflow 的返回值就走
+   * 它）只由消费式读交付一次。本 preset 把 tool-jobs 换掉了，这一职责就落到这里，
+   * 否则作业跑完了既没人知道、结果也永远送不到模型（2026-11-21 核对：安装树里除
+   * tool-jobs 外无第二个 settled 消费者）。
+   *
+   * `jobs.read` 推进 modelCursor，但只在结算后取一次；注册表的 `resultDelivered`
+   * 保证同一份 result 不会被交付第二次 —— 与 tool-jobs 的读法同构。
+   */
+  const deliverForeign = (event) => {
+    const job = event.job
+    if (job.owner === undefined) return
+    if (event.cause === 'teardown' || event.awaited === true) return
+    if (killedForeign.delete(job.id)) return
+    let body = ''
+    try {
+      const read = jobs.read(job.id, job.owner)
+      body = ringText(read.chunks)
+      if (read.result !== undefined) {
+        const result = typeof read.result === 'string' ? read.result : String(read.result)
+        body = body.length === 0 ? result : `${body}${body.endsWith('\n') ? '' : '\n'}${result}`
+      }
+    } catch {
+      // 读失败也要把"这个作业结束了"送到；输出只是附带。
+      body = ''
+    }
+    deliver(
+      job.owner,
+      `[process] ${job.label} (${job.id}) ${job.status} — kind: ${job.kind}${job.detail === undefined ? '' : `, ${job.detail}`}` +
+        (body.length > 0 ? `\n\n${tailBytes(body, alertOutputBytes)}` : '') +
+        `\n\nRead more: process(action=output, id="${job.id}").`,
+      `${job.label} ${job.status}`,
+    )
+  }
+
   /** 结算：按 pi 的开关决定要不要叫醒 owner。 */
   const settle = (event) => {
     const rec = records.get(event.job.id)
     if (rec === undefined) {
       cursors.delete(event.job.id)
       partials.delete(event.job.id)
+      if (deliverForeignJobs) deliverForeign(event)
       return
     }
     // 结算之后注册表还会发一条 `output`（total 不变，只是关闭流）。此时若把游标删掉，
@@ -272,9 +329,20 @@ export function apply(ctx, config = {}) {
   // 后台工作的策略段。这一行替代 tool-jobs 的 `tool:jobs` 段（同一个 order 槽位）：
   // 只靠工具描述，模型可能先用 bash 大 timeout 跑长命令，撞上上限被 kill 才改口。
   // 明确"长命令走 process start、bash 只做短前台"，选择就不再靠猜。
+  //
+  // `getSectionOrder` 是查表（未知名字返回 undefined），随后 `section()` 会抛
+  // "order must be a finite number" —— 那条消息不会提到根因是上游删了常量，所以
+  // 在这里先断言一次，把失败指到常量上。
+  const jobSectionOrder = ctx.systemPrompt.getSectionOrder('TOOL_JOBS')
+  if (!Number.isFinite(jobSectionOrder)) {
+    throw new Error(
+      'pi-process: this dsh build has no TOOL_JOBS prompt-section order constant; ' +
+        'the background-work policy section needs that slot (upstream renamed or removed it)',
+    )
+  }
   ctx.systemPrompt.section({
     name: 'tool:process',
-    order: ctx.systemPrompt.getSectionOrder('TOOL_JOBS'),
+    order: jobSectionOrder,
     text:
       'Long-running commands — dev servers, builds, test watchers, log tails — go through process(action="start"); ' +
       'bash is for foreground commands that finish within its timeout, because a timeout there kills the command. ' +
@@ -292,16 +360,17 @@ export function apply(ctx, config = {}) {
    */
   const targetFor = (id, exec) => {
     const owner = ownerOf(exec)
+    // 候选列表不按 kind 过滤：output/logs/kill 接受本会话的任意作业，包括后台
+    // workflow 这类别的生产者起的（它们的结果只有这里能读到）。
+    const availableIds = () => jobs.list(owner).map((v) => v.id)
     if (typeof id !== 'string' || id.length === 0) {
-      const available = jobs.list(owner).filter((v) => v.kind === 'process').map((v) => v.id)
-      throw new Error(`missing id: pass a process id. Available: ${available.join(', ') || '(none)'}`)
+      throw new Error(`missing id: pass a job id. Available: ${availableIds().join(', ') || '(none)'}`)
     }
     let view
     try {
       view = jobs.get(id, owner)
     } catch (error) {
-      const available = jobs.list(owner).filter((v) => v.kind === 'process').map((v) => v.id)
-      throw new Error(`unknown process id: ${id} (${error instanceof Error ? error.message : String(error)}). Available: ${available.join(', ') || '(none)'}`)
+      throw new Error(`unknown job id: ${id} (${error instanceof Error ? error.message : String(error)}). Available: ${availableIds().join(', ') || '(none)'}`)
     }
     return { id, owner, view, rec: records.get(id) }
   }
@@ -315,11 +384,11 @@ export function apply(ctx, config = {}) {
         '- start: run a command in the background (requires `name` and `command`). Optional `cwd` (prefer it over `cd dir && …`), ' +
         '`stdin` (written once at spawn, then closed), `alertOnSuccess` (default true), `alertOnFailure` (default true), ' +
         '`alertOnKill` (default false), and `logWatches` (pattern/stream/repeat) to be woken when output matches.\n' +
-        '- list: show the processes you started, with ids and statuses.\n' +
-        '- output: read retained stdout/stderr for an id (tail-bounded).\n' +
+        '- list: show the background jobs in this session (yours and ones other tools started), with ids and statuses.\n' +
+        '- output: read retained stdout/stderr for any job id (tail-bounded).\n' +
         '- logs: get full-stream file paths when the ring spilled; DSH otherwise keeps output in memory.\n' +
-        '- kill: terminate a process (killing it this way never wakes you).\n' +
-        '- clear: drop finished processes from the list.\n' +
+        '- kill: terminate any job of this session (killing it this way never wakes you).\n' +
+        '- clear: drop finished `process` entries from the list; jobs owned by other tools stay for them to collect.\n' +
         '- write: NOT SUPPORTED — DSH has no live stdin pipe. Pass `stdin` at start, or use the PTY `terminal_send` tool for interactive REPLs.\n' +
         'You do not need to poll: completions and watches arrive as notifications. Start the process and continue other work.',
       parameters: {
@@ -327,7 +396,7 @@ export function apply(ctx, config = {}) {
           type: 'string',
           required: true,
           enum: ACTIONS,
-          description: 'start | list | output | logs | kill | clear | write',
+          description: ACTIONS.join(' | '),
         },
         name: { type: 'string', description: 'Friendly name (required for start, e.g. "dev-server").' },
         command: { type: 'string', description: 'Command to run (required for start).' },
@@ -471,9 +540,9 @@ export function apply(ctx, config = {}) {
           }
 
           case 'list': {
-            // 以注册表为准，而不是本适配器的 records：start_process 之类的别的生产者
-            // 起的 kind=process 作业也要能被这里看到和收集。
-            const views = jobs.list(ownerOf(exec)).filter((v) => v.kind === 'process')
+            // 以注册表为准，不按 kind 过滤：别的生产者（后台 workflow 等）起的作业
+            // 同样是"本会话的后台工作"，模型要能看到并收集它们。
+            const views = jobs.list(ownerOf(exec))
             if (views.length === 0) return '(no processes in this session)'
             const lines = []
             for (const view of views) {
@@ -518,6 +587,7 @@ export function apply(ctx, config = {}) {
           case 'kill': {
             const target = targetFor(args.id, exec)
             if (target.rec !== undefined) target.rec.killedByModel = true
+            else killedForeign.add(target.id)
             const label = target.rec?.name ?? target.id
             const result = jobs.kill(target.id, target.owner, args.reason)
             return result === 'requested'
@@ -526,20 +596,34 @@ export function apply(ctx, config = {}) {
           }
 
           case 'clear': {
+            // 只清 kind=process 的终态作业。别的生产者的作业（后台 workflow 等）由它们
+            // 自己的工具负责收集：`jobs.remove` 只校验"已终态"，谁都能删，删掉之后那些
+            // 工具再 `jobs.get` 就会抛错，所以这里不碰。
             const owner = ownerOf(exec)
             let removed = 0
-            for (const view of jobs.list(owner).filter((v) => v.kind === 'process')) {
+            let kept = 0
+            for (const view of jobs.list(owner)) {
+              // 只处理归属于本会话的作业：`jobs.list()` 还会返回无 owner 的全局作业，
+              // 那些不归这个会话管（注册表对无 owner 的作业不做访问限制）。
+              if (view.owner !== owner) continue
+              if (view.kind !== 'process') {
+                if (view.status !== 'running' && view.status !== 'stopping') kept += 1
+                continue
+              }
               if (view.status === 'running' || view.status === 'stopping') continue
               try {
                 jobs.remove(view.id, owner)
               } catch {
-                // remove 只接受"调用者已自己收集过终态"的作业；失败就留着，不吞记录。
+                // remove 只接受终态作业；失败就留着，不吞记录。
                 continue
               }
               records.delete(view.id)
               removed += 1
             }
-            return removed === 0 ? 'nothing to clear (no finished processes)' : `cleared ${removed} finished process(es)`
+            const foreign = kept === 0 ? '' : ` (${kept} finished job(s) from other tools left for them to collect)`
+            return removed === 0
+              ? `nothing to clear (no finished processes)${foreign}`
+              : `cleared ${removed} finished process(es)${foreign}`
           }
 
           case 'write': {

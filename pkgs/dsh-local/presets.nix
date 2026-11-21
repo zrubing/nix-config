@@ -186,6 +186,10 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
     # 三个 job_* 工具换成一个 `process`，per-process 告警开关与 logWatches 才拿得到。
     # 同样是整体替换 —— 上游这一行一旦多出 config 之类的键，必须显式决定取舍，
     # 否则会被下面的对象字面量静默吞掉。
+    #
+    # 不写 config：两个上限（maxOutputBytes / alertOutputBytes）的默认值在插件里
+    # 单点定义（Config schema 与 apply 的兜底读同一对常量），preset 重复声明只会漂移；
+    # deliverForeignJobs 也取默认 true —— 本 preset 没有 tool-jobs，投递职责只能在本插件。
     jobsRows=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "tool-jobs")] | length' "$STD_UP")
     [ "$jobsRows" -eq 1 ] || {
       printf 'dsh-local presets: shipped %s has %s tool-jobs rows, expected exactly 1\n' "$STD_UP" "$jobsRows" >&2
@@ -198,11 +202,11 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
     }
 
     # my-standard 关掉 bash 的后台通道（enableRunInBackground: false）：
-    # `run_in_background` 起的是 kind=bash 作业，而本 preset 只有 `process`；
-    # `process list` 按 kind 过滤，看不见 bash 作业，只能凭返回的 id 硬收，
-    # 且 bash 的参数描述还指向已被换掉的 job_output / job_kill。后台入口只留
-    # `process start` 一处。这一行是「保留上游行 + 补 config」，所以先断言上游
-    # 只有 id/name/disabled：多出 config 时必须显式决定合并还是丢弃。
+    # bash 的 `run_in_background` 参数描述写死了 "collect with job_output, stop
+    # with job_kill"，而本 preset 已把 tool-jobs 换掉 —— 模型拿到 job id 也没有
+    # 正确的收集指引（作业本身 `process list` 看得见，但文案是错的）。后台入口
+    # 只留 `process start` 一处。这一行是「保留上游行 + 补 config」，所以先断言
+    # 上游只有 id/name/disabled：多出 config 时必须显式决定合并还是丢弃。
     bashRows=$(yq -r '[.. | select(tag == "!!map") | select(.id? == "tool-bash")] | length' "$STD_UP")
     [ "$bashRows" -eq 1 ] || {
       printf 'dsh-local presets: shipped %s has %s tool-bash rows, expected exactly 1\n' "$STD_UP" "$bashRows" >&2
@@ -253,7 +257,7 @@ pkgs.runCommand "dsh-local-presets-cordis.patch.yml"
       ($stdUp | (.. | select(tag == "!!map") | select(.id? == "compaction-basic")) |=
         {"id": "blackhole-compact", "name": ${builtins.toJSON blackholeCompaction}, "config": {"thresholdRatio": 0.4}}
         | (.. | select(tag == "!!map") | select(.id? == "tool-jobs")) |=
-        {"id": "pi-process", "name": "dsh-tool-pi-process", "config": {}}
+        {"id": "pi-process", "name": "dsh-tool-pi-process"}
         # 不是整体替换：保留上游的 name/disabled（windows 上仍要禁掉 bash），只补 config。
         # 用 `*` 合并而不是 `.config.enableRunInBackground = ...`，后者在 yq 里会因为
         # 新建键被静默丢弃（同 compaction-basic 上方的注释）。

@@ -728,13 +728,26 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
 
   # pi-processes 的适配器：把 pi 那个单工具多 action 的 `process` 面复刻到 ctx.jobs
   # 上，并且自己 attachController —— 所以它可以直接替代 preset 里的 tool-jobs 行，
-  # 而不是只能与它并存。没有 insert 行（mkTool 的 patch 落在 `[]`）：包可被 preset
+  # 而不是只能与它并存。没有 insert 行（`patch = null` 落成 `[]`）：包可被 preset
   # 按名引用，挂不挂由 preset 决定，和官方 dsh-tool-bash 同构。
-  toolPiProcess = mkTool {
+  #
+  # 用 `src` = 目录而不是 mkTool 的单文件包装：这个包要带上自己的 package.json 和
+  # test.mjs。测试在**产物目录**里跑，那里的 node_modules 由 mk-bundle 链回
+  # installation，`@deepseek-ai/*` 才解析得到（源码树里没有 node_modules）。
+  toolPiProcess = mkBundle {
     name = "dsh-tool-pi-process";
-    file = pluginsDir + "/pi-process/index.js";
-    description = "pi-processes adapter: the single process tool (start/list/output/logs/kill/clear/write) over ctx.jobs, with per-process alert flags and output watches";
+    src = pluginsDir + "/pi-process";
+    meta.description = "pi-processes adapter: the single process tool (start/list/output/logs/kill/clear/write) over ctx.jobs, with per-process alert flags and output watches";
   };
+
+  # 回归测试：假 ctx 直接驱动 apply()，不起 dsh、不读也不写 $DSH_HOME。
+  # 覆盖完成告警的投递边界、per-process 开关、logWatch 去重、结算后游标不重放。
+  piProcessTest = upstreamPkgs.runCommand "dsh-tool-pi-process-test" {
+    nativeBuildInputs = [ upstreamPkgs.nodejs-slim ];
+  } ''
+    node ${toolPiProcess}/lib/node_modules/dsh-tool-pi-process/test.mjs
+    touch "$out"
+  '';
 
   # 两份 router preset 的私有文件。它们用 `./router-bootstrap-v34.mjs?v=88` 这类
   # 相对说明符互相引用（查询串是上游的缓存破坏标记），而 preset 的
@@ -1270,6 +1283,9 @@ in
     presetMyRouterStandard
     blackhole
   ];
+
+  # 单包回归测试的入口（`nix build .#checks.x86_64-linux.dsh-pi-process`）。
+  inherit piProcessTest toolPiProcess;
 
   # web profile 专属（浏览器半区）。
   webBundles = [ modelSelectPlus ];

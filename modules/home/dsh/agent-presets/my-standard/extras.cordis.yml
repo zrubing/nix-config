@@ -20,10 +20,11 @@
 #       logWatches, over the same `ctx.jobs` registry. It attaches its own job
 #       controller, so removing `tool-jobs` does not strand producers.
 #     - the shipped `tool-bash` row keeps its keys and gains
-#       `config: { enableRunInBackground: false }`: with `tool-jobs` gone, a
-#       `run_in_background` call would start a kind=bash job that `process list`
-#       never shows and only an id can collect, while bash's own parameter text
-#       still points at the removed `job_output` / `job_kill`.
+#       `config: { enableRunInBackground: false }`: bash's own parameter text
+#       still points at the removed `job_output` / `job_kill`, so a
+#       `run_in_background` call would hand the model a job id with no correct
+#       way to collect it. `process list` does show the job now, but the
+#       guidance would still be wrong; keep one background entry instead.
 #   + this file's rows (start_process background processes, ast_grep, and the
 #   pi-blackhole recall / observational memory / /blackhole* commands)
 #
@@ -53,10 +54,17 @@
 # replaces that row with `dsh-tool-pi-process`, so the only start surface is
 # `process(action="start")` and the only collection surface is `process`. The
 # shipped `tool-bash` row is switched to `enableRunInBackground: false` for the
-# same reason: its background path starts a kind=bash job that `process list`
-# filters out. Adding `tool-processes` (`start_process`) back would leave a tool
+# same reason: its `run_in_background` description tells the model to collect
+# with `job_output` and stop with `job_kill`, tools this preset no longer has.
+# Adding `tool-processes` (`start_process`) back would leave a tool
 # whose own description points at three tools this preset no longer has.
 # `my-minimal` / `my-ptc` keep `tool-jobs` and therefore keep bash background.
+#
+# Because `tool-jobs` is gone, pi-process also takes over completion delivery
+# for jobs OTHER producers register — a background `workflow` run keeps its
+# return value in `job.result`, and tool-jobs was the only consumer of the
+# `settled` event that carried it to the model. pi-process does that by default
+# (`deliverForeignJobs`); a composition that mounts both must set it false.
 
 # ── 系统提示：去掉这份 preset 不需要的 host 贡献 ──────────────────────────
 # `dsh-harness-dev-context` 在 host 平面挂载，每份 preset 都会拿到四段只对"改 DSH
