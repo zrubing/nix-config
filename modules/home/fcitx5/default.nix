@@ -20,6 +20,26 @@ let
 
     patch:
       traditionalize/opencc_config: s2hk.json
+      # 中英切换只走 rime 的 Shift。不要给 fcitx5 配 IME 开关热键：
+      #
+      #   1. 微信是 XIM 客户端，按键由它转发给 fcitx5。fcitx5 的 IME 一旦
+      #      进入 inactive，微信就停止转发，任何切换热键都送不到 fcitx5 ——
+      #      死锁，只能重启 fcitx5 解开。
+      #   2. Ctrl+Shift 是 modifier-only 组合，还需要 fcitx5 在 X11 上 grab
+      #      键盘；XIM + Xwayland 下 grab 状态也会卡住。
+      #
+      # Shift 切换发生在 rime 内部，IME 始终保持 active，微信始终转发按键，
+      # 不涉及 grab，也没有第二套状态机。CapsLock / Ctrl 不参与切换，避免
+      # 打大写或按组合键时被意外切到英文。
+      ascii_composer:
+        good_old_caps_lock: false
+        switch_key:
+          Shift_L: commit_code
+          Shift_R: commit_code
+          Control_L: noop
+          Control_R: noop
+          Caps_Lock: noop
+          Eisu_toggle: noop
       grammar:
         language: amz-v2n3m1-zh-hans
         collocation_max_length: 8         #命中的最长词组
@@ -111,6 +131,80 @@ in
           [XIM]
           UseOnTheSpot=True
         '';
+
+        # fcitx5 主配置。热键由 nix 固定，不用 configtool 改 —— 原因是这几个键
+        # 必须成套出现，单独在 GUI 里改很容易只改一半：
+        #
+        #   TriggerKeys    只留一个可手动触发的应急组合（Ctrl+Alt+Shift+F12），
+        #                  日常中英切换不用它，走 rime 的 Shift（见 rime_ice_custom）。
+        #   AltTriggerKeys 必须为空。它默认是 Shift_L（按住 Shift 临时切英文），
+        #                  会和 rime 的 Shift 抢同一个键。
+        #   ActiveByDefault=True：IME 启动即 active，且永不进入 inactive，
+        #                  保证 XIM 客户端（微信）一直转发按键。
+        "fcitx5/config" = {
+          force = true;
+          text = ''
+            [Hotkey]
+            EnumerateWithTriggerKeys=True
+            EnumerateForwardKeys=
+            EnumerateBackwardKeys=
+            EnumerateSkipFirst=False
+            ModifierOnlyKeyTimeout=250
+
+            [Hotkey/TriggerKeys]
+            0=Control+Alt+Shift+F12
+            1=Zenkaku_Hankaku
+            2=Hangul
+
+            [Hotkey/AltTriggerKeys]
+
+            [Hotkey/EnumerateGroupForwardKeys]
+            0=Super+space
+
+            [Hotkey/EnumerateGroupBackwardKeys]
+            0=Shift+Super+space
+
+            [Hotkey/ActivateKeys]
+            0=Hangul_Hanja
+
+            [Hotkey/DeactivateKeys]
+            0=Hangul_Romaja
+
+            [Hotkey/PrevPage]
+            0=Up
+
+            [Hotkey/NextPage]
+            0=Down
+
+            [Hotkey/PrevCandidate]
+            0=Shift+Tab
+
+            [Hotkey/NextCandidate]
+            0=Tab
+
+            [Hotkey/TogglePreedit]
+            0=Control+Alt+P
+
+            [Behavior]
+            ActiveByDefault=True
+            resetStateWhenFocusIn=No
+            ShareInputState=No
+            PreeditEnabledByDefault=True
+            ShowInputMethodInformation=True
+            showInputMethodInformationWhenFocusIn=False
+            CompactInputMethodInformation=True
+            ShowFirstInputMethodInformation=True
+            DefaultPageSize=5
+            OverrideXkbOption=False
+            CustomXkbOption=
+            EnabledAddons=
+            DisabledAddons=
+            PreloadInputMethod=True
+            AllowInputMethodForPassword=False
+            ShowPreeditForPassword=False
+            AutoSavePeriod=30
+          '';
+        };
 
       };
 
