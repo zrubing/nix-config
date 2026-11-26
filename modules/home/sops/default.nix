@@ -140,6 +140,19 @@ in
     # nvidia-nim-api-key generator，写入 vars/per-machine/zen14/nvidia-nim-api-key/）。
     # 渲染进 dsh.env 的 NVIDIA_NIM_API_KEY（dsh nvidia-nim provider）；pi 侧另由
     # pi 模块 activation 读同一 secret 写 auth.json。
+    # 平台 MCP 长期令牌：密文由 clan vars（work-mcp-token）管理，
+    # 渲染进 dsh.env 的 WORK_MCP_TOKEN，被 MCP 条目的 headers 引用。
+    # 端点地址：不是凭据，但与环境相关，放 clan 与 token 同源管理。
+    sops.secrets."work/mcp_url" = {
+      sopsFile = ../../../vars/per-machine/zen14/work-mcp-url/url/secret;
+      format = "binary";
+    };
+
+    sops.secrets."work/mcp_token" = {
+      sopsFile = ../../../vars/per-machine/zen14/work-mcp-token/api-token/secret;
+      format = "binary";
+    };
+
     sops.secrets."nvidia-nim/api_key" = {
       sopsFile = ../../../vars/per-machine/zen14/nvidia-nim-api-key/api-key/secret;
       format = "binary";
@@ -251,14 +264,6 @@ in
     # ⚠️ token 不是长期凭据：`bao login -method=oidc role=db-mcp -token-only` 的输出，
     # 3 天 periodic（服务端在剩余不足 48h 时自动续）。只有被 revoke 或连续 3 天
     # 没用过期才需要重跑 login 覆盖本 secret。
-    # MCP 聚合端点（2026-11-20）：本机 mcp-auth-proxy 的唯一上游。
-    # 客户端（multica / dsh / pi / codex）只写 <代理基址>/catalog（lib/mcp-proxy.nix），
-    # 真实端点在这里，token 在 ~/.local/state/mcp/token —— 两样都不进任何配置。
-    sops.secrets."mcp-catalog/url" = {
-      sopsFile = ../../../vars/per-machine/zen14/mcp-catalog-url/url/secret;
-      format = "binary";
-    };
-
     sops.secrets."db-mcp/url" = {
       sopsFile = ../../../vars/per-machine/zen14/db-mcp-url/url/secret;
       format = "binary";
@@ -414,9 +419,13 @@ in
         # DB MCP：pi 的 mcp.json 里 X-DB-MCP-Token 用 ''${DB_MCP_TOKEN} 插值，
         # 所以终端 shell 必须有这个变量；codex 走 config.toml 的 sops 占位符，
         # 不依赖 env（两处同源同一份 secret）。
-        export MCP_CATALOG_URL="${config.sops.placeholder."mcp-catalog/url"}"
         export DB_MCP_URL="${config.sops.placeholder."db-mcp/url"}"
         export DB_MCP_TOKEN="${config.sops.placeholder."db-mcp/token"}"
+        # 聚合端点：Claude Code / eca 的 .claude.json 不是 sops 模板，只在
+        # 运行时插值 ''${WORK_MCP_*}；pi / codex / dsh 走各自的 sops 模板或
+        # dsh.env，不依赖这两个变量。
+        export WORK_MCP_URL="${config.sops.placeholder."work/mcp_url"}"
+        export WORK_MCP_TOKEN="${config.sops.placeholder."work/mcp_token"}"
       '';
     };
 
@@ -435,6 +444,8 @@ in
         OPENCODE_API_KEY=${config.sops.placeholder."opencode/api_key"}
         ZAI_CODING_CN_API_KEY=${config.sops.placeholder."anthropic/api_key"}
         APIPOST_MCP_TOKEN=${config.sops.placeholder."apipost-mcp/api_token"}
+        WORK_MCP_TOKEN=${config.sops.placeholder."work/mcp_token"}
+        WORK_MCP_URL=${config.sops.placeholder."work/mcp_url"}
         NVIDIA_NIM_API_KEY=${config.sops.placeholder."nvidia-nim/api_key"}
         GITHUB_MCP_TOKEN=${config.sops.placeholder."github-mcp/api_token"}
         CONTEXT7_API_KEY=${config.sops.placeholder."context7/api_key"}
@@ -450,7 +461,6 @@ in
         OPENBAO_LDAP_AGENT_USERNAME=${config.sops.placeholder."openbao-ldap-agent/username"}
         OPENBAO_LDAP_AGENT_PASSWORD=${config.sops.placeholder."openbao-ldap-agent/password"}
         BAO_ADDR=${config.sops.placeholder."openbao-addr/addr"}
-        MCP_CATALOG_URL=${config.sops.placeholder."mcp-catalog/url"}
         DB_MCP_URL=${config.sops.placeholder."db-mcp/url"}
         DB_MCP_TOKEN=${config.sops.placeholder."db-mcp/token"}
         # woodpecker-cli 凭据：bashrc 只 export 进交互 shell（WOODPECKER_TOKEN

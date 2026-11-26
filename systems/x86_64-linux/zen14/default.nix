@@ -17,9 +17,6 @@ let
   # （见 hinihao.sib.podEgress）。只在这里写一次。
   nodeIp = "10.144.150.3";
 
-  # MCP 代理基址（端口单一事实，见 lib/mcp-proxy.nix）
-  mcpProxy = import ../../../lib/mcp-proxy.nix;
-
   # 临时开关：true = jojo 免密码 sudo（规则与 nova13 一致），false = 回到 GUI askpass。
   #
   # 保持 true 的前提：agent 必须从 agent-shell 启动。bwrap 默认设 no_new_privs，
@@ -35,25 +32,9 @@ in
       home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
           internal.modules.multica.enable = true;
       internal.observabilityPortForward.enable = true;
-      # MCP 凭证代理（2026-11-20）：multica / dsh / pi / codex 只写
-      # ${mcpProxy.baseUrl}/catalog；token 在 ~/.local/state/mcp/token，
-      # 由 `mcp-token login`（一次浏览器授权）写入，代理每个请求现读。
-      internal.modules.mcp-proxy = {
-        enable = true;
-        routes.catalog = "MCP_CATALOG_URL";
-      };
-      # 工作区 MCP 库显式收敛：一条 catalog，零密钥、可复现。
-      internal.modules.multica.mcp = {
-        enable = true;
-        servers.catalog = {
-          type = "http";
-          url = "${mcpProxy.baseUrl}/catalog";
-        };
-        agents = [
-          "dsh-deepseek"
-          "dsh-deepseek-1"
-        ];
-      };
+      # 工作区 MCP 库不再下发：multica 桥忽略 mcp_servers（见
+      # docs/multica-dsh-bridge.md），catalog 由 dsh profile 直接提供。
+      # 原先那条指向 127.0.0.1:9110 的 mcp-auth-proxy 条目已随代理一起退役。
       # dsh web 随 jojo 共享 home 已启用（127.0.0.1:3080）；本机经 Caddy 反代访问
       # http://dsh-zen14.local。dsh 禁止 --host 0.0.0.0（会暴露 RCE），保持回环绑定。
       internal.modules.dsh.web.trustedHosts = [ "dsh-zen14.local" ];

@@ -94,6 +94,32 @@
   # ApiPost 开放平台的 MCP api-token（https://open.apipost.net/mcp 认证头）。
   # 消费方：homes/x86_64-linux/jojo 的 home 级 sops 引用本加密文件，
   # 渲染进 dsh.env，由 dsh 的 mcp-client 插件以 process.env.APIPOST_MCP_TOKEN 读取。
+  # 平台 MCP 的长期令牌（自助页面 https://auth.hinihao.net/portal 生成）。
+  # 有效期自选（7 天 ~ 10 年）；吊销后各服务在下一个请求就拒绝（服务端每请求查一次）。
+  # 平台 MCP 的端点地址（换环境/迁移只改这里，不动代码）。
+  clan.core.vars.generators.work-mcp-url = {
+    prompts.url = {
+      description = "平台 MCP 端点（例如 https://<host>/mcp）";
+    };
+    files.url.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/url > $out/url
+    '';
+  };
+
+  clan.core.vars.generators.work-mcp-token = {
+    prompts.api-token = {
+      description = "平台 MCP 长期令牌（自助页面生成）";
+      type = "hidden";
+    };
+    files.api-token.secret = true;
+
+    script = ''
+      tr -d '\n' < $prompts/api-token > $out/api-token
+    '';
+  };
+
   clan.core.vars.generators.apipost-mcp-token = {
     prompts.api-token = {
       description = "ApiPost MCP api-token";
@@ -277,20 +303,6 @@
     '';
   };
 
-  # MCP 聚合端点（2026-11-20）。消费方：home sops 渲染进 dsh.env / default.env 的
-  # MCP_CATALOG_URL，本机 mcp-auth-proxy 用它当唯一上游（token 由代理注入）。
-  # 换值：clan vars set zen14 mcp-catalog-url/url
-  clan.core.vars.generators.mcp-catalog-url = {
-    prompts.url = {
-      description = "MCP 聚合端点（HTTPS URL，形如 https://<host>/mcp）";
-    };
-    files.url.secret = true;
-
-    script = ''
-      tr -d '\n' < $prompts/url > $out/url
-    '';
-  };
-
   # DB MCP 的 OpenBao token（2026-10-31）。不是 API key，而是
   # `bao login -method=oidc role=db-mcp -token-only` 的输出：3 天 periodic，
   # 只要 3 天内用过一次就由服务端自动续期，正常不需要换。
@@ -306,12 +318,6 @@
       type = "hidden";
     };
     files.token.secret = true;
-
-    script = ''
-      tr -d '\n' < $prompts/token > $out/token
-    '';
-  };
-   files.token.secret = true;
 
     script = ''
       tr -d '\n' < $prompts/token > $out/token

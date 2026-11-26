@@ -12,11 +12,12 @@
 #         渲染（见 modules/home/pi），密钥两种落法：
 #         - env / headers 值用 ${VAR} 引用，pi 内置 mcp 在连接时从进程环境
 #           插值（变量由 shell 的 ~/.config/default.env 提供，sops 渲染）；
-#         - url 内置 mcp 不插值、必须是合法 http(s) 字面量，故写
-#           { sops = "…"; var = "ENV"; }：pi 侧换成 sops 占位符（激活期替换为
-#           明文）；Claude Code 复用本视图但 .claude.json 不走 sops 模板，
-#           由 claude-code 模块求值成 ${ENV} 运行时引用（Claude Code 支持 url
-#           插值）。
+#         - url / headers 内置 mcp 不插值（url 必须是合法 http(s) 字面量），
+#           故写 { sops = "…"; }：pi 侧换成 sops 占位符（激活期替换为明文）；
+#           Claude Code 复用本视图但 .claude.json 不走 sops 模板，由
+#           claude-code 模块求值成 ${ENV} 运行时引用。`prefix`（如 "Bearer "）
+#           由消费方拼在值前面；`var` 只给 Claude Code 这种运行时插值的
+#           客户端用。
 #         args 不做插值，密钥不可塞进 args。
 #
 #   dsh = dsh-mcp-client 插件 config，渲染进 cordis.patch.yml。密钥不写明文，
@@ -67,9 +68,6 @@
   homeDirectory,
 }:
 let
-  # 代理基址：客户端条目里不写端口字面量（见 lib/mcp-proxy.nix）
-  mcpProxy = import ../../../lib/mcp-proxy.nix;
-
   # figma MCP（framelink）的图片落点。它只允许写入 imageDir 之内（越界报
   # "File path escapes target directory"），目标目录不存在时自己 mkdir -p。
   #
@@ -417,24 +415,58 @@ rec {
 
     # ------------------------------------------- dsh + pi + codex 侧（聚合端点）
     # MCP 聚合端点（2026-11-20）：ci/db/agent-docs/loki 合成一个，工具名
-    # `<服务>__<工具>`。指向**本机** mcp-auth-proxy：配置里既没有 token 也没有
-    # 上游地址，代理每个请求从 token 文件注入，重新授权后无需改任何配置。
+    # `<服务>__<工具>`。三端都直连，凭据是同一份 sops secret：
+    # `work/mcp_url` + `work/mcp_token`（平台长期令牌，自助页面生成）。
+    #
+    # 2026-11-25 退役本机 mcp-auth-proxy：它要求再用设备码 OAuth 登一次，
+    # 与 dsh 已有的长期令牌是同一端点的两套凭据，token 文件从未生成 →
+    # 所有指向它的客户端都 401。现改为各客户端按自己的能力内联/插值。
     #
     # 为什么也写在这里：multica 下发的 mcp_servers 会被 multica 桥忽略，
     # dsh 的 MCP 只从 profile bundle 来（即本文件）—— 这是 dsh agent 真正
     # 拿到聚合工具的路径。
     catalog = {
-      description = "MCP 聚合端点（ci/db/agent-docs/loki，经本机代理，零密钥）";
+      description = "MCP 聚合端点（ci/db/agent-docs/loki，Bearer WORK_MCP_TOKEN）";
+      # pi 的 mcp.json 整个文件是 sops 模板（0600）：url / header 在激活期
+      # 落成明文，不依赖 pi 的启动方式。verbatim 的 `Bearer ` 前缀由 piValue 拼。
       pi = {
         type = "http";
-        url = "${mcpProxy.baseUrl}/catalog";
+        url = {
+          sops = "work/mcp_url";
+          var = "WORK_MCP_URL";
+        };
+        headers.Authorization = {
+          sops = "work/mcp_token";
+          prefix = "Bearer ";
+          var = "WORK_MCP_TOKEN";
+        };
       };
+      # dsh 侧直连薄 AS（2026-11-22）：token 来自自助页面，长期有效；
+      # 吊销实时生效（服务端每请求查一次 /token_status）。静态 header 不会自动
+      # 刷新，但这里的 token 本就不需要刷新 —— 过期由“重新生成”解决。
       dsh = {
         transport = "streamable-http";
-        url = "${mcpProxy.baseUrl}/catalog";
+        # 端点走 clan var：换环境只改 work-mcp-url，不动代码。
+        # env 缺失时条目自动禁用（envRefsOf 覆盖 url），不会拖垮 profile 启动。
+        url = {
+          env = "WORK_MCP_URL";
+        };
+        headers = {
+          Authorization = {
+            env = "WORK_MCP_TOKEN";
+            prefix = "Bearer ";
+          };
+        };
       };
+      # codex 的 config.toml 是 sops 模板（0600），与 github/apipost 同款。
       codex = {
-        url = "${mcpProxy.baseUrl}/catalog";
+        url = {
+          sops = "work/mcp_url";
+        };
+        headers.Authorization = {
+          sops = "work/mcp_token";
+          prefix = "Bearer ";
+        };
       };
     };
 
@@ -496,9 +528,16 @@ rec {
   # ------------------------------------------------- pi 侧渲染（mcpServers 对象）
   # 只输出声明了 pi 视图的 server。字符串（含 ${VAR}）原样保留，由客户端在连接
   # 时插值；{ sops = …; var = …; } 交 piValue 按消费方能力求值（见模块参数注释）。
-  piServers = lib.mapAttrs (
-    _: s: lib.mapAttrs (_: v: if lib.isAttrs v && v ? sops then piValue v else v) s.pi
-  ) (lib.filterAttrs (_: s: s ? pi) activeServers);
+  # 递归到 env / headers 这一层：只看顶层会漏掉 headers.Authorization 里的
+  # sops 叶子，把它序列化成 {"sops":…} 对象而不是字符串。
+  resolvePiValue = v:
+    if lib.isAttrs v && v ? sops then piValue v
+    else if lib.isAttrs v then lib.mapAttrs (_: resolvePiValue) v
+    else v;
+
+  piServers = lib.mapAttrs (_: s: resolvePiValue s.pi) (
+    lib.filterAttrs (_: s: s ? pi) activeServers
+  );
 
   # --------------------------------------------- dsh 侧渲染（cordis 条目 YAML）
   # 只输出声明了 dsh 视图的 server。每行已是最终列位（列 0 起），插进

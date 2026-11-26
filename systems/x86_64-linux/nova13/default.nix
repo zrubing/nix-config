@@ -23,8 +23,6 @@ let
   # 两个消费者必须同值：kubelet 注册地址、pod 出网捕获的 DNAT 目标（sib.podEgress）。
   nodeIp = "10.144.150.4";
 
-  # MCP 代理地址（端口单一事实，见 lib/mcp-proxy.nix）
-  mcpProxy = import ../../../lib/mcp-proxy.nix;
   multicaPackage = pkgs.${namespace}.multica;
   larkCli = pkgs.${namespace}.lark-cli;
   tradingagentsPackage = pkgs.${namespace}.tradingagents;
@@ -44,34 +42,6 @@ in
       # 会被 concat 成双份（enable 等布尔幂等所以之前没暴露）。
       {
         home.sessionVariables.KUBECONFIG = "/home/jojo/.kube/config-k0s.yml";
-        # MCP 凭证代理（内联，不走 modules/home 的选项：这条 home 配置的模块集
-        # 与 zen14 不同，internal.modules.mcp-proxy 在这里未声明）。
-        # 客户端（multica / dsh / pi / codex）只写 ${mcpProxy.baseUrl}/catalog。
-        home.packages = [
-          pkgs.internal.mcp-token
-          pkgs.internal.mcp-auth-proxy
-        ];
-        systemd.user.services.mcp-auth-proxy = {
-          Unit = {
-            Description = "Local MCP credential proxy";
-            After = [ "sops-nix.service" ];
-            Wants = [ "sops-nix.service" ];
-          };
-          Install.WantedBy = [ "default.target" ];
-          Service = {
-            Type = "simple";
-            ExecStart = "${pkgs.internal.mcp-auth-proxy}/bin/mcp-auth-proxy";
-            EnvironmentFile = "/home/jojo/.config/dsh.env";
-            Environment = [
-              "MCP_PROXY_LISTEN=${mcpProxy.listen}"
-              "MCP_TOKEN_FILE=/home/jojo/.local/state/mcp/token"
-              "MCP_PROXY_ROUTES=catalog=MCP_CATALOG_URL"
-              "NO_PROXY=localhost,127.0.0.1,::1"
-            ];
-            Restart = "always";
-            RestartSec = 3;
-          };
-        };
         home.activation.configureMultica = inputs.home-manager.lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         config_file="$HOME/.multica/config.json"
         mkdir -p "$(dirname "$config_file")"

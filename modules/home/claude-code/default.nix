@@ -9,13 +9,14 @@
   # 新增或修改 server 只改 modules/home/mcp-servers/servers.nix 一处，
   # dsh 侧由 modules/home/dsh 渲染，pi 侧由 modules/home/pi 渲染成 sops 模板。
   # 密钥不写明文：env/headers 用 ${VAR} 引用（值来自 shell 的
-  # ~/.config/default.env，sops 渲染）；url 这类内置客户端不插值的字段在
-  # servers.nix 里写 { sops = "…"; var = "…"; }，此处把 sops 值降级成 ${VAR}
-  # 引用（Claude Code 支持 url 插值），pi 侧则由 sops 模板渲染成明文。
+  # ~/.config/default.env，sops 渲染）；url / headers 这类内置客户端不插值的
+  # 字段在 servers.nix 里写 { sops = "…"; var = "…"; }，此处把 sops 值降级成
+  # ${VAR} 引用（Claude Code 支持插值），prefix（如 "Bearer "）在此拼上；
+  # pi 侧则由 sops 模板渲染成明文。
   mcpServers = import ../mcp-servers/servers.nix {
     inherit lib pkgs namespace;
     homeDirectory = config.home.homeDirectory;
-    piValue = { var, ... }: "\${${var}}";
+    piValue = { var, prefix ? "", ... }: prefix + "\${${var}}";
   };
 
   # 序列化为 JSON 供 activation 脚本 merge（替代 runCommand+jq 拼接）

@@ -147,8 +147,9 @@ let
     main()
   '';
   # 工作区 MCP 库的声明式收敛（与 skillsSync 同一模式）：
-  # 源是一份由 nix 渲染的 JSON（含 servers 与 agents 两份声明），它**不含任何密钥** ——
-  # 客户端条目指向本机的 mcp-auth-proxy（见 lib/mcp-proxy.nix），token 只存在那个文件里。
+  # 源是一份由 nix 渲染的 JSON（含 servers 与 agents 两份声明），它**不含任何密钥**。
+  # 注意 multica 桥忽略下发的 mcp_servers（docs/multica-dsh-bridge.md），dsh
+  # agent 的 MCP 来自 host profile；这条通道只对其他 runtime 有意义。
   mcpSync = pkgs.writeScriptBin "multica-mcp-sync" ''
     #!${pkgs.python3}/bin/python3
     import json
@@ -257,12 +258,12 @@ in
       description = "Enable Multica Desktop GUI (${namespace}.multica-desktop)";
     };
 
-    # 工作区 MCP 库：声明式、可复现、零密钥。条目由下面的 servers 渲染成 JSON，
+    # 工作区 MCP 库：声明式、可复现。条目由下面的 servers 渲染成 JSON，
     # 启动时 upsert 进 multica 并分配给指定 agent；内容变（store 路径变）→ 重跑。
     #
     # 为什么条目里不该出现 token：multica 的 MCP 库存在**服务端**，写进去就是
-    # 一份明文凭据躺在它的数据库里，且重新登录后必然过期。统一指向本机
-    # mcp-auth-proxy（lib/mcp-proxy.nix），token 只存在于 ~/.local/state/mcp/token。
+    # 一份明文凭据躺在它的数据库里，且重新登录后必然过期。需要鉴权时宁可
+    # 不配置，也不要把 secret 下发给服务端。
     mcp = {
       enable = mkEnableOption "Reconcile the workspace MCP server library from this config";
 
@@ -270,9 +271,9 @@ in
         type = types.attrsOf types.attrs;
         default = { };
         example = {
-          catalog = {
+          docs = {
             type = "http";
-            url = "${(import ../../../lib/mcp-proxy.nix).baseUrl}/catalog";
+            url = "https://mcp.example.invalid/mcp";
           };
         };
         description = "MCP server name → entry object（mcpServers 下的那一份形状）。";

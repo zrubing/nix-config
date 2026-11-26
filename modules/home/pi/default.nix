@@ -122,9 +122,9 @@ let
     inherit lib pkgs namespace;
     homeDirectory = config.home.homeDirectory;
     # 内置 mcp 只对 env / headers 做 ${VAR} 插值，url 必须是合法 http(s)
-    # 字面量 → { sops = "…"; var = "…"; } 值在此换成 sops 占位符，
-    # 随下方 mcp.json 模板在激活期替换为明文。
-    piValue = { sops, ... }: config.sops.placeholder.${sops};
+    # 字面量 → { sops = "…"; } 值在此换成 sops 占位符，随下方 mcp.json 模板
+    # 在激活期替换为明文。prefix（如 "Bearer "）由这里拼上，pi 不认。
+    piValue = { sops, prefix ? "", ... }: prefix + config.sops.placeholder.${sops};
   };
   piMcpJson = builtins.toJSON { mcpServers = mcpServers.piServers; };
 
