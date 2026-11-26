@@ -395,9 +395,11 @@
       # 只引用 pi-process 一个 bundle（惰性求值，其余包不构建）。
       packages.x86_64-linux = (snowfall.packages.x86_64-linux or { }) // {
         dsh-tool-pi-process = dshLocalForTests.toolPiProcess;
+        dsh-web-search-route = dshLocalForTests.webSearchRoute;
       };
       checks.x86_64-linux = (snowfall.checks.x86_64-linux or { }) // {
         dsh-pi-process = dshLocalForTests.piProcessTest;
+        dsh-web-search-route = dshLocalForTests.webSearchRouteTest;
       };
 
       # 官方形态通用入口：nix run .#clan -- secrets|vars|...

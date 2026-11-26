@@ -818,6 +818,31 @@ const DSH_CONFIG_EDIT_SCOPE = new AsyncResource("dsh-config-edit");'
     meta.description = "Searchable, provider-prefixed replacement for the composer model seat";
   };
 
+  # 按会话模型路由分派 web 搜索端点：官方/账号路由 → 官方端点，
+  # 其余路由 → relay 网关（复用 $DEEPSEEK_RELAY_BASE_URL / RELAY_API_KEY）。
+  #
+  # 为什么必须自己注册 provider：上游 `web` 的 automatic 在非 DeepSeek 路由上选
+  # `deepseek-search-api`（客户端检索），而 relay 没有该上游通道（实测
+  # `POST /v1/tools/search` → 503 model_not_found）；`deepseek-official` 的 baseURL
+  # 又是进程级静态值，不能跟随路由。
+  #
+  # `- id: web` 的 config 是**整块替换**语义，所以覆盖时必须重复
+  # `fetchProvider: http`；漏掉会让抓取落到“多个可用 provider”的歧义错误。
+  webSearchRoute = mkBundle {
+    name = "dsh-web-search-route";
+    src = pluginsDir + "/web-search-route";
+    patch = patchText "dsh-web-search-route" ''
+      - insert:
+          - id: web-search-route
+            name: dsh-web-search-route
+      - id: web
+        config:
+          searchProvider: deepseek-route
+          fetchProvider: http
+    '';
+    meta.description = "Route-aware DeepSeek web search: official endpoint on deepseek-official/deepseek-account routes, relay gateway on every other route";
+  };
+
   # 确定性压缩后端的说明符，被三处引用：my-minimal / my-router-standard 的 rewrites
   # 条目，以及 my-ptc 里把那行 shipped `compaction-basic` 换成它（presets.nix）。
   # 单点定义 —— 此前 presets.nix 走 `strenv(BLACKHOLE_COMPACTION)` 取一个从未定义
@@ -1285,8 +1310,16 @@ in
   ];
 
   # 单包回归测试的入口（`nix build .#checks.x86_64-linux.dsh-pi-process`）。
-  inherit piProcessTest toolPiProcess;
+  inherit piProcessTest toolPiProcess webSearchRoute;
+
+  # 分派逻辑的回归测试：假 ctx + 打桩 fetch，验证官方/relay 两条端点的选择与凭据就绪判断。
+  webSearchRouteTest = upstreamPkgs.runCommand "dsh-web-search-route-test" {
+    nativeBuildInputs = [ upstreamPkgs.nodejs-slim ];
+  } ''
+    node ${webSearchRoute}/lib/node_modules/dsh-web-search-route/test.mjs
+    touch "$out"
+  '';
 
   # web profile 专属（浏览器半区）。
-  webBundles = [ modelSelectPlus ];
+  webBundles = [ modelSelectPlus webSearchRoute ];
 }

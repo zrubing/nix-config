@@ -1,0 +1,12 @@
+{
+  "name": "dsh-web-search-route",
+  "version": "0.1.0",
+  "description": "Route-aware DeepSeek web search: official endpoint for deepseek-official/deepseek-account routes, relay gateway for every other model route.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT"
+}
